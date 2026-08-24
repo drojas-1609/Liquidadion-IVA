@@ -20,24 +20,24 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         }
 
         // Calculation Logic (Replicated for Report)
-        const sales = period.invoices.filter((i) => i.category === "SALES");
-        const purchases = period.invoices.filter((i) => i.category === "PURCHASES");
+        const sales = period.invoices.filter((i: any) => i.category === "SALES");
+        const purchases = period.invoices.filter((i: any) => i.category === "PURCHASES");
 
-        const totalSalesNet = sales.reduce((acc, curr) => acc + curr.netAmount, 0);
-        const totalSalesVAT = sales.reduce((acc, curr) => acc + curr.vatAmount, 0);
-        const totalSales = sales.reduce((acc, curr) => acc + curr.totalAmount, 0);
+        const totalSalesNet = sales.reduce((acc: number, curr: any) => acc + curr.netAmount, 0);
+        const totalSalesVAT = sales.reduce((acc: number, curr: any) => acc + curr.vatAmount, 0);
+        const totalSales = sales.reduce((acc: number, curr: any) => acc + curr.totalAmount, 0);
 
-        const totalPurchasesNet = purchases.reduce((acc, curr) => acc + curr.netAmount, 0);
-        const totalPurchasesVAT = purchases.reduce((acc, curr) => acc + curr.vatAmount, 0);
-        const totalPurchases = purchases.reduce((acc, curr) => acc + curr.totalAmount, 0);
+        const totalPurchasesNet = purchases.reduce((acc: number, curr: any) => acc + curr.netAmount, 0);
+        const totalPurchasesVAT = purchases.reduce((acc: number, curr: any) => acc + curr.vatAmount, 0);
+        const totalPurchases = purchases.reduce((acc: number, curr: any) => acc + curr.totalAmount, 0);
 
         const ivaDebit = totalSalesVAT;
         const ivaCredit = totalPurchasesVAT;
         const ivaTechnicalBalance = ivaDebit - ivaCredit;
 
         const ivaRetentions = period.taxRecords
-            .filter((t) => t.type.includes("IVA"))
-            .reduce((acc, curr) => acc + curr.amount, 0);
+            .filter((t: any) => t.type.includes("IVA"))
+            .reduce((acc: number, curr: any) => acc + curr.amount, 0);
 
         const ivaPayable = ivaTechnicalBalance - ivaRetentions;
 
@@ -45,8 +45,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const iibbTax = totalSalesNet * (iibbRate / 100);
 
         const iibbRetentions = period.taxRecords
-            .filter((t) => t.type.includes("IIBB") || t.type === "SIRCREB" || t.type === "SIRTAC")
-            .reduce((acc, curr) => acc + curr.amount, 0);
+            .filter((t: any) => t.type.includes("IIBB") || t.type === "SIRCREB" || t.type === "SIRTAC")
+            .reduce((acc: number, curr: any) => acc + curr.amount, 0);
 
         const iibbPayable = iibbTax - iibbRetentions;
 
