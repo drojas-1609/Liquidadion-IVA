@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  cuit      String   @unique
+  condition String   // e.g., Responsable Inscripto, Monotributo
+  address   String?
+  defaultIibbRate Float @default(3.0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  periods   Period[]
+}
+
+model Period {
+  id         String      @id @default(cuid())
+  month      Int
+  year       Int
+  clientId   String
+  client     Client      @relation(fields: [clientId], references: [id])
+  invoices   Invoice[]
+  taxRecords TaxRecord[]
+
+  @@unique([month, year, clientId])
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  date        DateTime
+  type        String   // e.g., FC A, NC A
+  pointOfSale Int
+  number      Int
+  entityName  String   // Client or Supplier name
+  entityCuit  String
+  netAmount   Float
+  vatRate     Float    // e.g., 21.0, 10.5
+  vatAmount   Float
+  totalAmount Float
+  category    String   // SALES or PURCHASES
+  periodId    String
+  period      Period   @relation(fields: [periodId], references: [id])
+}
+
+model TaxRecord {
+  id          String   @id @default(cuid())
+  date        DateTime
+  type        String   // e.g., RETENCION IVA, PERCEPCION IIBB
+  amount      Float
+  description String?
+  periodId    String
+  period      Period   @relation(fields: [periodId], references: [id])
+}
+
+model Settings {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
