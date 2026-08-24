@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateLiquidationExcel } from "@/lib/excel";
 
-export async function GET(req: NextRequest, { params }: { params: { id: string; periodId: string } }) {
-    const { id, periodId } = params;
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string; periodId: string; }> }) {
+    const { id, periodId } = await params;
 
     try {
         const period = await prisma.period.findUnique({
