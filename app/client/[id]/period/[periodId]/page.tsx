@@ -2,11 +2,10 @@ import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
-
 export const dynamic = "force-dynamic";
 
-export default async function PeriodDashboard({ params }: { params: { id: string; periodId: string } }) {
-    const { id, periodId } = params;
+export default async function PeriodDashboard({ params }: { params: Promise<{ id: string; periodId: string }> }) {
+    const { id, periodId } = await params;
 
     const period = await prisma.period.findUnique({
         where: { id: periodId },
@@ -21,14 +20,14 @@ export default async function PeriodDashboard({ params }: { params: { id: string
     }
 
     // Calculate Totals
-    const sales = period.invoices.filter((i) => i.category === "SALES");
-    const purchases = period.invoices.filter((i) => i.category === "PURCHASES");
+    const sales = period.invoices.filter((i: any) => i.category === "SALES");
+    const purchases = period.invoices.filter((i: any) => i.category === "PURCHASES");
 
-    const totalSales = sales.reduce((acc, curr) => acc + curr.totalAmount, 0);
-    const totalSalesVAT = sales.reduce((acc, curr) => acc + curr.vatAmount, 0);
+    const totalSales = sales.reduce((acc: number, curr: any) => acc + curr.totalAmount, 0);
+    const totalSalesVAT = sales.reduce((acc: number, curr: any) => acc + curr.vatAmount, 0);
 
-    const totalPurchases = purchases.reduce((acc, curr) => acc + curr.totalAmount, 0);
-    const totalPurchasesVAT = purchases.reduce((acc, curr) => acc + curr.vatAmount, 0);
+    const totalPurchases = purchases.reduce((acc: number, curr: any) => acc + curr.totalAmount, 0);
+    const totalPurchasesVAT = purchases.reduce((acc: number, curr: any) => acc + curr.vatAmount, 0);
 
     const vatPosition = totalSalesVAT - totalPurchasesVAT;
 
