@@ -1,21 +1,26 @@
 import Link from "next/link";
-import prisma from "@/lib/prisma";
+import prisma, { ensureDb } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-
 
 export const dynamic = "force-dynamic";
 
 export default async function ClientDashboard({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
+    await ensureDb();
 
-    const client = await prisma.client.findUnique({
-        where: { id },
-        include: {
-            periods: {
-                orderBy: [{ year: "desc" }, { month: "desc" }],
+    let client = null;
+    try {
+        client = await prisma.client.findUnique({
+            where: { id },
+            include: {
+                periods: {
+                    orderBy: [{ year: "desc" }, { month: "desc" }],
+                },
             },
-        },
-    });
+        });
+    } catch (e) {
+        console.error(e);
+    }
 
     if (!client) {
         redirect("/clients");

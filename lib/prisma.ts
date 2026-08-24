@@ -54,7 +54,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "Period_month_year_clientId_key" ON "Period"("
 CREATE UNIQUE INDEX IF NOT EXISTS "Settings_key_key" ON "Settings"("key");
 `;
 
-let isInitialized = false;
+let initPromise: Promise<void> | null = null;
 
 const prismaClientSingleton = () => {
   let url = process.env.DATABASE_URL || 'file:./dev.db';
@@ -70,22 +70,13 @@ const prismaClientSingleton = () => {
     }
   }
 
-  const client = new PrismaClient({
+  return new PrismaClient({
     datasources: {
       db: {
         url,
       },
     },
   });
-
-  if (!isInitialized) {
-    isInitialized = true;
-    client.$executeRawUnsafe(INIT_SQL).catch((err) => {
-      console.error("Prisma init schema error:", err);
-    });
-  }
-
-  return client;
 };
 
 declare global {
@@ -93,6 +84,22 @@ declare global {
 }
 
 const prisma = globalThis.prisma ?? prismaClientSingleton();
+
+export async function ensureDb() {
+  if (!initPromise) {
+    initPromise = (async () => {
+      try {
+        const statements = INIT_SQL.split(';').map(s => s.trim()).filter(Boolean);
+        for (const sql of statements) {
+          await prisma.$executeRawUnsafe(sql);
+        }
+      } catch (err) {
+        console.error("Error initializing SQLite DB:", err);
+      }
+    })();
+  }
+  await initPromise;
+}
 
 export default prisma;
 
