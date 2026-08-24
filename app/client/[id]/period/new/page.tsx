@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, use } from "react";
 import { useRouter } from "next/navigation";
 
-export default function NewPeriodPage({ params }: { params: { id: string } }) {
+export default function NewPeriodPage({ params }: { params: Promise<{ id: string }> }) {
+    const { id } = use(params);
     const router = useRouter();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -21,12 +22,12 @@ export default function NewPeriodPage({ params }: { params: { id: string } }) {
             const res = await fetch(`/api/periods`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ clientId: params.id, month, year }),
+                body: JSON.stringify({ clientId: id, month, year }),
             });
 
             if (!res.ok) throw new Error("Error al crear el periodo");
 
-            router.push(`/client/${params.id}/dashboard`);
+            router.push(`/client/${id}/dashboard`);
             router.refresh();
         } catch (err) {
             setError("Ocurrió un error al crear el periodo.");

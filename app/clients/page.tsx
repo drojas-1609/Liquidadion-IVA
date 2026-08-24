@@ -36,7 +36,7 @@ export default async function ClientsPage() {
                                 </td>
                             </tr>
                         ) : (
-                            clients.map((client) => (
+                            clients.map((client: any) => (
                                 <tr key={client.id}>
                                     <td>{client.name}</td>
                                     <td>{client.cuit}</td>

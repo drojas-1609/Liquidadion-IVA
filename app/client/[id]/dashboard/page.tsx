@@ -5,8 +5,8 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientDashboard({ params }: { params: { id: string } }) {
-    const { id } = params;
+export default async function ClientDashboard({ params }: { params: Promise<{ id: string }> }) {
+    const { id } = await params;
 
     const client = await prisma.client.findUnique({
         where: { id },

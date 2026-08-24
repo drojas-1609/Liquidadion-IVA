@@ -4,8 +4,8 @@ import prisma from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export default async function SalesPage({ params }: { params: { id: string; periodId: string } }) {
-    const { id, periodId } = params;
+export default async function SalesPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
+    const { id, periodId } = await params;
 
     const invoices = await prisma.invoice.findMany({
         where: {
@@ -50,7 +50,7 @@ export default async function SalesPage({ params }: { params: { id: string; peri
                                 </td>
                             </tr>
                         ) : (
-                            invoices.map((invoice) => (
+                            invoices.map((invoice: any) => (
                                 <tr key={invoice.id}>
                                     <td>{new Date(invoice.date).toLocaleDateString("es-AR")}</td>
                                     <td>{invoice.type}</td>

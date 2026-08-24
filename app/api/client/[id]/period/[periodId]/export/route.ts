@@ -1,9 +1,8 @@
-export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateLiquidationExcel } from "@/lib/excel";
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string; periodId: string; }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string; periodId: string }> }) {
     const { id, periodId } = await params;
 
     try {

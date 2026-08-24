@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, use } from "react";
 import { useRouter } from "next/navigation";
 
-export default function NewTaxPage({ params }: { params: { id: string; periodId: string } }) {
+export default function NewTaxPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
+    const { id, periodId } = use(params);
     const router = useRouter();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -22,13 +23,13 @@ export default function NewTaxPage({ params }: { params: { id: string; periodId:
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     ...data,
-                    periodId: params.periodId,
+                    periodId,
                 }),
             });
 
             if (!res.ok) throw new Error("Error al crear el registro");
 
-            router.push(`/client/${params.id}/period/${params.periodId}/taxes`);
+            router.push(`/client/${id}/period/${periodId}/taxes`);
             router.refresh();
         } catch (err) {
             setError("Ocurrió un error al guardar.");

@@ -4,8 +4,8 @@ import prisma from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export default async function TaxesPage({ params }: { params: { id: string; periodId: string } }) {
-    const { id, periodId } = params;
+export default async function TaxesPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
+    const { id, periodId } = await params;
 
     const taxes = await prisma.taxRecord.findMany({
         where: { periodId },
@@ -44,7 +44,7 @@ export default async function TaxesPage({ params }: { params: { id: string; peri
                                 </td>
                             </tr>
                         ) : (
-                            taxes.map((tax) => (
+                            taxes.map((tax: any) => (
                                 <tr key={tax.id}>
                                     <td>{new Date(tax.date).toLocaleDateString("es-AR")}</td>
                                     <td>{tax.type}</td>

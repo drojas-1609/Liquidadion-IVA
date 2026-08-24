@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, use } from "react";
 import { useRouter } from "next/navigation";
 
-export default function NewPurchasePage({ params }: { params: { id: string; periodId: string } }) {
+export default function NewPurchasePage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
+    const { id, periodId } = use(params);
     const router = useRouter();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -32,13 +33,13 @@ export default function NewPurchasePage({ params }: { params: { id: string; peri
                     vatAmount,
                     totalAmount,
                     category: "PURCHASES",
-                    periodId: params.periodId,
+                    periodId,
                 }),
             });
 
             if (!res.ok) throw new Error("Error al crear la factura");
 
-            router.push(`/client/${params.id}/period/${params.periodId}/purchases`);
+            router.push(`/client/${id}/period/${periodId}/purchases`);
             router.refresh();
         } catch (err) {
             setError("Ocurrió un error al guardar la factura.");
