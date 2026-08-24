@@ -59,7 +59,7 @@ export default async function ClientDashboard({ params }: { params: { id: string
                                 </td>
                             </tr>
                         ) : (
-                            client.periods.map((period) => (
+                            client.periods.map((period: any) => (
                                 <tr key={period.id}>
                                     <td>
                                         {period.month.toString().padStart(2, "0")}/{period.year}
