@@ -1,11 +1,10 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 
-
 export const dynamic = "force-dynamic";
 
-export default async function LiquidationPage({ params }: { params: { id: string; periodId: string } }) {
-    const { id, periodId } = params;
+export default async function LiquidationPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
+    const { id, periodId } = await params;
 
     const period = await prisma.period.findUnique({
         where: { id: periodId },
@@ -19,13 +18,13 @@ export default async function LiquidationPage({ params }: { params: { id: string
     if (!period) return <div>Periodo no encontrado</div>;
 
     // --- IVA Calculation ---
-    const sales = period.invoices.filter((i) => i.category === "SALES");
-    const purchases = period.invoices.filter((i) => i.category === "PURCHASES");
+    const sales = period.invoices.filter((i: any) => i.category === "SALES");
+    const purchases = period.invoices.filter((i: any) => i.category === "PURCHASES");
 
-    const totalSalesNet = sales.reduce((acc, curr) => acc + curr.netAmount, 0);
-    const totalSalesVAT = sales.reduce((acc, curr) => acc + curr.vatAmount, 0);
+    const totalSalesNet = sales.reduce((acc: number, curr: any) => acc + curr.netAmount, 0);
+    const totalSalesVAT = sales.reduce((acc: number, curr: any) => acc + curr.vatAmount, 0);
 
-    const totalPurchasesVAT = purchases.reduce((acc, curr) => acc + curr.vatAmount, 0);
+    const totalPurchasesVAT = purchases.reduce((acc: number, curr: any) => acc + curr.vatAmount, 0);
 
     const ivaDebit = totalSalesVAT;
     const ivaCredit = totalPurchasesVAT;
@@ -33,8 +32,8 @@ export default async function LiquidationPage({ params }: { params: { id: string
 
     // Withholdings/Perceptions for IVA
     const ivaRetentions = period.taxRecords
-        .filter((t) => t.type.includes("IVA"))
-        .reduce((acc, curr) => acc + curr.amount, 0);
+        .filter((t: any) => t.type.includes("IVA"))
+        .reduce((acc: number, curr: any) => acc + curr.amount, 0);
 
     const ivaPayable = ivaTechnicalBalance - ivaRetentions;
 
@@ -45,8 +44,8 @@ export default async function LiquidationPage({ params }: { params: { id: string
 
     // Withholdings/Perceptions for IIBB
     const iibbRetentions = period.taxRecords
-        .filter((t) => t.type.includes("IIBB") || t.type === "SIRCREB" || t.type === "SIRTAC")
-        .reduce((acc, curr) => acc + curr.amount, 0);
+        .filter((t: any) => t.type.includes("IIBB") || t.type === "SIRCREB" || t.type === "SIRTAC")
+        .reduce((acc: number, curr: any) => acc + curr.amount, 0);
 
     const iibbPayable = iibbTax - iibbRetentions;
 
