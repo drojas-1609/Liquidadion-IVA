@@ -79,17 +79,40 @@ Flujo esperado en un **Deploy Preview** (pull request contra `main`):
    sobre esa rama aislada.
 3. Se construye la aplicación y se publica una URL de preview.
 
-Para **generar** una nueva línea base o migración a partir del schema, sin
-conectarse a ninguna base:
+#### Cómo se generó la línea base inicial
+
+La línea base `20260903222920_init_postgres` se generó **una sola vez**, sin
+conectarse a ninguna base, con:
 
 ```bash
 npx prisma migrate diff \
   --from-empty \
   --to-schema-datamodel prisma/schema.prisma \
-  --script > netlify/database/migrations/<timestamp>_<descripcion>/migration.sql
+  --script > netlify/database/migrations/20260903222920_init_postgres/migration.sql
 ```
 
-Revisá el SQL generado a mano antes de incorporarlo.
+`--from-empty` produce el **esquema completo** desde cero. Por eso este comando
+corresponde **exclusivamente a la línea base inicial** y **no debe volver a
+usarse** una vez que el esquema ya está aplicado: repetirlo generaría otra vez
+todo el `CREATE TABLE …`, no el cambio real.
+
+#### Migraciones incrementales (a partir de la Tarea 2)
+
+- Toda migración posterior a la línea base debe describir **únicamente la
+  diferencia** respecto del esquema ya aplicado (por ejemplo `ALTER TABLE …`,
+  `CREATE INDEX …`), como **SQL PostgreSQL incremental**, **revisada a mano** y
+  compatible con el sistema nativo de migraciones de Netlify Database.
+- **Ningún desarrollador ni agente debe generar una migración incremental con
+  `--from-empty`.**
+- **El procedimiento reproducible para generar migraciones incrementales
+  todavía no está definido.** Debe definirse y documentarse **antes de la
+  Tarea 2**, y tiene que preservar:
+  - `prisma/schema.prisma` como único modelo tipado del dominio;
+  - `netlify/database/migrations/` como **única** secuencia de migraciones que
+    Netlify Database aplica;
+  - la ausencia de una segunda aplicación de la misma migración vía Prisma
+    Migrate (`prisma migrate deploy` / `prisma migrate dev`).
+- Hasta que ese procedimiento exista, **no se crean migraciones nuevas**.
 
 > **Importante:** no se usan Prisma Migrate y Netlify Database en paralelo para
 > aplicar la misma migración. `prisma migrate deploy` / `prisma migrate dev`
