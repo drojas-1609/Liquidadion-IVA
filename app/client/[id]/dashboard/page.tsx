@@ -1,12 +1,11 @@
 import Link from "next/link";
-import prisma, { ensureDb } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClientDashboard({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
-    await ensureDb();
 
     let client = null;
     try {

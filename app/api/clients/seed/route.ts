@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
-import prisma, { ensureDb } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
 
 export async function POST() {
   try {
-    await ensureDb();
-
     // Check if Robinson S.A. already exists
     let client = await prisma.client.findFirst({
       where: { cuit: "30-71123456-8" },

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import prisma, { ensureDb } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
 import SeedButton from "./SeedButton";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +7,6 @@ export const dynamic = "force-dynamic";
 export default async function ClientsPage() {
     let clients: any[] = [];
     try {
-        await ensureDb();
         clients = await prisma.client.findMany({
             orderBy: { name: "asc" },
         });
