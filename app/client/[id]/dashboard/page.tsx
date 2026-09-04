@@ -1,14 +1,14 @@
 import Link from "next/link";
-import prisma, { ensureDb } from "@/lib/prisma";
+import type { Client, Period } from "@prisma/client";
+import prisma from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClientDashboard({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
-    await ensureDb();
 
-    let client = null;
+    let client: (Client & { periods: Period[] }) | null = null;
     try {
         client = await prisma.client.findUnique({
             where: { id },
@@ -64,7 +64,7 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
                                 </td>
                             </tr>
                         ) : (
-                            client.periods.map((period: any) => (
+                            client.periods.map((period) => (
                                 <tr key={period.id}>
                                     <td>
                                         {period.month.toString().padStart(2, "0")}/{period.year}

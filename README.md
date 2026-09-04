@@ -1,36 +1,131 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Dero Company — Liquidador de IVA e IIBB
 
-## Getting Started
+Aplicación Next.js (App Router) para liquidación de IVA e IIBB.
 
-First, run the development server:
+- **Frontend:** Next.js desplegado en **Netlify**.
+- **Base de datos:** **PostgreSQL alojado en Supabase** (proyecto `tax-liquidator`).
+- **ORM:** **Prisma**, con `prisma/schema.prisma` como definición tipada del
+  modelo y `prisma/migrations/` como historia de migraciones.
+
+## Stack
+
+- Next.js 16 (App Router, Turbopack)
+- React 19
+- Prisma 6 (`@prisma/client`) sobre PostgreSQL
+- PostgreSQL 17 en Supabase; pooling de conexiones con **Supavisor**
+
+## Requisitos
+
+- Node.js 20+ (probado con Node 24)
+- Acceso a una base PostgreSQL (Supabase, o una PostgreSQL local para desarrollo)
+
+## Variables de entorno
+
+Prisma usa **dos** conexiones distintas (ver `datasource db` en
+[`prisma/schema.prisma`](prisma/schema.prisma)):
+
+| Nombre         | Uso                                   | Conexión Supabase |
+| -------------- | ------------------------------------- | ----------------- |
+| `DATABASE_URL` | Runtime de la app (serverless en Netlify) | Pooler **Supavisor** en modo *transaction*, puerto **6543**, con `pgbouncer=true` y `connection_limit` bajo. Es IPv4. |
+| `DIRECT_URL`   | Solo `prisma migrate` (crear/aplicar migraciones) | Conexión directa / *session*, puerto **5432**. En Netlify usar el *session pooler* (`…pooler.supabase.com:5432`), IPv4. |
+
+- Las cadenas reales se obtienen en **Supabase → Project Settings → Database →
+  Connection string**.
+- En **Netlify**, `DATABASE_URL` y `DIRECT_URL` se cargan como variables de
+  entorno del sitio (por contexto). **No** se versionan.
+- En **local**, copiá `.env.example` a `.env` (ignorado por Git) y completá los
+  valores. `.env.example` contiene únicamente valores **ficticios**.
+- **Ninguna credencial real vive en el repositorio.**
+
+## Desarrollo local
 
 ```bash
+npm ci
+npx prisma generate
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abrí [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Script          | Acción                                    |
+| --------------- | ----------------------------------------- |
+| `npm run dev`   | Servidor de desarrollo                    |
+| `npm run build` | `prisma generate` + `next build`          |
+| `npm start`     | Servidor de producción (tras `build`)     |
+| `npm run lint`  | ESLint                                    |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+> `npm run build` **no** aplica migraciones. Solo genera el cliente de Prisma
+> y compila la aplicación.
 
-## Learn More
+## Base de datos y migraciones
 
-To learn more about Next.js, take a look at the following resources:
+### Modelo
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+El modelo tipado vive en [`prisma/schema.prisma`](prisma/schema.prisma):
+`Client`, `Period`, `Invoice`, `TaxRecord`, `Settings`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Migraciones — Prisma Migrate
 
-## Deploy on Vercel
+La historia de migraciones vive en `prisma/migrations/` y la gestiona **Prisma
+Migrate** (no hay un segundo sistema de migraciones en paralelo).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `prisma/migrations/migration_lock.toml` → `provider = "postgresql"`.
+- Línea base: `prisma/migrations/0_init/migration.sql`. Crea el esquema completo
+  vigente: tablas `Client`, `Period`, `Invoice`, `TaxRecord`, `Settings`, sus
+  claves primarias, las claves foráneas (`ON UPDATE CASCADE ON DELETE
+  RESTRICT`) y los índices únicos (`Client.cuit`, `Period(month, year,
+  clientId)`, `Settings.key`).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+#### Cómo se generó la línea base
+
+Sin conectarse a ninguna base:
+
+```bash
+npx prisma migrate diff \
+  --from-empty \
+  --to-schema-datamodel prisma/schema.prisma \
+  --script > prisma/migrations/0_init/migration.sql
+```
+
+`--from-empty` produce el esquema **completo** desde cero: corresponde
+**exclusivamente a la línea base**. No debe volver a usarse para cambios
+posteriores.
+
+#### Migraciones incrementales (a partir de la Tarea 2)
+
+- Toda migración posterior describe **únicamente la diferencia** respecto del
+  esquema ya aplicado (`ALTER TABLE …`, `CREATE INDEX …`, etc.).
+- Se generan con `prisma migrate dev` (local) contra una base descartable, se
+  revisa el SQL a mano, y se aplican con `prisma migrate deploy`.
+- **Nunca** se usa `--from-empty` para una migración incremental.
+- `prisma/schema.prisma` es el único modelo tipado; `prisma/migrations/` es la
+  única secuencia de migraciones.
+
+### Aplicar las migraciones
+
+```bash
+# aplica prisma/migrations/ sobre la base apuntada por DIRECT_URL
+npx prisma migrate deploy
+```
+
+- `prisma migrate deploy` **no** forma parte del build de Netlify ni de ningún
+  script de `package.json`. Se ejecuta de forma manual/controlada. La estrategia
+  definitiva de migraciones en el pipeline se define en una tarea posterior.
+- Para desarrollo local con una PostgreSQL propia se puede usar
+  `npx prisma migrate dev`.
+
+### Historial SQLite (legacy)
+
+El proyecto arrancó como prototipo sobre SQLite. Esa historia de migraciones se
+conserva, solo como antecedente histórico, en
+[`docs/legacy/sqlite-migrations/`](docs/legacy/sqlite-migrations/). **No debe
+ejecutarse contra PostgreSQL.**
+
+## Despliegue
+
+- **Frontend:** Netlify. `main` es la rama Git productiva. Branch Deploys
+  desactivado; los Deploy Previews se generan para los pull requests contra
+  `main`.
+- **Base de datos:** Supabase (`tax-liquidator`). Las migraciones se aplican con
+  `prisma migrate deploy` apuntando a `DIRECT_URL`; no se ejecutan
+  automáticamente durante el build.

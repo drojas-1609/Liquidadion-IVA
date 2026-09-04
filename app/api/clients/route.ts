@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import prisma, { ensureDb } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
 
 export async function GET() {
     try {
-        await ensureDb();
         const clients = await prisma.client.findMany({
             orderBy: { name: "asc" },
         });
@@ -16,7 +15,6 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
-        await ensureDb();
         const body = await request.json();
         const { name, cuit, condition, address, defaultIibbRate } = body;
 
