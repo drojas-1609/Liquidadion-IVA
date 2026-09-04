@@ -1,11 +1,12 @@
 import Link from "next/link";
+import type { Client } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import SeedButton from "./SeedButton";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClientsPage() {
-    let clients: any[] = [];
+    let clients: Client[] = [];
     try {
         clients = await prisma.client.findMany({
             orderBy: { name: "asc" },
@@ -56,7 +57,7 @@ export default async function ClientsPage() {
                                 </td>
                             </tr>
                         ) : (
-                            clients.map((client: any) => (
+                            clients.map((client) => (
                                 <tr key={client.id}>
                                     <td style={{ fontWeight: 500 }}>{client.name}</td>
                                     <td>{client.cuit}</td>
