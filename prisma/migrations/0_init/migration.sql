@@ -1,19 +1,3 @@
--- Línea base PostgreSQL para Netlify Database.
---
--- Representa el esquema actual de prisma/schema.prisma sin cambios de modelo
--- ni de tipo (Prisma `Float` -> PostgreSQL `DOUBLE PRECISION`; la migración a
--- `Decimal` es una tarea posterior).
---
--- Generado offline (sin conexión a ninguna base) con:
---   npx prisma migrate diff \
---     --from-empty \
---     --to-schema-datamodel prisma/schema.prisma \
---     --script
--- y revisado manualmente antes de incorporarlo.
---
--- Crea: Client, Period, Invoice, TaxRecord, Settings, sus relaciones,
--- claves únicas e índices tal como están definidos hoy.
-
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "public";
 
@@ -98,3 +82,4 @@ ALTER TABLE "Invoice" ADD CONSTRAINT "Invoice_periodId_fkey" FOREIGN KEY ("perio
 
 -- AddForeignKey
 ALTER TABLE "TaxRecord" ADD CONSTRAINT "TaxRecord_periodId_fkey" FOREIGN KEY ("periodId") REFERENCES "Period"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+

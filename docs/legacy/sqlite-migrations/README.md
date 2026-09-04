@@ -17,16 +17,15 @@ histórico y **no forma parte de ninguna secuencia activa de migraciones**.
 - Corresponde al **prototipo SQLite**, previo a la migración a PostgreSQL.
 - **No debe ejecutarse contra PostgreSQL**: la sintaxis y los tipos no son
   compatibles.
-- Fue **reemplazada por la línea base de Netlify Database**, ubicada en
-  `netlify/database/migrations/<timestamp>_init_postgres/migration.sql`.
+- Fue **reemplazada por la línea base Prisma para PostgreSQL**, en
+  `prisma/migrations/0_init/migration.sql` (base alojada en Supabase).
 - Se conserva **únicamente como referencia histórica**. No la borres ni la
   reactives; si necesitás el detalle del esquema original, este es el registro.
 
 ## Por qué se movió
 
 Prisma trata cualquier carpeta bajo `prisma/migrations/` como parte de la
-secuencia activa. Al pasar la gestión de migraciones a Netlify Database, dejar
-estos archivos en su ubicación original haría que herramientas de Prisma
-intentaran interpretarlos como migraciones PostgreSQL válidas. Moverlos fuera
-de `prisma/migrations/` evita esa ambigüedad sin perder el historial (que
-además queda en el historial de Git).
+secuencia activa. Estos archivos son de SQLite y no deben mezclarse con la
+secuencia PostgreSQL. Moverlos fuera de `prisma/migrations/` evita que las
+herramientas de Prisma los interpreten como migraciones PostgreSQL válidas,
+sin perder el historial (que además queda en el historial de Git).
