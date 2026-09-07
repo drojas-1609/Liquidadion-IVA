@@ -1,5 +1,6 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { formatMoney } from "@/lib/format";
 
 
 export const dynamic = "force-dynamic";
@@ -50,15 +51,15 @@ export default async function SalesPage({ params }: { params: Promise<{ id: stri
                                 </td>
                             </tr>
                         ) : (
-                            invoices.map((invoice: any) => (
+                            invoices.map((invoice) => (
                                 <tr key={invoice.id}>
                                     <td>{new Date(invoice.date).toLocaleDateString("es-AR")}</td>
                                     <td>{invoice.type}</td>
                                     <td>{invoice.pointOfSale.toString().padStart(4, "0")}-{invoice.number.toString().padStart(8, "0")}</td>
                                     <td>{invoice.entityName}</td>
-                                    <td>${invoice.netAmount.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</td>
-                                    <td>${invoice.vatAmount.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</td>
-                                    <td>${invoice.totalAmount.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</td>
+                                    <td>${formatMoney(invoice.netAmount.toFixed(2))}</td>
+                                    <td>${formatMoney(invoice.vatAmount.toFixed(2))}</td>
+                                    <td>${formatMoney(invoice.totalAmount.toFixed(2))}</td>
                                 </tr>
                             ))
                         )}

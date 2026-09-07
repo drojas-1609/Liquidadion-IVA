@@ -27,12 +27,15 @@ export default function NewTaxPage({ params }: { params: Promise<{ id: string; p
                 }),
             });
 
-            if (!res.ok) throw new Error("Error al crear el registro");
+            if (!res.ok) {
+                const j = await res.json().catch(() => null);
+                throw new Error(j?.field ? `${j.field}: ${j.error}` : j?.error || "Error al crear el registro");
+            }
 
             router.push(`/client/${id}/period/${periodId}/taxes`);
             router.refresh();
         } catch (err) {
-            setError("Ocurrió un error al guardar.");
+            setError(err instanceof Error ? err.message : "Ocurrió un error al guardar.");
         } finally {
             setLoading(false);
         }
@@ -70,7 +73,7 @@ export default function NewTaxPage({ params }: { params: Promise<{ id: string; p
 
                 <div>
                     <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Monto</label>
-                    <input name="amount" type="number" step="0.01" required className="input" />
+                    <input name="amount" type="text" inputMode="decimal" required className="input" placeholder="0.00" />
                 </div>
 
                 <div>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { formatMoney } from "@/lib/format";
 
 
 export const dynamic = "force-dynamic";
@@ -44,12 +45,12 @@ export default async function TaxesPage({ params }: { params: Promise<{ id: stri
                                 </td>
                             </tr>
                         ) : (
-                            taxes.map((tax: any) => (
+                            taxes.map((tax) => (
                                 <tr key={tax.id}>
                                     <td>{new Date(tax.date).toLocaleDateString("es-AR")}</td>
                                     <td>{tax.type}</td>
                                     <td>{tax.description}</td>
-                                    <td>${tax.amount.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</td>
+                                    <td>${formatMoney(tax.amount.toFixed(2))}</td>
                                 </tr>
                             ))
                         )}

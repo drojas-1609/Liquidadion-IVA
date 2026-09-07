@@ -23,12 +23,15 @@ export default function NewClientPage() {
                 body: JSON.stringify(data),
             });
 
-            if (!res.ok) throw new Error("Error al crear el cliente");
+            if (!res.ok) {
+                const j = await res.json().catch(() => null);
+                throw new Error(j?.field ? `${j.field}: ${j.error}` : j?.error || "Error al crear el cliente");
+            }
 
             router.push("/clients");
             router.refresh();
         } catch (err) {
-            setError("Ocurrió un error al guardar el cliente.");
+            setError(err instanceof Error ? err.message : "Ocurrió un error al guardar el cliente.");
         } finally {
             setLoading(false);
         }
@@ -68,7 +71,7 @@ export default function NewClientPage() {
 
                 <div>
                     <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Alícuota IIBB Default (%)</label>
-                    <input name="defaultIibbRate" type="number" step="0.01" className="input" placeholder="3.0" defaultValue="3.0" />
+                    <input name="defaultIibbRate" type="text" inputMode="decimal" className="input" placeholder="3.0" defaultValue="3.0" />
                 </div>
 
                 <div>
