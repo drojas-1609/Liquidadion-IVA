@@ -1,4 +1,6 @@
+import "server-only";
 import { Prisma } from "@prisma/client";
+import type { LiquidationResult } from "./liquidation-calc";
 
 /**
  * Serialización explícita de los modelos con campos Decimal.
@@ -118,5 +120,34 @@ export function serializeTaxRecord(t: {
     amount: money(t.amount),
     description: t.description,
     periodId: t.periodId,
+  };
+}
+
+export interface LiquidationDTO {
+  sales: { net: string; vat: string; total: string };
+  purchases: { net: string; vat: string; total: string };
+  iva: { debit: string; credit: string; balance: string; retentions: string; payable: string };
+  iibb: { rate: string; base: string; tax: string; retentions: string; payable: string };
+}
+
+/** Serializa el resultado (todo Prisma.Decimal) de computeLiquidation a strings. */
+export function serializeLiquidation(r: LiquidationResult): LiquidationDTO {
+  return {
+    sales: { net: money(r.sales.net), vat: money(r.sales.vat), total: money(r.sales.total) },
+    purchases: { net: money(r.purchases.net), vat: money(r.purchases.vat), total: money(r.purchases.total) },
+    iva: {
+      debit: money(r.iva.debit),
+      credit: money(r.iva.credit),
+      balance: money(r.iva.balance),
+      retentions: money(r.iva.retentions),
+      payable: money(r.iva.payable),
+    },
+    iibb: {
+      rate: rate(r.iibb.rate),
+      base: money(r.iibb.base),
+      tax: money(r.iibb.tax),
+      retentions: money(r.iibb.retentions),
+      payable: money(r.iibb.payable),
+    },
   };
 }

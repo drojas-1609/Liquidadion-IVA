@@ -9,7 +9,7 @@ const sampleData = {
   sales: { net: "150000.00", vat: "26250.00", total: "176250.00" },
   purchases: { net: "80000.00", vat: "16800.00", total: "96800.00" },
   iva: { debit: "26250.00", credit: "16800.00", balance: "9450.00", retentions: "1234.56", payable: "8215.44" },
-  iibb: { rate: "3.523456", tax: "5285.18", retentions: "750.00", payable: "4535.18" },
+  iibb: { rate: "3.523456", base: "150000.00", tax: "5285.18", retentions: "750.00", payable: "4535.18" },
 };
 
 describe("lib/excel", () => {

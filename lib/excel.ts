@@ -1,5 +1,7 @@
+import "server-only";
 import * as XLSX from "xlsx";
 import { Prisma } from "@prisma/client";
+import type { LiquidationDTO } from "./serializers";
 
 /**
  * Todos los importes entran como STRING decimal (contrato de la app). La
@@ -12,15 +14,11 @@ import { Prisma } from "@prisma/client";
  * exporta un importe inexacto en silencio.
  */
 
-interface LiquidationData {
+type LiquidationData = LiquidationDTO & {
     period: string;
     client: string;
     cuit: string;
-    sales: { net: string; vat: string; total: string };
-    purchases: { net: string; vat: string; total: string };
-    iva: { debit: string; credit: string; balance: string; retentions: string; payable: string };
-    iibb: { rate: string; tax: string; retentions: string; payable: string };
-}
+};
 
 const MAX_SAFE = new Prisma.Decimal(Number.MAX_SAFE_INTEGER);
 
