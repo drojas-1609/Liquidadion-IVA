@@ -1,43 +1,22 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-
+import { buildInvoiceInput } from "@/lib/api-input";
+import { serializeInvoice } from "@/lib/serializers";
 
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const {
-            date,
-            type,
-            pointOfSale,
-            number,
-            entityName,
-            entityCuit,
-            netAmount,
-            vatRate,
-            vatAmount,
-            totalAmount,
-            category,
-            periodId,
-        } = body;
 
-        const newInvoice = await prisma.invoice.create({
-            data: {
-                date: new Date(date),
-                type,
-                pointOfSale: parseInt(pointOfSale),
-                number: parseInt(number),
-                entityName,
-                entityCuit,
-                netAmount: parseFloat(netAmount),
-                vatRate: parseFloat(vatRate),
-                vatAmount: parseFloat(vatAmount),
-                totalAmount: parseFloat(totalAmount),
-                category,
-                periodId,
-            },
-        });
+        const parsed = buildInvoiceInput(body);
+        if (!parsed.ok) {
+            return NextResponse.json({ error: parsed.error, field: parsed.field }, { status: parsed.status });
+        }
 
-        return NextResponse.json(newInvoice);
+        // vatAmount y totalAmount se recalculan en el servidor (buildInvoiceInput);
+        // cualquier valor enviado por el cliente para esos campos se ignora.
+        const newInvoice = await prisma.invoice.create({ data: parsed.data });
+
+        return NextResponse.json(serializeInvoice(newInvoice));
     } catch (error) {
         console.error(error);
         return NextResponse.json({ error: "Error creating invoice" }, { status: 500 });

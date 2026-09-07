@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateLiquidationExcel } from "@/lib/excel";
+import { computeLiquidation } from "@/lib/liquidation-calc";
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string; periodId: string }> }) {
-    const { id, periodId } = await params;
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string; periodId: string }> }) {
+    const { periodId } = await params;
 
     try {
         const period = await prisma.period.findUnique({
@@ -19,45 +20,32 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             return new NextResponse("Period not found", { status: 404 });
         }
 
-        // Calculation Logic (Replicated for Report)
-        const sales = period.invoices.filter((i: any) => i.category === "SALES");
-        const purchases = period.invoices.filter((i: any) => i.category === "PURCHASES");
-
-        const totalSalesNet = sales.reduce((acc: number, curr: any) => acc + curr.netAmount, 0);
-        const totalSalesVAT = sales.reduce((acc: number, curr: any) => acc + curr.vatAmount, 0);
-        const totalSales = sales.reduce((acc: number, curr: any) => acc + curr.totalAmount, 0);
-
-        const totalPurchasesNet = purchases.reduce((acc: number, curr: any) => acc + curr.netAmount, 0);
-        const totalPurchasesVAT = purchases.reduce((acc: number, curr: any) => acc + curr.vatAmount, 0);
-        const totalPurchases = purchases.reduce((acc: number, curr: any) => acc + curr.totalAmount, 0);
-
-        const ivaDebit = totalSalesVAT;
-        const ivaCredit = totalPurchasesVAT;
-        const ivaTechnicalBalance = ivaDebit - ivaCredit;
-
-        const ivaRetentions = period.taxRecords
-            .filter((t: any) => t.type.includes("IVA"))
-            .reduce((acc: number, curr: any) => acc + curr.amount, 0);
-
-        const ivaPayable = ivaTechnicalBalance - ivaRetentions;
-
-        const iibbRate = period.client.defaultIibbRate || 3.0;
-        const iibbTax = totalSalesNet * (iibbRate / 100);
-
-        const iibbRetentions = period.taxRecords
-            .filter((t: any) => t.type.includes("IIBB") || t.type === "SIRCREB" || t.type === "SIRTAC")
-            .reduce((acc: number, curr: any) => acc + curr.amount, 0);
-
-        const iibbPayable = iibbTax - iibbRetentions;
+        // Cálculo autoritativo único (lib/liquidation-calc), en Decimal.
+        const r = computeLiquidation(period);
 
         const excelBuffer = generateLiquidationExcel({
             period: `${period.month.toString().padStart(2, "0")}/${period.year}`,
             client: period.client.name,
             cuit: period.client.cuit,
-            sales: { net: totalSalesNet, vat: totalSalesVAT, total: totalSales },
-            purchases: { net: totalPurchasesNet, vat: totalPurchasesVAT, total: totalPurchases },
-            iva: { debit: ivaDebit, credit: ivaCredit, balance: ivaTechnicalBalance, retentions: ivaRetentions, payable: ivaPayable },
-            iibb: { rate: iibbRate, tax: iibbTax, retentions: iibbRetentions, payable: iibbPayable },
+            sales: { net: r.sales.net.toFixed(2), vat: r.sales.vat.toFixed(2), total: r.sales.total.toFixed(2) },
+            purchases: {
+                net: r.purchases.net.toFixed(2),
+                vat: r.purchases.vat.toFixed(2),
+                total: r.purchases.total.toFixed(2),
+            },
+            iva: {
+                debit: r.iva.debit.toFixed(2),
+                credit: r.iva.credit.toFixed(2),
+                balance: r.iva.balance.toFixed(2),
+                retentions: r.iva.retentions.toFixed(2),
+                payable: r.iva.payable.toFixed(2),
+            },
+            iibb: {
+                rate: r.iibb.rate.toString(),
+                tax: r.iibb.tax.toFixed(2),
+                retentions: r.iibb.retentions.toFixed(2),
+                payable: r.iibb.payable.toFixed(2),
+            },
         });
 
         return new NextResponse(excelBuffer, {
