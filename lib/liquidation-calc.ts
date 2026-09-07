@@ -1,3 +1,4 @@
+import "server-only";
 import { Prisma } from "@prisma/client";
 import { D, sum, sub, roundMoney } from "./decimal";
 
