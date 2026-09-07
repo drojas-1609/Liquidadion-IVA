@@ -1,4 +1,6 @@
+import "server-only";
 import { Prisma } from "@prisma/client";
+import { moneyInRange, MONEY_MAX } from "@/lib/decimal";
 
 /**
  * Validadores de decimales para entradas EXTERNAS (bodies de API).
@@ -8,7 +10,8 @@ import { Prisma } from "@prisma/client";
  * - rechazan vacío, NaN, Infinity, notación exponencial y caracteres inválidos;
  * - controlan escala y precisión: el EXCESO se rechaza, nunca se trunca ni se
  *   redondea en silencio;
- * - importes: admiten signo negativo (notas de crédito), hasta 2 decimales;
+ * - importes: admiten signo negativo (notas de crédito), hasta 2 decimales, y
+ *   deben caer dentro de `NUMERIC(18,2)` (±9999999999999999.99);
  * - alícuotas: número de porcentaje (no coeficiente), >= 0, <= 100, hasta 6
  *   decimales.
  *
@@ -26,7 +29,6 @@ const MONEY_RE = /^-?\d+(\.\d+)?$/;
 const RATE_RE = /^\d+(\.\d+)?$/; // alícuotas: sin signo (>= 0)
 
 const MONEY_SCALE = 2;
-const MONEY_INT_DIGITS = 16; // NUMERIC(18,2) => 18 - 2
 const RATE_SCALE = 6;
 
 function preCheck(raw: unknown): { ok: true; s: string } | { ok: false; error: string } {
@@ -43,13 +45,6 @@ function scaleOf(s: string): number {
   return i === -1 ? 0 : s.length - i - 1;
 }
 
-function intDigitsOf(s: string): number {
-  const body = s.replace(/^-/, "");
-  const i = body.indexOf(".");
-  const intPart = (i === -1 ? body : body.slice(0, i)).replace(/^0+(?=\d)/, "");
-  return intPart.length;
-}
-
 /** Importe monetario para entradas externas. `NUMERIC(18,2)`, signo permitido. */
 export function parseMoney(raw: unknown, opts: { allowNegative?: boolean } = {}): DecimalParse {
   const allowNegative = opts.allowNegative ?? true;
@@ -63,9 +58,6 @@ export function parseMoney(raw: unknown, opts: { allowNegative?: boolean } = {})
   if (scaleOf(s) > MONEY_SCALE) {
     return { ok: false, error: `demasiados decimales (máximo ${MONEY_SCALE}); no se redondea la entrada` };
   }
-  if (intDigitsOf(s) > MONEY_INT_DIGITS) {
-    return { ok: false, error: `importe fuera de rango (máximo ${MONEY_INT_DIGITS} dígitos enteros)` };
-  }
 
   let value: Prisma.Decimal;
   try {
@@ -74,6 +66,9 @@ export function parseMoney(raw: unknown, opts: { allowNegative?: boolean } = {})
     return { ok: false, error: "no es un número válido" };
   }
   if (!value.isFinite()) return { ok: false, error: "el valor no es finito" };
+  if (!moneyInRange(value)) {
+    return { ok: false, error: `importe fuera de rango: debe estar entre -${MONEY_MAX.toFixed(2)} y ${MONEY_MAX.toFixed(2)}` };
+  }
   return { ok: true, value };
 }
 

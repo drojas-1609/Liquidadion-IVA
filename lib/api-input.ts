@@ -1,5 +1,6 @@
+import "server-only";
 import { Prisma } from "@prisma/client";
-import { D, computeVatAmount, computeTotalAmount } from "./decimal";
+import { D, computeVatAmount, computeTotalAmount, moneyInRange, MONEY_MAX } from "./decimal";
 import { parseMoney, parseRate } from "./validation/decimal";
 
 /**
@@ -79,6 +80,16 @@ export function buildInvoiceInput(body: unknown): InputResult<InvoiceCreateData>
   // Autoritativo: se ignoran b.vatAmount / b.totalAmount del cliente.
   const vatAmount = computeVatAmount(net.value, rate.value);
   const totalAmount = computeTotalAmount(net.value, vatAmount);
+
+  // Un neto válido puede derivar en un IVA o total fuera de NUMERIC(18,2).
+  // Se corta acá con 400; nunca llega como 500 desde PostgreSQL.
+  const limit = `debe estar entre -${MONEY_MAX.toFixed(2)} y ${MONEY_MAX.toFixed(2)}`;
+  if (!moneyInRange(vatAmount)) {
+    return fail("vatAmount", `el IVA calculado (${vatAmount.toFixed(2)}) queda fuera de rango: ${limit}`);
+  }
+  if (!moneyInRange(totalAmount)) {
+    return fail("totalAmount", `el total calculado (${totalAmount.toFixed(2)}) queda fuera de rango: ${limit}`);
+  }
 
   return {
     ok: true,

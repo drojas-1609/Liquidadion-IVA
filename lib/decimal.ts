@@ -1,3 +1,4 @@
+import "server-only";
 import { Prisma } from "@prisma/client";
 
 /**
@@ -10,6 +11,7 @@ import { Prisma } from "@prisma/client";
  *   explícita vía `toDecimalPlaces(2, ROUND_HALF_UP)`.
  *
  * Esta es la única fuente de redondeo/sumatoria de importes del servidor.
+ * `import "server-only"` impide que entre a un bundle de cliente.
  */
 
 export type Decimalish = Prisma.Decimal | string | number;
@@ -20,11 +22,28 @@ export const MONEY_ROUNDING = Prisma.Decimal.ROUND_HALF_UP;
 /** Escala de importes monetarios. */
 export const MONEY_DP = 2;
 
+/**
+ * Rango de un importe monetario persistible: `NUMERIC(18,2)`.
+ * 16 dígitos enteros + 2 decimales.
+ */
+export const MONEY_MAX = new Prisma.Decimal("9999999999999999.99");
+export const MONEY_MIN = new Prisma.Decimal("-9999999999999999.99");
+
 export const ZERO = new Prisma.Decimal(0);
 
 /** Construye un Decimal sin redondear. */
 export function D(value: Decimalish): Prisma.Decimal {
   return value instanceof Prisma.Decimal ? value : new Prisma.Decimal(value);
+}
+
+/**
+ * ¿El importe cae dentro de `NUMERIC(18,2)` (±9999999999999999.99)?
+ * Comparación 100% con `Prisma.Decimal`, sin `Number`.
+ */
+export function moneyInRange(value: Decimalish): boolean {
+  const d = D(value);
+  if (!d.isFinite()) return false;
+  return d.greaterThanOrEqualTo(MONEY_MIN) && d.lessThanOrEqualTo(MONEY_MAX);
 }
 
 /**
