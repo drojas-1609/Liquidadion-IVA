@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { Client } from "@prisma/client";
 import prisma from "@/lib/prisma";
-import SeedButton from "./SeedButton";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +23,6 @@ export default async function ClientsPage() {
                     <p style={{ color: "var(--secondary)", fontSize: "0.875rem" }}>Gestiona tus clientes y sus liquidaciones de IVA e IIBB.</p>
                 </div>
                 <div style={{ display: "flex", gap: "var(--spacing-sm)" }}>
-                    <SeedButton />
                     <Link href="/clients/new" className="btn btn-primary">
                         + Nuevo Cliente
                     </Link>
@@ -49,7 +47,6 @@ export default async function ClientsPage() {
                                         No hay clientes registrados aún.
                                     </div>
                                     <div style={{ display: "flex", justifyContent: "center", gap: "var(--spacing-md)" }}>
-                                        <SeedButton text="Cargar Cliente Modelo (ROBINSON S.A.)" />
                                         <Link href="/clients/new" className="btn btn-primary">
                                             Crear Nuevo Cliente
                                         </Link>
