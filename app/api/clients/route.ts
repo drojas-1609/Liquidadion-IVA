@@ -1,18 +1,28 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { serializeClient } from "@/lib/serializers";
+import {
+    requireAuthenticatedProfile,
+    resolveActiveOrganization,
+    requireOrganizationRole,
+    withApiAuthz,
+} from "@/lib/auth/authz";
+import { ROLES_READ } from "@/lib/auth/roles";
 
-export async function GET() {
-    try {
-        const clients = await prisma.client.findMany({
-            orderBy: { name: "asc" },
-        });
-        return NextResponse.json(clients.map(serializeClient));
-    } catch (error) {
-        console.error("Error fetching clients:", error);
-        return NextResponse.json([], { status: 200 });
-    }
-}
+// GET /api/clients — clientes de la organización activa del usuario.
+// Cualquier fallo se propaga a withApiAuthz (500 controlado); ya NO se
+// devuelve `[]` con 200 enmascarando errores.
+export const GET = withApiAuthz(async () => {
+    const { profileId } = await requireAuthenticatedProfile();
+    const { organizationId } = await resolveActiveOrganization(profileId);
+    await requireOrganizationRole(profileId, organizationId, ROLES_READ);
+
+    const clients = await prisma.client.findMany({
+        where: { organizationId },
+        orderBy: { name: "asc" },
+    });
+    return NextResponse.json(clients.map(serializeClient));
+});
 
 // Tarea 3A (temporal, hasta 3B): `Client.organizationId` pasó a ser
 // obligatorio. El alta de cliente necesita la organización del usuario
