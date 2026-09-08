@@ -48,6 +48,37 @@ export function serializeClient(c: {
   };
 }
 
+export interface PeriodDTO {
+  id: string;
+  clientId: string;
+  month: number;
+  year: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Period no tiene campos Decimal. Se serializa igual para NO exponer campos
+ * internos (organizationId, createdById, updatedById): contrato mínimo.
+ */
+export function serializePeriod(p: {
+  id: string;
+  clientId: string;
+  month: number;
+  year: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): PeriodDTO {
+  return {
+    id: p.id,
+    clientId: p.clientId,
+    month: p.month,
+    year: p.year,
+    createdAt: iso(p.createdAt),
+    updatedAt: iso(p.updatedAt),
+  };
+}
+
 export interface InvoiceDTO {
   id: string;
   date: string;

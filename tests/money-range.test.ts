@@ -31,7 +31,7 @@ describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
     expect(buildTaxInput({ date: "2026-01-01", type: "RETENCION IVA", amount: MIN, periodId: "p1" }).ok).toBe(true);
   });
 
-  it("3: un centavo por encima del máximo se rechaza (400 con field)", () => {
+  it("3: un centavo por encima del máximo se rechaza (422 con field)", () => {
     const over = "10000000000000000.00";
     expect(moneyInRange(over)).toBe(false);
     const p = parseMoney(over);
@@ -39,14 +39,14 @@ describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
     const r = buildTaxInput({ date: "2026-01-01", type: "RETENCION IVA", amount: over, periodId: "p1" });
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.status).toBe(400);
+      expect(r.status).toBe(422);
       expect(r.field).toBe("amount");
     }
     // exactamente un centavo arriba de MAX:
     expect(moneyInRange(new Prisma.Decimal(MAX).plus("0.01"))).toBe(false);
   });
 
-  it("4: un centavo por debajo del mínimo se rechaza (400 con field)", () => {
+  it("4: un centavo por debajo del mínimo se rechaza (422 con field)", () => {
     const under = "-10000000000000000.00";
     expect(moneyInRange(under)).toBe(false);
     expect(parseMoney(under).ok).toBe(false);
@@ -56,13 +56,13 @@ describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
     expect(moneyInRange(new Prisma.Decimal(MIN).minus("0.01"))).toBe(false);
   });
 
-  it("5: neto válido cuyo IVA/total provocan overflow -> 400 en vatAmount/totalAmount, no 500", () => {
+  it("5: neto válido cuyo IVA/total provocan overflow -> 422 en vatAmount/totalAmount, no 500", () => {
     // neto dentro de rango (16 enteros), pero neto*21% desborda vatAmount.
     const net = "9999999999999999.99";
     const r = buildInvoiceInput({ ...baseInvoice, netAmount: net, vatRate: "21" });
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.status).toBe(400);
+      expect(r.status).toBe(422);
       expect(["vatAmount", "totalAmount"]).toContain(r.field);
       expect(r.error).toMatch(/fuera de rango/i);
     }
@@ -76,7 +76,7 @@ describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
     if (!r2.ok) expect(r2.field).toBe("totalAmount");
   });
 
-  it("6: valor negativo cuyo total excede el mínimo -> 400", () => {
+  it("6: valor negativo cuyo total excede el mínimo -> 422", () => {
     const net = "-9999999999999999.00";
     const r = buildInvoiceInput({ ...baseInvoice, type: "NC A", netAmount: net, vatRate: "1" });
     // vat = -99999999999999.99 ; total = -10099999999999998.99 < MIN

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildInvoiceInput, buildTaxInput, buildClientInput } from "@/lib/api-input";
+import { buildInvoiceInput, buildTaxInput, buildClientInput, buildPeriodInput } from "@/lib/api-input";
 
 const baseInvoice = {
   date: "2026-01-15",
@@ -49,16 +49,41 @@ describe("lib/api-input", () => {
     }
   });
 
-  it("entrada inválida -> 400 con field", () => {
+  it("entrada inválida -> 422 con field (JSON válido, dato inválido)", () => {
     const bad = buildInvoiceInput({ ...baseInvoice, netAmount: "1.234", vatRate: "21" });
     expect(bad.ok).toBe(false);
     if (!bad.ok) {
-      expect(bad.status).toBe(400);
+      expect(bad.status).toBe(422);
       expect(bad.field).toBe("netAmount");
     }
     const badRate = buildInvoiceInput({ ...baseInvoice, netAmount: "1000", vatRate: "150" });
     expect(badRate.ok).toBe(false);
     if (!badRate.ok) expect(badRate.field).toBe("vatRate");
+  });
+
+  it("buildPeriodInput: forma válida -> ok", () => {
+    const r = buildPeriodInput({ clientId: "c1", month: "5", year: "2026" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data).toEqual({ clientId: "c1", month: 5, year: 2026 });
+  });
+
+  it("buildPeriodInput: clientId vacío / mes fuera de 1-12 / año fuera de rango -> 422 con field", () => {
+    for (const [body, field] of [
+      [{ month: 5, year: 2026 }, "clientId"],
+      [{ clientId: "c1", month: 0, year: 2026 }, "month"],
+      [{ clientId: "c1", month: 13, year: 2026 }, "month"],
+      [{ clientId: "c1", month: "3.5", year: 2026 }, "month"],
+      [{ clientId: "c1", month: "  ", year: 2026 }, "month"],
+      [{ clientId: "c1", month: 5, year: 1999 }, "year"],
+      [{ clientId: "c1", month: 5, year: 9999 }, "year"],
+    ] as const) {
+      const r = buildPeriodInput(body);
+      expect(r.ok, JSON.stringify(body)).toBe(false);
+      if (!r.ok) {
+        expect(r.status).toBe(422);
+        expect(r.field).toBe(field);
+      }
+    }
   });
 
   it("taxes: monto validado como string; exceso de escala rechazado", () => {
@@ -68,7 +93,7 @@ describe("lib/api-input", () => {
     if (!bad.ok) expect(bad.field).toBe("amount");
   });
 
-  it("clients: defaultIibbRate ausente -> 3; presente inválido -> 400", () => {
+  it("clients: defaultIibbRate ausente -> 3; presente inválido -> 422", () => {
     const ok = buildClientInput({ name: "X SA", cuit: "30-1", condition: "Responsable Inscripto" });
     expect(ok.ok).toBe(true);
     if (ok.ok) expect(ok.data.defaultIibbRate.toString()).toBe("3");
