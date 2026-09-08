@@ -1,30 +1,29 @@
 import Link from "next/link";
-import type { Client, Period } from "@prisma/client";
 import prisma from "@/lib/prisma";
-import { redirect } from "next/navigation";
+import { requireAuthenticatedProfile, requireClientAccess, guardPage } from "@/lib/auth/authz";
+import { ROLES_READ } from "@/lib/auth/roles";
+import { NotFoundError } from "@/lib/auth/errors";
+import { AccessNotice } from "@/app/_components/access-notice";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClientDashboard({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
 
-    let client: (Client & { periods: Period[] }) | null = null;
-    try {
-        client = await prisma.client.findUnique({
-            where: { id },
+    const guard = await guardPage(async () => {
+        const { profileId } = await requireAuthenticatedProfile();
+        const { organizationId } = await requireClientAccess(profileId, id, ROLES_READ);
+        const full = await prisma.client.findFirst({
+            where: { id, organizationId },
             include: {
-                periods: {
-                    orderBy: [{ year: "desc" }, { month: "desc" }],
-                },
+                periods: { orderBy: [{ year: "desc" }, { month: "desc" }] },
             },
         });
-    } catch (e) {
-        console.error(e);
-    }
-
-    if (!client) {
-        redirect("/clients");
-    }
+        if (!full) throw new NotFoundError();
+        return full;
+    });
+    if (!guard.ok) return <AccessNotice notice={guard.notice} />;
+    const client = guard.data;
 
     return (
         <div className="container">

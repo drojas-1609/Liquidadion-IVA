@@ -174,14 +174,23 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   db.client.findUnique.mockImplementation(
     async ({ where }: AnyArgs) => world.clients.find((c) => c.id === where.id) ?? null,
   );
-  db.client.findFirst.mockImplementation(
-    async ({ where }: AnyArgs) =>
-      world.clients.find(
-        (c) =>
-          c.id === where.id &&
-          (where.organizationId ? c.organizationId === where.organizationId : true),
-      ) ?? null,
-  );
+  db.client.findFirst.mockImplementation(async ({ where, include }: AnyArgs) => {
+    const c = world.clients.find(
+      (x) =>
+        x.id === where.id &&
+        (where.organizationId ? x.organizationId === where.organizationId : true),
+    );
+    if (!c) return null;
+    if (!include) return c;
+    return {
+      ...c,
+      periods: include.periods
+        ? world.periods
+            .filter((p) => p.clientId === c.id)
+            .sort((a, b) => b.year - a.year || b.month - a.month)
+        : undefined,
+    };
+  });
   db.client.findMany.mockImplementation(async ({ where }: AnyArgs) => {
     let rows = world.clients.slice();
     if (where?.organizationId) rows = rows.filter((c) => c.organizationId === where.organizationId);
