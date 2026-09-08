@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { resolveProxySession } from "@/lib/supabase/proxy-session";
-import { isPublicPath, PROXY_MATCHER } from "@/lib/auth/proxy-matcher";
+import { isPublicPath } from "@/lib/auth/proxy-matcher";
 import { sanitizeNext } from "@/lib/auth/origin";
 
 /**
@@ -32,8 +32,12 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   return redirect;
 }
 
+// Debe ser un literal estático (Next lo parsea en compilación). Se mantiene en
+// sync con `PROXY_MATCHER` de lib/auth/proxy-matcher.ts vía proxy-gate.test.ts.
 export const config = {
-  matcher: [PROXY_MATCHER],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|login|reset-password|update-password|logout|auth/callback|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|woff2?|ttf|txt)$).*)",
+  ],
 };
 
 export default proxy;
