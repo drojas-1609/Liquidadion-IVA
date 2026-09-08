@@ -1,8 +1,8 @@
 /**
- * `requestResetAction`: el `redirectTo` que recibe Supabase debe apuntar al
- * `/auth/callback` del MISMO entorno válido de origen (política compartida
- * `getSafeRedirectOrigin`). Sin enviar emails reales (`resetPasswordForEmail`
- * está mockeado).
+ * `requestResetAction`: el `redirectTo` que recibe Supabase debe apuntar a
+ * `/auth/confirm-recovery` (página intermedia anti-escáner) del MISMO entorno
+ * válido de origen (política compartida `getSafeRedirectOrigin`). Sin enviar
+ * emails reales (`resetPasswordForEmail` está mockeado).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -39,7 +39,7 @@ async function redirectToFor(email = "user@dero.test"): Promise<string> {
   return opts.redirectTo as string;
 }
 
-const SUFFIX = "/auth/callback?next=%2Fupdate-password";
+const SUFFIX = "/auth/confirm-recovery";
 
 beforeEach(() => {
   resetPasswordForEmail.mockReset().mockResolvedValue({ error: null });
@@ -57,7 +57,7 @@ afterEach(() => {
 });
 
 describe("requestResetAction — redirectTo por entorno", () => {
-  it("Deploy Preview -> callback del mismo preview", async () => {
+  it("Deploy Preview -> confirm-recovery del mismo preview", async () => {
     setHeaders({
       "x-forwarded-host": "deploy-preview-3--liquidadoriva.netlify.app",
       "x-forwarded-proto": "https",
@@ -77,7 +77,7 @@ describe("requestResetAction — redirectTo por entorno", () => {
     );
   });
 
-  it("Producción (host del sitio) -> callback de producción", async () => {
+  it("Producción (host del sitio) -> confirm-recovery de producción", async () => {
     setHeaders({ "x-forwarded-host": "liquidadoriva.netlify.app", "x-forwarded-proto": "https" });
     expect(await redirectToFor()).toBe(`https://liquidadoriva.netlify.app${SUFFIX}`);
   });
@@ -88,18 +88,17 @@ describe("requestResetAction — redirectTo por entorno", () => {
     expect(await redirectToFor()).toBe(`https://app.derocompany.com.ar${SUFFIX}`);
   });
 
-  it("localhost en desarrollo -> callback local", async () => {
+  it("localhost en desarrollo -> confirm-recovery local", async () => {
     env.NODE_ENV = "development";
     setHeaders({ host: "localhost:3000" });
     expect(await redirectToFor()).toBe(`http://localhost:3000${SUFFIX}`);
   });
 
-  it("next=/update-password queda codificado exactamente", async () => {
+  it("redirectTo apunta a /auth/confirm-recovery, sin query (el token_hash lo agrega Supabase)", async () => {
     setHeaders({ "x-forwarded-host": "liquidadoriva.netlify.app", "x-forwarded-proto": "https" });
     const url = new URL(await redirectToFor());
-    expect(url.pathname).toBe("/auth/callback");
-    expect(url.searchParams.get("next")).toBe("/update-password");
-    expect(url.search).toBe("?next=%2Fupdate-password");
+    expect(url.pathname).toBe("/auth/confirm-recovery");
+    expect(url.search).toBe("");
   });
 });
 

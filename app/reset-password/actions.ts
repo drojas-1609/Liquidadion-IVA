@@ -13,12 +13,15 @@ export interface ResetState {
  * Pide el correo de recuperación. La respuesta es SIEMPRE genérica: no revela
  * si la dirección existe.
  *
- * El `redirectTo` que recibe Supabase se arma sobre `getSafeRedirectOrigin`
- * (misma allow-list estricta que logout y callback): el enlace del email
- * apunta al `/auth/callback` del MISMO entorno donde se pidió la recuperación
- * (Deploy Preview, producción o localhost en dev), nunca a un host aportado
- * por encabezados sin validar. `getSafeRedirectOrigin` acepta cualquier objeto
- * con `headers.get(...)`, así que sirve para esta Server Action sin `Request`.
+ * `redirectTo` = `<origen-validado>/auth/confirm-recovery` — la página
+ * intermedia anti-escáner. Supabase lo expone como `{{ .RedirectTo }}` en la
+ * plantilla; el enlace del email agrega `?token_hash={{ .TokenHash }}&type=recovery`.
+ * El origen se resuelve con `getSafeRedirectOrigin` (misma allow-list estricta
+ * que logout y callback): el enlace apunta al MISMO entorno donde se pidió la
+ * recuperación (Deploy Preview / producción / localhost), nunca a un host
+ * aportado por encabezados sin validar. `getSafeRedirectOrigin` acepta
+ * cualquier objeto con `headers.get(...)`, así que sirve para esta Server
+ * Action sin `Request`.
  */
 export async function requestResetAction(
   _prev: ResetState,
@@ -31,7 +34,7 @@ export async function requestResetAction(
       const supabase = await getSupabaseServerClient();
       const origin = getSafeRedirectOrigin({ headers: await headers() });
       await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${origin}/auth/callback?next=%2Fupdate-password`,
+        redirectTo: `${origin}/auth/confirm-recovery`,
       });
     } catch {
       // Silencioso a propósito: nada debe distinguir éxito de error.

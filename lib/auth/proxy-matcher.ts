@@ -14,6 +14,7 @@ export const PUBLIC_PREFIXES = [
   "/update-password",
   "/logout",
   "/auth/callback",
+  "/auth/confirm-recovery",
 ] as const;
 
 const ASSET_EXT_RE = /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|woff2?|ttf|txt)$/i;
@@ -27,4 +28,4 @@ export function isPublicPath(pathname: string): boolean {
 
 /** Igual, carácter por carácter, al literal de `config.matcher` en proxy.ts. */
 export const PROXY_MATCHER =
-  "/((?!_next/|favicon\\.ico$|robots\\.txt$|login(?:/|$)|reset-password(?:/|$)|update-password(?:/|$)|logout(?:/|$)|auth/callback(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|woff2?|ttf|txt)$).*)";
+  "/((?!_next/|favicon\\.ico$|robots\\.txt$|login(?:/|$)|reset-password(?:/|$)|update-password(?:/|$)|logout(?:/|$)|auth/callback(?:/|$)|auth/confirm-recovery(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|woff2?|ttf|txt)$).*)";

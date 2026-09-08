@@ -137,7 +137,14 @@ describe("proxy — gate de sesión", () => {
 
 describe("isPublicPath vs rutas protegidas", () => {
   it("son públicas las rutas de auth y los assets", () => {
-    for (const p of ["/login", "/reset-password", "/update-password", "/logout", "/auth/callback"]) {
+    for (const p of [
+      "/login",
+      "/reset-password",
+      "/update-password",
+      "/logout",
+      "/auth/callback",
+      "/auth/confirm-recovery",
+    ]) {
       expect(isPublicPath(p), p).toBe(true);
       expect(isPublicPath(p + "/algo"), p + "/algo").toBe(true);
     }
@@ -153,7 +160,7 @@ describe("isPublicPath vs rutas protegidas", () => {
   });
 
   it("match por segmento EXACTO: /logout-x, /loginX, /update-password-fake NO son públicas", () => {
-    for (const p of ["/logout-fake", "/loginX", "/login-attacker", "/update-password-data", "/auth/callbackX", "/reset-password-x"]) {
+    for (const p of ["/logout-fake", "/loginX", "/login-attacker", "/update-password-data", "/auth/callbackX", "/auth/confirm-recoveryX", "/reset-password-x"]) {
       expect(isPublicPath(p), p).toBe(false);
     }
   });
@@ -173,6 +180,7 @@ describe("PROXY_MATCHER y PUBLIC_PREFIXES coinciden con isPublicPath", () => {
       "/update-password",
       "/logout",
       "/auth/callback",
+      "/auth/confirm-recovery",
       "/_next/static/x.js",
       "/favicon.ico",
       "/logo.svg",
@@ -188,7 +196,7 @@ describe("PROXY_MATCHER y PUBLIC_PREFIXES coinciden con isPublicPath", () => {
   });
 
   it("el matcher SÍ alcanza rutas que solo parecen públicas (segmento no exacto)", () => {
-    for (const p of ["/logout-fake", "/loginX", "/update-password-data", "/auth/callbackX"]) {
+    for (const p of ["/logout-fake", "/loginX", "/update-password-data", "/auth/callbackX", "/auth/confirm-recoveryX"]) {
       expect(matcherRe.test(p), p).toBe(true);
     }
   });

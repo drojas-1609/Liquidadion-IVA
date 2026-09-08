@@ -37,7 +37,7 @@ describe("requestResetAction — respuesta siempre genérica", () => {
     expect(state).toEqual({ done: true });
     expect(resetPasswordForEmail).toHaveBeenCalledTimes(1);
     const [, opts] = resetPasswordForEmail.mock.calls[0];
-    expect(opts.redirectTo).toBe("http://localhost:3000/auth/callback?next=%2Fupdate-password");
+    expect(opts.redirectTo).toBe("http://localhost:3000/auth/confirm-recovery");
   });
 
   it("sin correo: no dispara nada pero responde done igual", async () => {

@@ -86,7 +86,7 @@ export const config = {
   // Debe ser un literal estático (Next lo parsea en compilación). Se mantiene en
   // sync con `PROXY_MATCHER` de lib/auth/proxy-matcher.ts vía proxy-gate.test.ts.
   matcher: [
-    "/((?!_next/|favicon\\.ico$|robots\\.txt$|login(?:/|$)|reset-password(?:/|$)|update-password(?:/|$)|logout(?:/|$)|auth/callback(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|woff2?|ttf|txt)$).*)",
+    "/((?!_next/|favicon\\.ico$|robots\\.txt$|login(?:/|$)|reset-password(?:/|$)|update-password(?:/|$)|logout(?:/|$)|auth/callback(?:/|$)|auth/confirm-recovery(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|woff2?|ttf|txt)$).*)",
   ],
 };
 
