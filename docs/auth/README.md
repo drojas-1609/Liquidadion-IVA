@@ -130,9 +130,35 @@ webhook `on user.updated`, o reconciliación periódica.
 ## Bootstrap del primer OWNER
 
 `scripts/bootstrap-owner.ts` — **solo modo `link`**, ejecución local única.
-Detalle y guardas en el propio script y en el brief. **No ejecutado en Etapa A.**
-Nunca crea usuarios, nunca maneja contraseñas, `service_role` solo en runtime y
-fuera del bundle. Segunda ejecución aborta.
+**No ejecutado en Etapa A.** Nunca crea usuarios en Supabase Auth, nunca
+recibe ni setea contraseñas; el `service_role` se lee del entorno en runtime
+(el script vive en `scripts/`, fuera del bundle de Next) y solo se usa para
+**leer** el usuario y comparar el correo.
+
+Prerrequisito: el usuario ya existe en Supabase Auth (creado a mano desde el
+dashboard). Luego, localmente:
+
+```
+BOOTSTRAP_OWNER=1 SUPABASE_SERVICE_ROLE_KEY=<clave> \
+node scripts/bootstrap-owner.ts \
+  --project-ref <ref> --user-id <uuid-de-auth.users> --email <correo> \
+  [--org-name "Dero Company"]
+```
+
+Guardas (todas deben cumplirse): `BOOTSTRAP_OWNER=1`; `--project-ref` igual a
+la ref de `NEXT_PUBLIC_SUPABASE_URL`; `--user-id` UUID; el usuario de Auth
+existe y su correo coincide con `--email`; `Membership.count() === 0`; no hay
+un `Profile` con ese id. Crea `Organization` + `Profile` + `Membership(OWNER)`
+en una transacción. Una segunda ejecución aborta (`Membership.count() > 0`).
+
+### Verificación de huérfanos
+
+```
+node scripts/check-orphan-profiles.ts
+```
+
+Solo lectura. Sale con código 1 si hay `Profile` sin `auth.users` (apto para
+CI). Ver también `docs/auth/verify.sql` (consulta 12).
 
 ## SheetJS (`xlsx`)
 

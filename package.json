@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bootstrap:owner": "node scripts/bootstrap-owner.ts",
+    "check:orphan-profiles": "node scripts/check-orphan-profiles.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
