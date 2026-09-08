@@ -26,6 +26,7 @@ const SERVER_ONLY_LIBS = [
   "lib/serializers.ts",
   "lib/excel.ts",
   "lib/auth/authz.ts",
+  "lib/auth/audit.ts",
 ];
 
 describe("límite de responsabilidades server-only (punto 3)", () => {
