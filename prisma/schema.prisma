@@ -8,16 +8,104 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model Client {
-  id        String   @id @default(cuid())
-  name      String
-  cuit      String   @unique
-  condition String   // e.g., Responsable Inscripto, Monotributo
-  address   String?
-  defaultIibbRate Decimal @default(3.000000) @db.Decimal(9, 6)
+/// Espejo de auth.users. id = auth.users.id (UUID).
+/// Tarea 3A: SIN FK ni trigger sobre el esquema auth (la migración debe ser
+/// reproducible en una base shadow sin esquema auth). Integridad por bootstrap
+/// + aplicación + verificacion de huerfanos (scripts/check-orphan-profiles.ts).
+/// `email` es copia de conveniencia, NO identidad ni clave de autorizacion.
+model Profile {
+  id        String   @id @db.Uuid
+  email     String
+  fullName  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  periods   Period[]
+
+  memberships Membership[]
+
+  createdClients    Client[]    @relation("ClientCreatedBy")
+  updatedClients    Client[]    @relation("ClientUpdatedBy")
+  createdPeriods    Period[]    @relation("PeriodCreatedBy")
+  updatedPeriods    Period[]    @relation("PeriodUpdatedBy")
+  createdInvoices   Invoice[]   @relation("InvoiceCreatedBy")
+  updatedInvoices   Invoice[]   @relation("InvoiceUpdatedBy")
+  createdTaxRecords TaxRecord[] @relation("TaxRecordCreatedBy")
+  updatedTaxRecords TaxRecord[] @relation("TaxRecordUpdatedBy")
+
+  @@index([email])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  ACCOUNTANT
+  VIEWER
+}
+
+/// El estudio contable (Dero Company). Sin jerarquia Firm -> Organization.
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  clients     Client[]
+  settings    OrgSetting[]
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  profileId      String   @db.Uuid
+  organizationId String
+  role           Role
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  profile      Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, organizationId])
+  @@index([organizationId])
+  @@index([profileId])
+}
+
+/// Reemplazo conceptual del Settings global. En 3A no se inventan claves
+/// fiscales ni se conecta /settings. `Settings` (global) se conserva intacto.
+model OrgSetting {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            String
+  value          String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+model Client {
+  id              String   @id @default(cuid())
+  name            String
+  cuit            String
+  condition       String
+  address         String?
+  defaultIibbRate Decimal  @default(3.000000) @db.Decimal(9, 6)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdById    String?      @db.Uuid
+  updatedById    String?      @db.Uuid
+  createdBy      Profile?     @relation("ClientCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy      Profile?     @relation("ClientUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  periods Period[]
+
+  @@unique([organizationId, cuit])
+  @@index([organizationId])
 }
 
 model Period {
@@ -29,36 +117,64 @@ model Period {
   invoices   Invoice[]
   taxRecords TaxRecord[]
 
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+  createdBy   Profile? @relation("PeriodCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy   Profile? @relation("PeriodUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
   @@unique([month, year, clientId])
+  @@index([clientId])
 }
 
 model Invoice {
   id          String   @id @default(cuid())
   date        DateTime
-  type        String   // e.g., FC A, NC A
+  type        String
   pointOfSale Int
   number      Int
-  entityName  String   // Client or Supplier name
+  entityName  String
   entityCuit  String
   netAmount   Decimal  @db.Decimal(18, 2)
   vatRate     Decimal  @db.Decimal(9, 6) // porcentaje: 21, 10.5, 2.5
   vatAmount   Decimal  @db.Decimal(18, 2)
   totalAmount Decimal  @db.Decimal(18, 2)
-  category    String   // SALES or PURCHASES
+  category    String
   periodId    String
   period      Period   @relation(fields: [periodId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+  createdBy   Profile? @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy   Profile? @relation("InvoiceUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([periodId])
 }
 
 model TaxRecord {
   id          String   @id @default(cuid())
   date        DateTime
-  type        String   // e.g., RETENCION IVA, PERCEPCION IIBB
+  type        String
   amount      Decimal  @db.Decimal(18, 2)
   description String?
   periodId    String
   period      Period   @relation(fields: [periodId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+  createdBy   Profile? @relation("TaxRecordCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy   Profile? @relation("TaxRecordUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([periodId])
 }
 
+/// Se conserva TAL CUAL en 3A (sin uso). Migracion a OrgSetting + cableado de
+/// /settings es tarea posterior, fuera de alcance de 3A.
 model Settings {
   id    String @id @default(cuid())
   key   String @unique
