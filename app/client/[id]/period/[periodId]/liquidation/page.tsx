@@ -1,8 +1,13 @@
 import Link from "next/link";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
-
+import { computeLiquidation } from "@/lib/liquidation-calc";
+import { formatMoney } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+
+const m = (d: Prisma.Decimal) => formatMoney(d.toFixed(2));
+const clampPos = (d: Prisma.Decimal) => (d.isNegative() ? new Prisma.Decimal(0) : d);
 
 export default async function LiquidationPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
     const { id, periodId } = await params;
@@ -18,37 +23,7 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
 
     if (!period) return <div>Periodo no encontrado</div>;
 
-    // --- IVA Calculation ---
-    const sales = period.invoices.filter((i: any) => i.category === "SALES");
-    const purchases = period.invoices.filter((i: any) => i.category === "PURCHASES");
-
-    const totalSalesNet = sales.reduce((acc: number, curr: any) => acc + curr.netAmount, 0);
-    const totalSalesVAT = sales.reduce((acc: number, curr: any) => acc + curr.vatAmount, 0);
-
-    const totalPurchasesVAT = purchases.reduce((acc: number, curr: any) => acc + curr.vatAmount, 0);
-
-    const ivaDebit = totalSalesVAT;
-    const ivaCredit = totalPurchasesVAT;
-    const ivaTechnicalBalance = ivaDebit - ivaCredit;
-
-    // Withholdings/Perceptions for IVA
-    const ivaRetentions = period.taxRecords
-        .filter((t: any) => t.type.includes("IVA"))
-        .reduce((acc: number, curr: any) => acc + curr.amount, 0);
-
-    const ivaPayable = ivaTechnicalBalance - ivaRetentions;
-
-    // --- IIBB Calculation (Simplified) ---
-    // Assuming a standard rate, in a real app this should be configurable per client/activity
-    const iibbRate = period.client.defaultIibbRate || 3.0;
-    const iibbTax = totalSalesNet * (iibbRate / 100);
-
-    // Withholdings/Perceptions for IIBB
-    const iibbRetentions = period.taxRecords
-        .filter((t: any) => t.type.includes("IIBB") || t.type === "SIRCREB" || t.type === "SIRTAC")
-        .reduce((acc: number, curr: any) => acc + curr.amount, 0);
-
-    const iibbPayable = iibbTax - iibbRetentions;
+    const r = computeLiquidation(period);
 
     return (
         <div className="container" style={{ maxWidth: "800px" }}>
@@ -75,34 +50,34 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-sm)" }}>
                     <span>Débito Fiscal (Ventas)</span>
-                    <span style={{ fontWeight: 500 }}>${ivaDebit.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
+                    <span style={{ fontWeight: 500 }}>${m(r.iva.debit)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
                     <span>Crédito Fiscal (Compras)</span>
-                    <span style={{ fontWeight: 500 }}>- ${ivaCredit.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
+                    <span style={{ fontWeight: 500 }}>- ${m(r.iva.credit)}</span>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)", padding: "var(--spacing-sm) 0", borderTop: "1px dashed var(--border)", borderBottom: "1px dashed var(--border)" }}>
                     <span style={{ fontWeight: 600 }}>Saldo Técnico</span>
-                    <span style={{ fontWeight: 600, color: ivaTechnicalBalance > 0 ? "var(--error)" : "var(--success)" }}>
-                        ${ivaTechnicalBalance.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                    <span style={{ fontWeight: 600, color: r.iva.balance.greaterThan(0) ? "var(--error)" : "var(--success)" }}>
+                        ${m(r.iva.balance)}
                     </span>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
                     <span>Retenciones / Percepciones IVA</span>
-                    <span style={{ fontWeight: 500 }}>- ${ivaRetentions.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
+                    <span style={{ fontWeight: 500 }}>- ${m(r.iva.retentions)}</span>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: "var(--spacing-lg)", padding: "var(--spacing-md)", backgroundColor: "var(--surface-hover)", borderRadius: "var(--radius-md)" }}>
                     <span style={{ fontSize: "1.25rem", fontWeight: "bold" }}>Saldo a Pagar IVA</span>
-                    <span style={{ fontSize: "1.25rem", fontWeight: "bold", color: ivaPayable > 0 ? "var(--error)" : "var(--success)" }}>
-                        ${Math.max(0, ivaPayable).toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                    <span style={{ fontSize: "1.25rem", fontWeight: "bold", color: r.iva.payable.greaterThan(0) ? "var(--error)" : "var(--success)" }}>
+                        ${m(clampPos(r.iva.payable))}
                     </span>
                 </div>
-                {ivaPayable < 0 && (
+                {r.iva.payable.isNegative() && (
                     <div style={{ textAlign: "right", marginTop: "var(--spacing-xs)", color: "var(--success)", fontSize: "0.875rem" }}>
-                        Saldo a favor: ${Math.abs(ivaPayable).toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                        Saldo a favor: ${m(r.iva.payable.abs())}
                     </div>
                 )}
             </div>
@@ -115,27 +90,27 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-sm)" }}>
                     <span>Ventas Netas</span>
-                    <span style={{ fontWeight: 500 }}>${totalSalesNet.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
+                    <span style={{ fontWeight: 500 }}>${m(r.iibb.base)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
-                    <span>Impuesto Determinado ({iibbRate}%)</span>
-                    <span style={{ fontWeight: 500 }}>${iibbTax.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
+                    <span>Impuesto Determinado ({r.iibb.rate.toString()}%)</span>
+                    <span style={{ fontWeight: 500 }}>${m(r.iibb.tax)}</span>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
                     <span>Retenciones / Percepciones / SIRCREB</span>
-                    <span style={{ fontWeight: 500 }}>- ${iibbRetentions.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
+                    <span style={{ fontWeight: 500 }}>- ${m(r.iibb.retentions)}</span>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: "var(--spacing-lg)", padding: "var(--spacing-md)", backgroundColor: "var(--surface-hover)", borderRadius: "var(--radius-md)" }}>
                     <span style={{ fontSize: "1.25rem", fontWeight: "bold" }}>Saldo a Pagar IIBB</span>
-                    <span style={{ fontSize: "1.25rem", fontWeight: "bold", color: iibbPayable > 0 ? "var(--error)" : "var(--success)" }}>
-                        ${Math.max(0, iibbPayable).toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                    <span style={{ fontSize: "1.25rem", fontWeight: "bold", color: r.iibb.payable.greaterThan(0) ? "var(--error)" : "var(--success)" }}>
+                        ${m(clampPos(r.iibb.payable))}
                     </span>
                 </div>
-                {iibbPayable < 0 && (
+                {r.iibb.payable.isNegative() && (
                     <div style={{ textAlign: "right", marginTop: "var(--spacing-xs)", color: "var(--success)", fontSize: "0.875rem" }}>
-                        Saldo a favor: ${Math.abs(iibbPayable).toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                        Saldo a favor: ${m(r.iibb.payable.abs())}
                     </div>
                 )}
             </div>

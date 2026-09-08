@@ -9,12 +9,15 @@ export default function NewPurchasePage({ params }: { params: Promise<{ id: stri
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
 
-    // Auto-calculate VAT and Total
-    const [netAmount, setNetAmount] = useState(0);
-    const [vatRate, setVatRate] = useState(21);
+    // Previsualización SOLO para pantalla (number de JS). No es autoritativa:
+    // el servidor recalcula vatAmount/totalAmount con Decimal e ignora lo que
+    // se envíe. El valor que se ENVÍA es el string crudo del input.
+    const [netRaw, setNetRaw] = useState("0");
+    const [vatRate, setVatRate] = useState("21");
 
-    const vatAmount = netAmount * (vatRate / 100);
-    const totalAmount = netAmount + vatAmount;
+    const netPreview = parseFloat(netRaw) || 0;
+    const vatPreview = netPreview * (parseFloat(vatRate) / 100);
+    const totalPreview = netPreview + vatPreview;
 
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -30,19 +33,21 @@ export default function NewPurchasePage({ params }: { params: Promise<{ id: stri
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     ...data,
-                    vatAmount,
-                    totalAmount,
+                    // vatAmount / totalAmount NO se envían: los calcula el servidor.
                     category: "PURCHASES",
                     periodId,
                 }),
             });
 
-            if (!res.ok) throw new Error("Error al crear la factura");
+            if (!res.ok) {
+                const j = await res.json().catch(() => null);
+                throw new Error(j?.field ? `${j.field}: ${j.error}` : j?.error || "Error al crear la factura");
+            }
 
             router.push(`/client/${id}/period/${periodId}/purchases`);
             router.refresh();
         } catch (err) {
-            setError("Ocurrió un error al guardar la factura.");
+            setError(err instanceof Error ? err.message : "Ocurrió un error al guardar la factura.");
         } finally {
             setLoading(false);
         }
@@ -100,12 +105,12 @@ export default function NewPurchasePage({ params }: { params: Promise<{ id: stri
                     <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Neto Gravado</label>
                     <input
                         name="netAmount"
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         required
                         className="input"
-                        value={netAmount}
-                        onChange={(e) => setNetAmount(parseFloat(e.target.value) || 0)}
+                        value={netRaw}
+                        onChange={(e) => setNetRaw(e.target.value)}
                     />
                 </div>
 
@@ -115,23 +120,24 @@ export default function NewPurchasePage({ params }: { params: Promise<{ id: stri
                         name="vatRate"
                         className="input"
                         value={vatRate}
-                        onChange={(e) => setVatRate(parseFloat(e.target.value))}
+                        onChange={(e) => setVatRate(e.target.value)}
                     >
-                        <option value={21}>21%</option>
-                        <option value={10.5}>10.5%</option>
-                        <option value={27}>27%</option>
-                        <option value={0}>0%</option>
+                        <option value="21">21%</option>
+                        <option value="10.5">10.5%</option>
+                        <option value="27">27%</option>
+                        <option value="2.5">2.5%</option>
+                        <option value="0">0%</option>
                     </select>
                 </div>
 
                 <div>
-                    <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>IVA Calculado</label>
-                    <input type="text" className="input" value={vatAmount.toFixed(2)} disabled />
+                    <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>IVA Calculado (previsualización)</label>
+                    <input type="text" className="input" value={vatPreview.toFixed(2)} disabled />
                 </div>
 
                 <div>
-                    <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Total</label>
-                    <input type="text" className="input" value={totalAmount.toFixed(2)} disabled />
+                    <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Total (previsualización)</label>
+                    <input type="text" className="input" value={totalPreview.toFixed(2)} disabled />
                 </div>
 
                 <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: "var(--spacing-sm)", marginTop: "var(--spacing-md)" }}>
