@@ -18,6 +18,19 @@
 -- tipos Decimal (Tarea 2). El único DML es el backfill de `organizationId`.
 --
 -- Esta migración NO se aplica a producción en esta etapa.
+--
+-- ATOMICIDAD EXPLÍCITA: Prisma Migrate NO envuelve las migraciones de
+-- PostgreSQL en una transacción (a diferencia de SQL Server); el bloqueo
+-- consultivo sólo serializa corridas concurrentes de `migrate`, no da
+-- atomicidad a nivel de sentencia. Por eso este archivo abre su propia
+-- transacción: `BEGIN` … `COMMIT`. Si cualquier sentencia falla, PostgreSQL
+-- revierte TODO el bloque y la base queda exactamente como estaba; Prisma
+-- registra la migración como fallida (P3009) y hay que diagnosticar antes de
+-- reintentar (sin `migrate resolve`, sin rollback manual — protocolo de la
+-- Tarea 2/3A). Ninguna sentencia requiere ejecutarse fuera de transacción
+-- (no hay `CREATE INDEX CONCURRENTLY` ni equivalentes).
+
+BEGIN;
 
 -- ─────────────────────────────────────────────────────────────
 -- Fase 1: quitar las FK simples (se reemplazan por FK compuestas).
@@ -164,3 +177,5 @@ ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_organizationId_fkey" FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_actorProfileId_fkey" FOREIGN KEY ("actorProfileId") REFERENCES "Profile"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+COMMIT;
