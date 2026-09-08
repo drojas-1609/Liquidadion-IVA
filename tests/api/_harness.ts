@@ -88,12 +88,16 @@ export function periodRow(
   };
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface World {
   memberships: Array<{ profileId: string; organizationId: string; role: Role }>;
   profiles: Set<string>;
   clients: ClientRow[];
   periods: PeriodRow[];
+  invoices?: any[];
+  taxRecords?: any[];
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /** Mundo por defecto: ORG_A (owner/accountant/viewer) + ORG_B (owner). */
 export function makeWorld(over: Partial<World> = {}): World {
@@ -187,17 +191,25 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   db.period.findUnique.mockImplementation(
     async ({ where }: AnyArgs) => world.periods.find((p) => p.id === where.id) ?? null,
   );
-  db.period.findFirst.mockImplementation(
-    async ({ where }: AnyArgs) =>
-      world.periods.find(
-        (p) =>
-          p.id === where.id &&
-          (where.organizationId ? p.organizationId === where.organizationId : true),
-      ) ?? null,
-  );
+  db.period.findFirst.mockImplementation(async ({ where, include }: AnyArgs) => {
+    const p = world.periods.find(
+      (x) =>
+        x.id === where.id &&
+        (where.organizationId ? x.organizationId === where.organizationId : true),
+    );
+    if (!p) return null;
+    if (!include) return p;
+    const client = world.clients.find((c) => c.id === p.clientId) ?? clientRow(p.clientId, p.organizationId);
+    return {
+      ...p,
+      invoices: include.invoices ? (world.invoices ?? []).filter((i) => i.periodId === p.id) : undefined,
+      taxRecords: include.taxRecords ? (world.taxRecords ?? []).filter((t) => t.periodId === p.id) : undefined,
+      client: include.client ? client : undefined,
+    };
+  });
 
-  db.invoice.findMany.mockImplementation(async () => []);
-  db.taxRecord.findMany.mockImplementation(async () => []);
+  db.invoice.findMany.mockImplementation(async () => world.invoices ?? []);
+  db.taxRecord.findMany.mockImplementation(async () => world.taxRecords ?? []);
 
   const mkId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 
