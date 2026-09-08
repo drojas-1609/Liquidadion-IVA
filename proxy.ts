@@ -4,6 +4,7 @@ import { resolveProxySession } from "@/lib/supabase/proxy-session";
 import { isSupabaseConfigError } from "@/lib/supabase/env";
 import { isPublicPath } from "@/lib/auth/proxy-matcher";
 import { sanitizeNext } from "@/lib/auth/origin";
+import { applySecurityHeaders } from "@/lib/security-headers";
 
 /**
  * Gate GRUESO de sesión (Next.js 16 usa `proxy`, no `middleware`).
@@ -27,14 +28,17 @@ function isApiPath(pathname: string): boolean {
 function jsonDeny(status: number, code: string, message: string): NextResponse {
   const res = NextResponse.json({ error: { code, message } }, { status });
   res.headers.set("Cache-Control", NO_STORE);
+  applySecurityHeaders(res.headers);
   return res;
 }
 
 function pageDeny(status: number, message: string): NextResponse {
-  return new NextResponse(message, {
+  const res = new NextResponse(message, {
     status,
     headers: { "Cache-Control": NO_STORE, "Content-Type": "text/plain; charset=utf-8" },
   });
+  applySecurityHeaders(res.headers);
+  return res;
 }
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
@@ -74,6 +78,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const redirect = NextResponse.redirect(loginUrl, { status: 303 });
   for (const cookie of response.cookies.getAll()) redirect.cookies.set(cookie);
   redirect.headers.set("Cache-Control", NO_STORE);
+  applySecurityHeaders(redirect.headers);
   return redirect;
 }
 

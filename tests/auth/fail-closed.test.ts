@@ -33,6 +33,13 @@ import { getAuthClaims } from "@/lib/auth/claims";
 import { MisconfiguredError } from "@/lib/auth/errors";
 import { loginAction } from "@/app/login/actions";
 import { getSupabasePublicEnv } from "@/lib/supabase/env";
+import { SECURITY_HEADERS } from "@/lib/security-headers";
+
+function expectSecurityHeaders(res: { headers: Headers }) {
+  for (const { key, value } of SECURITY_HEADERS) {
+    expect(res.headers.get(key), key).toBe(value);
+  }
+}
 
 const PROTECTED_PAGES = ["/", "/clients", "/client/abc/period/1", "/settings"];
 const PROTECTED_APIS = ["/api/clients", "/api/periods", "/api/invoices"];
@@ -135,24 +142,36 @@ describe("config ausente en la capa de auth", () => {
     await expect(getAuthClaims()).rejects.toBeInstanceOf(MisconfiguredError);
   });
 
-  it("(6) API protegida con config ausente -> 503 JSON controlado", async () => {
+  it("(6) API protegida con config ausente -> 503 JSON controlado + headers de seguridad", async () => {
     mockProxy.throw = new SupabaseConfigError("faltan variables");
     for (const p of PROTECTED_APIS) {
       const res = await proxy(req(p));
       expect(res.status, p).toBe(503);
       expect((await res.json()).error.code).toBe("MISCONFIGURED");
       expect(res.headers.get("cache-control")).toBe("no-store, max-age=0");
+      expectSecurityHeaders(res);
     }
   });
 
-  it("(7) página protegida con config ausente -> 503 controlado, sin contenido fiscal", async () => {
+  it("(7) página protegida con config ausente -> 503 controlado + headers, sin contenido fiscal", async () => {
     mockProxy.throw = new SupabaseConfigError("faltan variables");
     for (const p of PROTECTED_PAGES) {
       const res = await proxy(req(p));
       expect(res.status, p).toBe(503);
       expect(res.headers.get("content-type")).toContain("text/plain");
       expect(res.headers.get("cache-control")).toBe("no-store, max-age=0");
+      expectSecurityHeaders(res);
     }
+  });
+
+  it("500 controlado del proxy -> incluye headers de seguridad", async () => {
+    mockProxy.throw = new Error("fallo inesperado");
+    const page = await proxy(req("/clients"));
+    expect(page.status).toBe(500);
+    expectSecurityHeaders(page);
+    const api = await proxy(req("/api/clients"));
+    expect(api.status).toBe(500);
+    expectSecurityHeaders(api);
   });
 
   it("login action con config ausente -> error genérico, sin redirect", async () => {

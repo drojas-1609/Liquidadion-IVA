@@ -20,9 +20,15 @@ vi.mock("@/lib/supabase/proxy-session", () => ({
 
 import { proxy, config } from "@/proxy";
 import { isPublicPath, PROXY_MATCHER, PUBLIC_PREFIXES } from "@/lib/auth/proxy-matcher";
+import { SECURITY_HEADERS } from "@/lib/security-headers";
 
 function makeReq(path: string) {
   return new NextRequest(`http://localhost:3000${path}`);
+}
+function expectSecurityHeaders(res: NextResponse) {
+  for (const { key, value } of SECURITY_HEADERS) {
+    expect(res.headers.get(key), key).toBe(value);
+  }
 }
 function sessionOk(isAuthenticated: boolean, response = NextResponse.next()) {
   mockSession.value = { response, isAuthenticated };
@@ -46,7 +52,7 @@ describe("proxy — gate de sesión", () => {
     expect(await proxy(makeReq("/clients"))).toBe(passthrough);
   });
 
-  it("sin sesión en /clients: 303 a /login?next=%2Fclients", async () => {
+  it("sin sesión en /clients: 303 a /login?next=%2Fclients + headers de seguridad", async () => {
     sessionOk(false);
     const out = await proxy(makeReq("/clients?x=1"));
     expect(out.status).toBe(303);
@@ -54,6 +60,7 @@ describe("proxy — gate de sesión", () => {
     expect(loc).toContain("/login");
     expect(loc).toContain("next=%2Fclients%3Fx%3D1");
     expect(out.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expectSecurityHeaders(out);
   });
 
   it("sin sesión en /: 303 a /login sin parámetro next", async () => {
@@ -63,12 +70,26 @@ describe("proxy — gate de sesión", () => {
     expect(out.headers.get("location")!).toMatch(/\/login$/);
   });
 
-  it("propaga cookies de sesión refrescadas al redirect", async () => {
+  it("propaga cookies de sesión refrescadas al redirect, con todos sus atributos", async () => {
     const response = NextResponse.next();
-    response.cookies.set("sb-ref-auth-token", "refreshed");
+    response.cookies.set("sb-ref-auth-token", "refreshed", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 3600,
+    });
     sessionOk(false, response);
     const out = await proxy(makeReq("/clients"));
-    expect(out.cookies.get("sb-ref-auth-token")?.value).toBe("refreshed");
+    const c = out.cookies.get("sb-ref-auth-token");
+    expect(c?.value).toBe("refreshed");
+    expect(c?.httpOnly).toBe(true);
+    expect(c?.secure).toBe(true);
+    expect(c?.sameSite).toBe("lax");
+    expect(c?.path).toBe("/");
+    expect(c?.maxAge).toBe(3600);
+    // los headers de seguridad no interfieren con Set-Cookie
+    expectSecurityHeaders(out);
   });
 
   it("ruta pública: no invoca resolveProxySession", async () => {
@@ -77,32 +98,40 @@ describe("proxy — gate de sesión", () => {
     expect(out.status).toBe(200);
   });
 
-  it("sin sesión en /api/*: 401 JSON (no redirect)", async () => {
+  it("sin sesión en /api/*: 401 JSON (no redirect) + headers de seguridad", async () => {
     sessionOk(false);
     const out = await proxy(makeReq("/api/clients"));
     expect(out.status).toBe(401);
     expect(out.headers.get("location")).toBeNull();
     expect((await out.json()).error.code).toBe("UNAUTHENTICATED");
     expect(out.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expectSecurityHeaders(out);
   });
 
-  it("config ausente: 503 JSON en /api/*, 503 texto en página", async () => {
+  it("config ausente: 503 JSON en /api/*, 503 texto en página + headers de seguridad", async () => {
     sessionThrows(new SupabaseConfigError("faltan variables"));
     const api = await proxy(makeReq("/api/clients"));
     expect(api.status).toBe(503);
     expect((await api.json()).error.code).toBe("MISCONFIGURED");
+    expect(api.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expectSecurityHeaders(api);
 
     const page = await proxy(makeReq("/clients"));
     expect(page.status).toBe(503);
     expect(page.headers.get("content-type")).toContain("text/plain");
+    expect(page.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expectSecurityHeaders(page);
   });
 
-  it("error inesperado resolviendo la sesión: 500 controlado, nunca passthrough", async () => {
+  it("error inesperado resolviendo la sesión: 500 controlado + headers, nunca passthrough", async () => {
     sessionThrows(new Error("kaboom"));
-    expect((await proxy(makeReq("/clients"))).status).toBe(500);
+    const page = await proxy(makeReq("/clients"));
+    expect(page.status).toBe(500);
+    expectSecurityHeaders(page);
     const api = await proxy(makeReq("/api/clients"));
     expect(api.status).toBe(500);
     expect((await api.json()).error.code).toBe("INTERNAL");
+    expectSecurityHeaders(api);
   });
 });
 
