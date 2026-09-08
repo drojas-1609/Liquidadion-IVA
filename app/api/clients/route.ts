@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { buildClientInput } from "@/lib/api-input";
 import { serializeClient } from "@/lib/serializers";
 
 export async function GET() {
@@ -15,20 +14,21 @@ export async function GET() {
     }
 }
 
-export async function POST(request: Request) {
-    try {
-        const body = await request.json();
-
-        const parsed = buildClientInput(body);
-        if (!parsed.ok) {
-            return NextResponse.json({ error: parsed.error, field: parsed.field }, { status: parsed.status });
-        }
-
-        const newClient = await prisma.client.create({ data: parsed.data });
-
-        return NextResponse.json(serializeClient(newClient));
-    } catch (error) {
-        console.error("Error creating client:", error);
-        return NextResponse.json({ error: "Error creating client" }, { status: 500 });
-    }
+// Tarea 3A (temporal, hasta 3B): `Client.organizationId` pasó a ser
+// obligatorio. El alta de cliente necesita la organización del usuario
+// autenticado, que recién se resuelve en la Tarea 3B (capa de autorización).
+// Hasta entonces esta operación queda deshabilitada de forma explícita
+// (fail closed):
+//   - responde 501 SIEMPRE;
+//   - NO lee el body de la request => cualquier `organizationId` u otro campo
+//     enviado por el cliente se ignora por completo;
+//   - NO ejecuta ninguna escritura (no toca Prisma).
+export async function POST() {
+    return NextResponse.json(
+        {
+            error:
+                "El alta de clientes estará disponible al completar la autenticación y autorización (Tarea 3B).",
+        },
+        { status: 501, headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
 }
