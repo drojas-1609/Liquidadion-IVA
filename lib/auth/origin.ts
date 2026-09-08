@@ -94,7 +94,10 @@ function originFromRequest(req: RequestLike | undefined): URL | null {
   const h = req.headers;
   const host = firstToken(h.get("x-forwarded-host")) ?? firstToken(h.get("host"));
   if (!host || !HOST_RE.test(host)) return null;
-  const proto = (firstToken(h.get("x-forwarded-proto")) ?? "https").toLowerCase();
+  // Sin `x-forwarded-proto` explícito: localhost es http, el resto https.
+  const proto = (
+    firstToken(h.get("x-forwarded-proto")) ?? (isLocalHost(host) ? "http" : "https")
+  ).toLowerCase();
   if (proto !== "https" && proto !== "http") return null;
   return parseOrigin(`${proto}://${host}`);
 }
