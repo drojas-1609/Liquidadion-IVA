@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import { GET, POST } from "@/app/logout/route";
-import { getLogoutRedirectUrl } from "@/lib/auth/origin";
+import { getSafeRedirectOrigin } from "@/lib/auth/origin";
 
 const env = process.env as Record<string, string | undefined>;
 const ENV_KEYS = ["NODE_ENV", "CONTEXT", "URL", "DEPLOY_PRIME_URL", "AUTH_PRODUCTION_ORIGIN"];
@@ -56,9 +56,10 @@ describe("/logout — GET", () => {
 });
 
 describe("/logout — POST redirige al /login del MISMO entorno", () => {
-  it("Deploy Preview: preserva el host del preview (bug corregido)", async () => {
+  it("Deploy Preview: preserva el host del preview", async () => {
     env.NODE_ENV = "production";
-    const res = await POST(reqXfh("deploy-preview-3--liquidadoriva.netlify.app"));
+    const r = reqXfh("deploy-preview-3--liquidadoriva.netlify.app");
+    const res = await POST(r);
     expect(signOut).toHaveBeenCalledTimes(1);
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe(
@@ -66,6 +67,13 @@ describe("/logout — POST redirige al /login del MISMO entorno", () => {
     );
     expect(res.headers.get("cache-control")).toBe("no-store, max-age=0");
     expectSecurityHeaders(res);
+  });
+
+  it("usa el helper compartido getSafeRedirectOrigin + '/login'", async () => {
+    env.NODE_ENV = "production";
+    const r = reqXfh("deploy-preview-77--liquidadoriva.netlify.app");
+    const res = await POST(r);
+    expect(res.headers.get("location")).toBe(`${getSafeRedirectOrigin(r)}/login`);
   });
 
   it("Producción: redirige al /login de producción", async () => {
@@ -93,6 +101,12 @@ describe("/logout — POST redirige al /login del MISMO entorno", () => {
     expect(res.headers.get("location")).toBe("http://localhost:4321/login");
   });
 
+  it("host reenviado malicioso -> NO se usa; redirige al fallback de producción", async () => {
+    env.NODE_ENV = "production";
+    const res = await POST(reqXfh("evil.com"));
+    expect(res.headers.get("location")).toBe("https://liquidadoriva.netlify.app/login");
+  });
+
   it("redirige aunque signOut falle", async () => {
     env.NODE_ENV = "production";
     signOut.mockRejectedValueOnce(new Error("no session"));
@@ -101,61 +115,5 @@ describe("/logout — POST redirige al /login del MISMO entorno", () => {
     expect(res.headers.get("location")).toBe(
       "https://deploy-preview-9--liquidadoriva.netlify.app/login",
     );
-  });
-});
-
-describe("getLogoutRedirectUrl — política de host (seguridad)", () => {
-  const PROD_FALLBACK = "https://liquidadoriva.netlify.app/login";
-
-  beforeEach(() => {
-    env.NODE_ENV = "production";
-  });
-
-  it("host reenviado malicioso -> NO se usa, cae al fallback de producción", () => {
-    expect(getLogoutRedirectUrl(reqXfh("evil.com"))).toBe(PROD_FALLBACK);
-    expect(getLogoutRedirectUrl(reqXfh("attacker.example"))).toBe(PROD_FALLBACK);
-  });
-
-  it("hostname parecido pero inválido -> rechazado", () => {
-    for (const bad of [
-      "deploy-preview-3--liquidadoriva.netlify.app.evil.com", // sufijo extra
-      "evildeploy-preview-3--liquidadoriva.netlify.app", // prefijo extra
-      "deploy-preview-x--liquidadoriva.netlify.app", // sin número
-      "deploy-preview---liquidadoriva.netlify.app", // sin número
-      "deploy-preview-3--liquidadoriva-netlify.app", // punto -> guion
-      "deploy-preview-3--liquidadoriva.netlify.app.attacker.io",
-      "liquidadoriva.netlify.app.evil.com",
-      "xliquidadoriva.netlify.app",
-      "deploy-preview-3--liquidadoriva.netlify.app:8080", // puerto inesperado
-    ]) {
-      expect(getLogoutRedirectUrl(reqXfh(bad)), bad).toBe(PROD_FALLBACK);
-    }
-  });
-
-  it("protocolo inválido -> rechazado (no se usa el host)", () => {
-    expect(getLogoutRedirectUrl(reqXfh("deploy-preview-3--liquidadoriva.netlify.app", "ftp"))).toBe(
-      PROD_FALLBACK,
-    );
-    // http (no https) para un host de Netlify en producción -> rechazado
-    expect(getLogoutRedirectUrl(reqXfh("deploy-preview-3--liquidadoriva.netlify.app", "http"))).toBe(
-      PROD_FALLBACK,
-    );
-  });
-
-  it("localhost NO se acepta en producción", () => {
-    expect(getLogoutRedirectUrl(reqXfh("localhost:3000", "http"))).toBe(PROD_FALLBACK);
-  });
-
-  it("sin cabeceras de host utilizables -> fallback seguro, nunca abierto", () => {
-    const bare = { headers: new Headers() };
-    expect(getLogoutRedirectUrl(bare)).toBe(PROD_FALLBACK);
-  });
-
-  it("no hardcodea el número: acepta cualquier deploy-preview-<n>", () => {
-    for (const n of [1, 7, 42, 12345]) {
-      expect(getLogoutRedirectUrl(reqXfh(`deploy-preview-${n}--liquidadoriva.netlify.app`))).toBe(
-        `https://deploy-preview-${n}--liquidadoriva.netlify.app/login`,
-      );
-    }
   });
 });

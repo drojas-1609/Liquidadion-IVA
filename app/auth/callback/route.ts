@@ -4,6 +4,7 @@ import type { EmailOtpType } from "@supabase/supabase-js";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseConfigError } from "@/lib/supabase/env";
 import { buildSafeRedirect } from "@/lib/auth/origin";
+import { applySecurityHeaders } from "@/lib/security-headers";
 
 /**
  * Callback de los enlaces de correo de Supabase.
@@ -12,11 +13,13 @@ import { buildSafeRedirect } from "@/lib/auth/origin";
  *   - `?code=...`               -> exchangeCodeForSession (flujo PKCE).
  *   - `?token_hash=...&type=...` -> verifyOtp (flujo de token hasheado).
  *
- * Redirige SIEMPRE a un path interno (`next` saneado) sobre un origen
- * confiable; nunca a una URL provista por el cliente. La elección final del
- * formato y el ajuste de las plantillas de correo se cierran cuando haya
- * acceso a Supabase (fuera de la Etapa A).
+ * Redirige SIEMPRE a un path interno (`next` saneado) sobre el origen VALIDADO
+ * del entorno donde se originó la request (`buildSafeRedirect` ->
+ * `getSafeRedirectOrigin`, misma allow-list estricta que el logout). Nunca a
+ * una URL provista por el cliente ni a un Host crudo.
  */
+const NO_STORE = "no-store, max-age=0";
+
 const OTP_TYPES: readonly EmailOtpType[] = [
   "email",
   "recovery",
@@ -25,6 +28,13 @@ const OTP_TYPES: readonly EmailOtpType[] = [
   "signup",
   "email_change",
 ];
+
+/** Encabezados terminales: no-store + set de seguridad (sin tocar cookies). */
+function terminal(res: NextResponse): NextResponse {
+  res.headers.set("Cache-Control", NO_STORE);
+  applySecurityHeaders(res.headers);
+  return res;
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
@@ -38,9 +48,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     supabase = await getSupabaseServerClient();
   } catch (err) {
     if (isSupabaseConfigError(err)) {
-      return NextResponse.redirect(buildSafeRedirect("/login?error=config", request), {
-        status: 303,
-      });
+      return terminal(
+        NextResponse.redirect(buildSafeRedirect("/login?error=config", request), { status: 303 }),
+      );
     }
     throw err;
   }
@@ -57,12 +67,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
     ok = !error;
   } else {
-    return NextResponse.json({ error: "Parámetros de callback inválidos." }, { status: 400 });
+    return terminal(
+      NextResponse.json({ error: "Parámetros de callback inválidos." }, { status: 400 }),
+    );
   }
 
   const target = ok
     ? buildSafeRedirect(next, request)
     : buildSafeRedirect("/login?error=auth", request);
 
-  return NextResponse.redirect(target, { status: 303 });
+  return terminal(NextResponse.redirect(target, { status: 303 }));
 }

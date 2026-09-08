@@ -149,50 +149,54 @@ export function getTrustedOrigin(req?: RequestLike): string {
 }
 
 /**
- * Allow-list ESTRICTA para la redirección post-logout: sólo el patrón EXACTO
- * `deploy-preview-<número>--liquidadoriva.netlify.app`. No matchea branch
- * deploys (`mi-branch--…`) ni hostnames parecidos.
+ * Allow-list ESTRICTA de hosts para redirecciones ABSOLUTAS (post-logout,
+ * callback de correo). Sólo el patrón EXACTO
+ * `deploy-preview-<número>--liquidadoriva.netlify.app` — el número NO se
+ * hardcodea. No matchea branch deploys (`mi-branch--…`) ni hostnames parecidos.
  */
-const LOGOUT_PREVIEW_HOST_RE = new RegExp(
+const PREVIEW_DEPLOY_HOST_RE = new RegExp(
   `^deploy-preview-\\d+--${SITE.replace(/\./g, "\\.")}$`,
   "i",
 );
 
-function isAllowedLogoutHost(host: string, dev: boolean): boolean {
+function isAllowedRedirectHost(host: string, dev: boolean): boolean {
   const h = host.toLowerCase();
   if (dev && isLocalHost(h)) return true; // localhost[:PORT] sólo en desarrollo
   if (h === SITE) return true; // liquidadoriva.netlify.app exacto
-  if (LOGOUT_PREVIEW_HOST_RE.test(h)) return true; // deploy-preview-<n>--…
+  if (PREVIEW_DEPLOY_HOST_RE.test(h)) return true; // deploy-preview-<n>--…
   const prod = parseOrigin(process.env.AUTH_PRODUCTION_ORIGIN);
   return prod != null && prod.protocol === "https:" && h === prod.host.toLowerCase();
 }
 
 /**
- * URL absoluta de `/login` para la redirección tras `POST /logout`.
+ * Origen (`scheme://host[:port]`) al que es seguro redirigir de forma ABSOLUTA,
+ * preservando el entorno donde se originó la request. Lo usan tanto el logout
+ * (`app/logout/route.ts`) como el callback de correo (`app/auth/callback`),
+ * vía `buildSafeRedirect`.
  *
- * Preserva el host del entorno donde se originó la request (tomado de
- * `X-Forwarded-Host` / `Host`) PERO sólo si pasa la allow-list estricta
- * (`isAllowedLogoutHost`) con protocolo HTTPS — HTTP se acepta únicamente para
- * localhost en desarrollo. Si el host no valida (o no hay), cae a
+ * Toma el host de `X-Forwarded-Host` / `Host` y lo usa SÓLO si pasa la
+ * allow-list estricta (`isAllowedRedirectHost`) con HTTPS — HTTP únicamente
+ * para localhost en desarrollo. Si no valida (o no hay request), cae a
  * `getTrustedOrigin` (localhost en dev / origen de producción conocido).
- * El path es SIEMPRE el literal `/login`: nunca una redirección abierta.
+ * NUNCA un host controlado por el usuario; el path lo agrega el llamador.
  *
  * Motivo: en el runtime de las funciones de Netlify, `CONTEXT` / `URL` /
  * `DEPLOY_PRIME_URL` son variables de BUILD y no están en el entorno, así que
  * `getTrustedOrigin` no puede distinguir un Deploy Preview y resuelve al
- * origen de producción.
+ * origen de producción. La fuente confiable en runtime es el host de la
+ * request, validado.
  */
-export function getLogoutRedirectUrl(req?: RequestLike): string {
+export function getSafeRedirectOrigin(req?: RequestLike): string {
   const dev = process.env.NODE_ENV !== "production";
   const fromReq = originFromRequest(req);
   if (fromReq) {
     const httpsOk = fromReq.protocol === "https:";
     const httpLocalOk = fromReq.protocol === "http:" && dev && isLocalHost(fromReq.host);
-    if ((httpsOk || httpLocalOk) && isAllowedLogoutHost(fromReq.host, dev)) {
-      return `${fromReq.origin}/login`;
+    if ((httpsOk || httpLocalOk) && isAllowedRedirectHost(fromReq.host, dev)) {
+      return fromReq.origin;
     }
   }
-  return `${getTrustedOrigin(req)}/login`;
+  return getTrustedOrigin(req);
 }
 
 /**
@@ -223,11 +227,15 @@ export function sanitizeNext(raw: string | null | undefined, fallback = "/"): st
   return raw;
 }
 
-/** Construye una URL absoluta segura: origen confiable + `next` saneado. */
+/**
+ * URL absoluta segura: origen validado del entorno de la request
+ * (`getSafeRedirectOrigin`) + `next` saneado a path interno (`sanitizeNext`).
+ * Nunca una redirección abierta.
+ */
 export function buildSafeRedirect(
   nextParam: string | null | undefined,
   req?: RequestLike,
   fallbackPath = "/",
 ): string {
-  return `${getTrustedOrigin(req)}${sanitizeNext(nextParam, fallbackPath)}`;
+  return `${getSafeRedirectOrigin(req)}${sanitizeNext(nextParam, fallbackPath)}`;
 }
