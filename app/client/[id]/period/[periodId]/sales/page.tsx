@@ -1,5 +1,8 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
+import { ROLES_READ } from "@/lib/auth/roles";
+import { AccessNotice } from "@/app/_components/access-notice";
 import { formatMoney } from "@/lib/format";
 
 
@@ -8,13 +11,18 @@ export const dynamic = "force-dynamic";
 export default async function SalesPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
     const { id, periodId } = await params;
 
-    const invoices = await prisma.invoice.findMany({
-        where: {
-            periodId,
-            category: "SALES",
-        },
-        orderBy: { date: "desc" },
+    const guard = await guardPage(async () => {
+        const { profileId } = await requireAuthenticatedProfile();
+        const { organizationId } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
+            expectClientId: id,
+        });
+        return prisma.invoice.findMany({
+            where: { periodId, organizationId, category: "SALES" },
+            orderBy: { date: "desc" },
+        });
     });
+    if (!guard.ok) return <AccessNotice notice={guard.notice} />;
+    const invoices = guard.data;
 
     return (
         <div className="container">

@@ -1,5 +1,8 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
+import { ROLES_READ } from "@/lib/auth/roles";
+import { AccessNotice } from "@/app/_components/access-notice";
 import { formatMoney } from "@/lib/format";
 
 
@@ -8,10 +11,18 @@ export const dynamic = "force-dynamic";
 export default async function TaxesPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
     const { id, periodId } = await params;
 
-    const taxes = await prisma.taxRecord.findMany({
-        where: { periodId },
-        orderBy: { date: "desc" },
+    const guard = await guardPage(async () => {
+        const { profileId } = await requireAuthenticatedProfile();
+        const { organizationId } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
+            expectClientId: id,
+        });
+        return prisma.taxRecord.findMany({
+            where: { periodId, organizationId },
+            orderBy: { date: "desc" },
+        });
     });
+    if (!guard.ok) return <AccessNotice notice={guard.notice} />;
+    const taxes = guard.data;
 
     return (
         <div className="container">
