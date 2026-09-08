@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
  *
  * En 3A estas clases se definen y se testean; el cableado en los handlers es 3B.
  */
-export type AuthErrorCode = "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND";
+export type AuthErrorCode = "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND" | "MISCONFIGURED";
 
 export class AuthError extends Error {
   readonly code: AuthErrorCode;
@@ -45,6 +45,17 @@ export class NotFoundError extends AuthError {
   }
 }
 
+/**
+ * Configuración de autenticación ausente o inválida. NUNCA se debe degradar a
+ * acceso anónimo: se responde 503 y se niega el acceso.
+ */
+export class MisconfiguredError extends AuthError {
+  constructor(message = "Servicio de autenticación no disponible.") {
+    super("MISCONFIGURED", 503, message);
+    this.name = "MisconfiguredError";
+  }
+}
+
 export function isAuthError(value: unknown): value is AuthError {
   return value instanceof AuthError;
 }
@@ -54,12 +65,14 @@ export function authErrorBody(err: AuthError): { error: { code: AuthErrorCode; m
   return { error: { code: err.code, message: err.message } };
 }
 
+const NO_STORE = { "Cache-Control": "no-store, max-age=0" } as const;
+
 export function authErrorResponse(err: unknown): NextResponse {
   if (isAuthError(err)) {
-    return NextResponse.json(authErrorBody(err), { status: err.status });
+    return NextResponse.json(authErrorBody(err), { status: err.status, headers: NO_STORE });
   }
   return NextResponse.json(
     { error: { code: "INTERNAL", message: "Error interno." } },
-    { status: 500 },
+    { status: 500, headers: NO_STORE },
   );
 }

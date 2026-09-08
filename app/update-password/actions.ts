@@ -3,7 +3,9 @@
 import { redirect } from "next/navigation";
 
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseConfigError } from "@/lib/supabase/env";
 import { getAuthClaims } from "@/lib/auth/claims";
+import { isAuthError } from "@/lib/auth/errors";
 
 export interface UpdatePasswordState {
   error: string | null;
@@ -33,14 +35,29 @@ export async function updatePasswordAction(
     return { error: "Las contraseñas no coinciden." };
   }
 
-  const claims = await getAuthClaims();
+  let claims: Awaited<ReturnType<typeof getAuthClaims>>;
+  try {
+    claims = await getAuthClaims();
+  } catch (err) {
+    if (isSupabaseConfigError(err) || isAuthError(err)) {
+      return { error: "El servicio de autenticación no está disponible en este momento." };
+    }
+    throw err;
+  }
   if (!claims) {
     return { error: "El enlace de recuperación no es válido o expiró. Pedí uno nuevo." };
   }
 
-  const supabase = await getSupabaseServerClient();
-  const { error } = await supabase.auth.updateUser({ password });
-  if (error) {
+  try {
+    const supabase = await getSupabaseServerClient();
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) {
+      return { error: "No se pudo actualizar la contraseña. Probá de nuevo." };
+    }
+  } catch (err) {
+    if (isSupabaseConfigError(err)) {
+      return { error: "El servicio de autenticación no está disponible en este momento." };
+    }
     return { error: "No se pudo actualizar la contraseña. Probá de nuevo." };
   }
 

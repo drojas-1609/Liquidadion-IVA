@@ -1,7 +1,8 @@
 import "server-only";
 
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { UnauthenticatedError } from "@/lib/auth/errors";
+import { isSupabaseConfigError } from "@/lib/supabase/env";
+import { MisconfiguredError, UnauthenticatedError } from "@/lib/auth/errors";
 
 /**
  * Identidad verificada del usuario para el servidor.
@@ -36,12 +37,29 @@ function normalizeClaims(input: unknown): AuthClaims | null {
  * Usa `supabase.auth.getClaims()`, que verifica la firma del JWT localmente
  * (WebCrypto + JWKS) cuando el proyecto usa claves asimétricas (dev: ES256).
  * NUNCA se usa `getSession()` para decidir acceso.
+ *
+ * Fail-closed:
+ *  - configuración ausente/inválida  -> lanza `MisconfiguredError` (503). NO se
+ *    transforma en acceso anónimo.
+ *  - cualquier otro fallo (red, verificación, excepción de getClaims, sin sub)
+ *    -> `null` (sin sesión). El llamador debe negar el acceso.
  */
 export async function getAuthClaims(): Promise<AuthClaims | null> {
-  const supabase = await getSupabaseServerClient();
-  const { data, error } = await supabase.auth.getClaims();
-  if (error) return null;
-  return normalizeClaims(data?.claims ?? null);
+  let supabase: Awaited<ReturnType<typeof getSupabaseServerClient>>;
+  try {
+    supabase = await getSupabaseServerClient();
+  } catch (err) {
+    if (isSupabaseConfigError(err)) throw new MisconfiguredError();
+    throw err;
+  }
+
+  try {
+    const { data, error } = await supabase.auth.getClaims();
+    if (error) return null;
+    return normalizeClaims(data?.claims ?? null);
+  } catch {
+    return null;
+  }
 }
 
 /** Igual que `getAuthClaims` pero lanza `UnauthenticatedError` si no hay sesión. */

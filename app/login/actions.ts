@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseConfigError } from "@/lib/supabase/env";
 import { sanitizeNext } from "@/lib/auth/origin";
 
 export interface LoginState {
@@ -28,10 +29,19 @@ export async function loginAction(
     return { error: "Ingresá tu correo y contraseña." };
   }
 
-  const supabase = await getSupabaseServerClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  let signInError: unknown = null;
+  try {
+    const supabase = await getSupabaseServerClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    signInError = error;
+  } catch (err) {
+    if (isSupabaseConfigError(err)) {
+      return { error: "El servicio de autenticación no está disponible en este momento." };
+    }
+    return { error: "No se pudo iniciar sesión. Probá de nuevo en unos minutos." };
+  }
 
-  if (error) {
+  if (signInError) {
     return { error: "Credenciales inválidas." };
   }
 

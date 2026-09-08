@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseConfigError } from "@/lib/supabase/env";
 import { buildSafeRedirect } from "@/lib/auth/origin";
 
 /**
@@ -32,7 +33,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const type = params.get("type");
   const next = params.get("next");
 
-  const supabase = await getSupabaseServerClient();
+  let supabase: Awaited<ReturnType<typeof getSupabaseServerClient>>;
+  try {
+    supabase = await getSupabaseServerClient();
+  } catch (err) {
+    if (isSupabaseConfigError(err)) {
+      return NextResponse.redirect(buildSafeRedirect("/login?error=config", request), {
+        status: 303,
+      });
+    }
+    throw err;
+  }
+
   let ok: boolean;
 
   if (code) {

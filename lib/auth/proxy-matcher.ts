@@ -3,9 +3,10 @@
  * login): el propio login, el flujo de recuperación, el callback de correo,
  * el logout y los assets estáticos.
  *
- * `PROXY_MATCHER` (para `config.matcher`) y `isPublicPath` (chequeo en runtime)
- * describen el mismo conjunto; el test `proxy-gate.test.ts` verifica que no se
- * desincronicen.
+ * `PROXY_MATCHER` (para `config.matcher`, inline en proxy.ts) e `isPublicPath`
+ * (chequeo en runtime) describen el mismo conjunto; `proxy-gate.test.ts`
+ * verifica que no se desincronicen. La lista de rutas de auth se matchea por
+ * SEGMENTO EXACTO (p. ej. `/logout`, `/logout/...`, pero no `/logout-x`).
  */
 export const PUBLIC_PREFIXES = [
   "/login",
@@ -24,5 +25,6 @@ export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
+/** Igual, carácter por carácter, al literal de `config.matcher` en proxy.ts. */
 export const PROXY_MATCHER =
-  "/((?!_next/static|_next/image|favicon.ico|robots.txt|login|reset-password|update-password|logout|auth/callback|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|woff2?|ttf|txt)$).*)";
+  "/((?!_next/|favicon\\.ico$|robots\\.txt$|login(?:/|$)|reset-password(?:/|$)|update-password(?:/|$)|logout(?:/|$)|auth/callback(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|woff2?|ttf|txt)$).*)";
