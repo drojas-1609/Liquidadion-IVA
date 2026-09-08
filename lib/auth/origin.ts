@@ -149,6 +149,53 @@ export function getTrustedOrigin(req?: RequestLike): string {
 }
 
 /**
+ * Allow-list ESTRICTA para la redirección post-logout: sólo el patrón EXACTO
+ * `deploy-preview-<número>--liquidadoriva.netlify.app`. No matchea branch
+ * deploys (`mi-branch--…`) ni hostnames parecidos.
+ */
+const LOGOUT_PREVIEW_HOST_RE = new RegExp(
+  `^deploy-preview-\\d+--${SITE.replace(/\./g, "\\.")}$`,
+  "i",
+);
+
+function isAllowedLogoutHost(host: string, dev: boolean): boolean {
+  const h = host.toLowerCase();
+  if (dev && isLocalHost(h)) return true; // localhost[:PORT] sólo en desarrollo
+  if (h === SITE) return true; // liquidadoriva.netlify.app exacto
+  if (LOGOUT_PREVIEW_HOST_RE.test(h)) return true; // deploy-preview-<n>--…
+  const prod = parseOrigin(process.env.AUTH_PRODUCTION_ORIGIN);
+  return prod != null && prod.protocol === "https:" && h === prod.host.toLowerCase();
+}
+
+/**
+ * URL absoluta de `/login` para la redirección tras `POST /logout`.
+ *
+ * Preserva el host del entorno donde se originó la request (tomado de
+ * `X-Forwarded-Host` / `Host`) PERO sólo si pasa la allow-list estricta
+ * (`isAllowedLogoutHost`) con protocolo HTTPS — HTTP se acepta únicamente para
+ * localhost en desarrollo. Si el host no valida (o no hay), cae a
+ * `getTrustedOrigin` (localhost en dev / origen de producción conocido).
+ * El path es SIEMPRE el literal `/login`: nunca una redirección abierta.
+ *
+ * Motivo: en el runtime de las funciones de Netlify, `CONTEXT` / `URL` /
+ * `DEPLOY_PRIME_URL` son variables de BUILD y no están en el entorno, así que
+ * `getTrustedOrigin` no puede distinguir un Deploy Preview y resuelve al
+ * origen de producción.
+ */
+export function getLogoutRedirectUrl(req?: RequestLike): string {
+  const dev = process.env.NODE_ENV !== "production";
+  const fromReq = originFromRequest(req);
+  if (fromReq) {
+    const httpsOk = fromReq.protocol === "https:";
+    const httpLocalOk = fromReq.protocol === "http:" && dev && isLocalHost(fromReq.host);
+    if ((httpsOk || httpLocalOk) && isAllowedLogoutHost(fromReq.host, dev)) {
+      return `${fromReq.origin}/login`;
+    }
+  }
+  return `${getTrustedOrigin(req)}/login`;
+}
+
+/**
  * Sanea el parámetro `next`: debe ser un path interno.
  *  - empieza con "/" y NO con "//"  (nada de protocol-relative)
  *  - sin "\" (evita `/\evil.com`)
