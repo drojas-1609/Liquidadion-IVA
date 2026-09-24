@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { D, computeVatAmount, computeTotalAmount, moneyInRange, MONEY_MAX } from "./decimal";
 import { parseMoney, parseRate } from "./validation/decimal";
+import { normalizeCuit } from "./cuit";
 
 /**
  * Construcción y validación de los `data` de creación para las rutas de API.
@@ -93,7 +94,8 @@ export function buildInvoiceInput(body: unknown): InputResult<InvoiceCreateData>
 
   if (!nonEmptyString(b.type)) return fail("type", "tipo de comprobante requerido");
   if (!nonEmptyString(b.entityName)) return fail("entityName", "razón social requerida");
-  if (!nonEmptyString(b.entityCuit)) return fail("entityCuit", "CUIT requerido");
+  const entityCuit = normalizeCuit(b.entityCuit);
+  if (!entityCuit.ok) return fail("entityCuit", entityCuit.error);
   if (!nonEmptyString(b.periodId)) return fail("periodId", "periodId requerido");
 
   const category = b.category;
@@ -133,7 +135,7 @@ export function buildInvoiceInput(body: unknown): InputResult<InvoiceCreateData>
       pointOfSale,
       number,
       entityName: b.entityName,
-      entityCuit: b.entityCuit,
+      entityCuit: entityCuit.value,
       netAmount: net.value,
       vatRate: rate.value,
       vatAmount,
@@ -196,7 +198,10 @@ export function buildClientInput(body: unknown): InputResult<ClientCreateData> {
   const b = body as Record<string, unknown>;
 
   if (!nonEmptyString(b.name)) return fail("name", "nombre requerido");
-  if (!nonEmptyString(b.cuit)) return fail("cuit", "CUIT requerido");
+  // Canónico NN-NNNNNNNN-N antes de persistir: la unicidad por organización
+  // compara siempre el mismo formato.
+  const cuit = normalizeCuit(b.cuit);
+  if (!cuit.ok) return fail("cuit", cuit.error);
   if (!nonEmptyString(b.condition)) return fail("condition", "condición fiscal requerida");
 
   const address =
@@ -215,5 +220,5 @@ export function buildClientInput(body: unknown): InputResult<ClientCreateData> {
     defaultIibbRate = parsed.value;
   }
 
-  return { ok: true, data: { name: b.name, cuit: b.cuit, condition: b.condition, address, defaultIibbRate } };
+  return { ok: true, data: { name: b.name, cuit: cuit.value, condition: b.condition, address, defaultIibbRate } };
 }

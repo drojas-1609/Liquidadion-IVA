@@ -50,7 +50,7 @@ const valid = {
   pointOfSale: "1",
   number: "1001",
   entityName: "Proveedor SA",
-  entityCuit: "30-99999999-1",
+  entityCuit: "30-99999999-5",
   netAmount: "1000",
   vatRate: "21",
   category: "PURCHASES",
@@ -81,6 +81,20 @@ describe("POST /api/invoices", () => {
     });
     // el AuditLog NUNCA lleva importes ni contraparte
     expect(JSON.stringify(rec.audits[0])).not.toMatch(/1000|210|Proveedor|30-99999999/);
+  });
+
+  it("entityCuit sin separadores se persiste canónico; inválido -> 422 sin escritura", async () => {
+    const ok = await post(jbody({ ...valid, entityCuit: "30 99999999 5" }));
+    expect(ok.status).toBe(201);
+    expect(rec.created.invoice.entityCuit).toBe("30-99999999-5");
+
+    rec.created = {};
+    rec.audits.length = 0;
+    const bad = await post(jbody({ ...valid, entityCuit: "30-99999999-1" }));
+    expect(bad.status).toBe(422);
+    expect((await bad.json()).field).toBe("entityCuit");
+    expect(rec.created.invoice).toBeUndefined();
+    expect(rec.audits).toHaveLength(0);
   });
 
   it("periodId de otra organización -> 404 NOT_FOUND, sin escritura", async () => {

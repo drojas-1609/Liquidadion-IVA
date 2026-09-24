@@ -13,7 +13,7 @@ const baseInvoice = {
   pointOfSale: "1",
   number: "1001",
   entityName: "X",
-  entityCuit: "30-1",
+  entityCuit: "30-99999999-5",
   category: "SALES",
   periodId: "p1",
 };

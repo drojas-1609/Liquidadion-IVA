@@ -67,7 +67,7 @@ function clientRow(id: string, organizationId: string): ClientRow {
     id,
     organizationId,
     name: "Cliente " + id,
-    cuit: "30-00000000-0",
+    cuit: "30-00000000-7",
     condition: "Responsable Inscripto",
     address: null,
     defaultIibbRate: new Prisma.Decimal("3"),

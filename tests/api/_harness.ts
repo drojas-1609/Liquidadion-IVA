@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import { Prisma } from "@prisma/client";
 import type { Role } from "@prisma/client";
+import { cuitCheckDigit } from "@/lib/cuit";
 
 /**
  * Utilidades compartidas para los tests de rutas API de la Tarea 3B.
@@ -52,12 +53,22 @@ export interface PeriodRow {
   updatedAt: Date;
 }
 
+/** CUIT ficticio y válido (DV módulo 11) derivado del id del fixture. */
+function fixtureCuit(id: string): string {
+  const mid = id.replace(/\D/g, "").padStart(8, "0").slice(-8);
+  for (const prefix of ["30", "33", "20", "27"]) {
+    const dv = cuitCheckDigit(prefix + mid);
+    if (dv !== null) return `${prefix}-${mid}-${dv}`;
+  }
+  throw new Error(`sin CUIT válido para ${id}`);
+}
+
 export function clientRow(id: string, organizationId: string, over: Partial<ClientRow> = {}): ClientRow {
   return {
     id,
     organizationId,
     name: `Cliente ${id}`,
-    cuit: `30-${id.replace(/\D/g, "").padStart(8, "0")}-1`,
+    cuit: fixtureCuit(id),
     condition: "Responsable Inscripto",
     address: null,
     defaultIibbRate: new Prisma.Decimal("3"),

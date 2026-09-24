@@ -5,7 +5,7 @@ import { generateLiquidationExcel, toXlsxNumber } from "@/lib/excel";
 const sampleData = {
   period: "01/2026",
   client: "X SA",
-  cuit: "30-1",
+  cuit: "30-11111111-8",
   sales: { net: "150000.00", vat: "26250.00", total: "176250.00" },
   purchases: { net: "80000.00", vat: "16800.00", total: "96800.00" },
   iva: { debit: "26250.00", credit: "16800.00", balance: "9450.00", retentions: "1234.56", payable: "8215.44" },

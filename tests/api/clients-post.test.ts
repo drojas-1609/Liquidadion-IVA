@@ -40,7 +40,7 @@ beforeEach(() => {
   db = freshDbMock();
   rec = freshRecorder();
   const world = makeWorld({
-    clients: [clientRow("c_a_existing", ORG_A, { cuit: "30-11111111-1" })],
+    clients: [clientRow("c_a_existing", ORG_A, { cuit: "30-11111111-8" })],
   });
   wireDb(db, world, rec);
   H.db.current = db;
@@ -58,14 +58,14 @@ function post(bodyText: string | undefined) {
   );
 }
 const jbody = (o: unknown) => JSON.stringify(o);
-const validBody = { name: "Nueva SA", cuit: "30-22222222-2", condition: "Responsable Inscripto" };
+const validBody = { name: "Nueva SA", cuit: "30-22222222-9", condition: "Responsable Inscripto" };
 
 describe("POST /api/clients — rehabilitación segura", () => {
   it("201: crea el cliente en la org activa, con autoría y AuditLog client.create", async () => {
     const res = await post(jbody(validBody));
     expect(res.status).toBe(201);
     const dto = await res.json();
-    expect(dto).toMatchObject({ name: "Nueva SA", cuit: "30-22222222-2", defaultIibbRate: "3" });
+    expect(dto).toMatchObject({ name: "Nueva SA", cuit: "30-22222222-9", defaultIibbRate: "3" });
     expect(typeof dto.defaultIibbRate).toBe("string");
     expect(res.headers.get("cache-control")).toBe("no-store, max-age=0");
 
@@ -86,7 +86,7 @@ describe("POST /api/clients — rehabilitación segura", () => {
   it("AuditLog.metadata de client.create = { condition } y NUNCA el cuit", async () => {
     await post(jbody(validBody));
     expect(rec.audits[0].metadata).toEqual({ condition: "Responsable Inscripto" });
-    expect(JSON.stringify(rec.audits[0])).not.toMatch(/30-22222222-2/);
+    expect(JSON.stringify(rec.audits[0])).not.toMatch(/30-22222222-9/);
     // targetId es el id del cliente creado
     expect(rec.audits[0].targetId).toBe(rec.audits[0].targetId);
   });
@@ -157,12 +157,47 @@ describe("POST /api/clients — rehabilitación segura", () => {
   });
 
   it("CUIT duplicado en la organización -> 409 CONFLICT genérico, sin escritura ni audit", async () => {
-    const res = await post(jbody({ ...validBody, cuit: "30-11111111-1" }));
+    const res = await post(jbody({ ...validBody, cuit: "30-11111111-8" }));
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error.code).toBe("CONFLICT");
     expect(JSON.stringify(body)).not.toMatch(/constraint|P2002|cuit/i);
     expect(rec.audits).toHaveLength(0);
+  });
+
+  it.each(["30111111118", "30 11111111 8", "30.11111111.8", " 30-11111111-8 "])(
+    "CUIT equivalente %j al existente en la organización -> 409 CONFLICT (se normaliza antes de la unicidad)",
+    async (cuit) => {
+      const res = await post(jbody({ ...validBody, cuit }));
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe("CONFLICT");
+      expect(rec.created.client).toBeUndefined();
+      expect(rec.audits).toHaveLength(0);
+    },
+  );
+
+  it("201: un CUIT sin separadores se persiste en formato canónico NN-NNNNNNNN-N", async () => {
+    const res = await post(jbody({ ...validBody, cuit: "30222222229" }));
+    expect(res.status).toBe(201);
+    expect(rec.created.client.cuit).toBe("30-22222222-9");
+    expect((await res.json()).cuit).toBe("30-22222222-9");
+  });
+
+  it("CUIT inválido -> 422 field=cuit, sin escritura ni audit", async () => {
+    for (const cuit of ["30-1", "30-22222222-2", "30-2222222A-9", "30/22222222/9"]) {
+      const res = await post(jbody({ ...validBody, cuit }));
+      expect(res.status, cuit).toBe(422);
+      expect((await res.json()).field).toBe("cuit");
+    }
+    expect(rec.created.client).toBeUndefined();
+    expect(rec.audits).toHaveLength(0);
+  });
+
+  it("aislamiento: el mismo CUIT (en otro formato) puede existir en otra organización", async () => {
+    H.claims.value = claimsFor(SUB_OWNER_B);
+    const res = await post(jbody({ ...validBody, cuit: "30111111118" }));
+    expect(res.status).toBe(201);
+    expect(rec.created.client).toMatchObject({ organizationId: ORG_B, cuit: "30-11111111-8" });
   });
 
   it("VIEWER con body válido -> 403 FORBIDDEN (no crea)", async () => {

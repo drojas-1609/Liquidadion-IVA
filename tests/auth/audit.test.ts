@@ -10,17 +10,17 @@ describe("sanitizeAuditMetadata — allow-list por acción", () => {
   it("client.create: SÓLO `condition`, nunca `cuit` ni importes", () => {
     const out = sanitizeAuditMetadata("client.create", {
       condition: "Responsable Inscripto",
-      cuit: "30-12345678-9",
+      cuit: "30-12345678-1",
       name: "ACME SA",
       defaultIibbRate: "3.5",
       organizationId: "org_x",
     });
     expect(out).toEqual({ condition: "Responsable Inscripto" });
-    expect(JSON.stringify(out)).not.toMatch(/30-12345678-9|iibb|org_x|ACME/i);
+    expect(JSON.stringify(out)).not.toMatch(/30-12345678-1|iibb|org_x|ACME/i);
   });
 
   it("client.create sin condition útil -> {}", () => {
-    expect(sanitizeAuditMetadata("client.create", { cuit: "30-1" })).toEqual({});
+    expect(sanitizeAuditMetadata("client.create", { cuit: "30-11111111-8" })).toEqual({});
   });
 
   it("period.create: clientId, month, year", () => {
@@ -142,7 +142,7 @@ describe("recordAudit", () => {
       action: "client.create",
       targetType: "Client",
       targetId: "c1",
-      metadata: { condition: "RI", cuit: "30-1" },
+      metadata: { condition: "RI", cuit: "30-11111111-8" },
     });
     expect(create).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledWith({

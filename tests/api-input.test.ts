@@ -7,7 +7,7 @@ const baseInvoice = {
   pointOfSale: "1",
   number: "1001",
   entityName: "Cliente Ejemplo SRL",
-  entityCuit: "30-99999999-1",
+  entityCuit: "30-99999999-5",
   category: "SALES",
   periodId: "p1",
 };
@@ -94,14 +94,14 @@ describe("lib/api-input", () => {
   });
 
   it("clients: defaultIibbRate ausente -> 3; presente inválido -> 422", () => {
-    const ok = buildClientInput({ name: "X SA", cuit: "30-1", condition: "Responsable Inscripto" });
+    const ok = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "Responsable Inscripto" });
     expect(ok.ok).toBe(true);
     if (ok.ok) expect(ok.data.defaultIibbRate.toString()).toBe("3");
 
-    const ok2 = buildClientInput({ name: "X SA", cuit: "30-1", condition: "RI", defaultIibbRate: "3.5" });
+    const ok2 = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "RI", defaultIibbRate: "3.5" });
     if (ok2.ok) expect(ok2.data.defaultIibbRate.toString()).toBe("3.5");
 
-    const bad = buildClientInput({ name: "X SA", cuit: "30-1", condition: "RI", defaultIibbRate: "101" });
+    const bad = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "RI", defaultIibbRate: "101" });
     expect(bad.ok).toBe(false);
   });
 });
