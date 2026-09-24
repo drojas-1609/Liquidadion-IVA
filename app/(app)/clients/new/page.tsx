@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { submitNewClient } from "@/lib/new-client-submit";
 
 export default function NewClientPage() {
     const router = useRouter();
@@ -17,21 +18,16 @@ export default function NewClientPage() {
         const data = Object.fromEntries(formData.entries());
 
         try {
-            const res = await fetch("/api/clients", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data),
-            });
-
-            if (!res.ok) {
-                const j = await res.json().catch(() => null);
-                throw new Error(j?.field ? `${j.field}: ${j.error}` : j?.error || "Error al crear el cliente");
+            const result = await submitNewClient(data);
+            if (!result.ok) {
+                setError(result.message);
+                return;
             }
 
             router.push("/clients");
             router.refresh();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Ocurrió un error al guardar el cliente.");
+        } catch {
+            setError("Ocurrió un error al guardar el cliente.");
         } finally {
             setLoading(false);
         }

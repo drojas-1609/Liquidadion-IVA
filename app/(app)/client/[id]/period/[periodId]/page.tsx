@@ -1,6 +1,9 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
-import { redirect } from "next/navigation";
+import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
+import { ROLES_READ } from "@/lib/auth/roles";
+import { NotFoundError } from "@/lib/auth/errors";
+import { AccessNotice } from "@/app/_components/access-notice";
 import { computeLiquidation } from "@/lib/liquidation-calc";
 import { formatMoney } from "@/lib/format";
 
@@ -10,18 +13,20 @@ export const dynamic = "force-dynamic";
 export default async function PeriodDashboard({ params }: { params: Promise<{ id: string; periodId: string }> }) {
     const { id, periodId } = await params;
 
-    const period = await prisma.period.findUnique({
-        where: { id: periodId },
-        include: {
-            invoices: true,
-            taxRecords: true,
-            client: true,
-        },
+    const guard = await guardPage(async () => {
+        const { profileId } = await requireAuthenticatedProfile();
+        const { organizationId } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
+            expectClientId: id,
+        });
+        const found = await prisma.period.findFirst({
+            where: { id: periodId, organizationId },
+            include: { invoices: true, taxRecords: true, client: true },
+        });
+        if (!found) throw new NotFoundError();
+        return found;
     });
-
-    if (!period) {
-        redirect(`/client/${id}/dashboard`);
-    }
+    if (!guard.ok) return <AccessNotice notice={guard.notice} />;
+    const period = guard.data;
 
     // Totales vía la única fuente de cálculo (lib/liquidation-calc).
     const r = computeLiquidation(period);

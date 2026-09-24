@@ -2,13 +2,18 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { D, computeVatAmount, computeTotalAmount, moneyInRange, MONEY_MAX } from "./decimal";
 import { parseMoney, parseRate } from "./validation/decimal";
+import { normalizeCuit } from "./cuit";
 
 /**
  * Construcción y validación de los `data` de creación para las rutas de API.
  *
  * Toda la validación de decimales pasa por `lib/validation/decimal` (strings,
- * sin `parseFloat`). Las rutas devuelven 400 con `{ field, error }` cuando
- * `ok === false`.
+ * sin `parseFloat`).
+ *
+ * Tarea 3B: cuando `ok === false` el `status` es 422 (UNPROCESSABLE_ENTITY):
+ * el JSON es válido pero los datos son semánticamente inválidos. El 400
+ * (BAD_REQUEST) queda reservado para JSON ausente/malformado y lo produce
+ * `parseJsonBody` (lib/auth/authz), ANTES de llegar acá.
  *
  * `invoices` recalcula SIEMPRE `vatAmount` y `totalAmount` en el servidor con
  * `lib/decimal`; ignora cualquier valor de esos campos enviado por el cliente.
@@ -16,10 +21,10 @@ import { parseMoney, parseRate } from "./validation/decimal";
 
 export type InputResult<T> =
   | { ok: true; data: T }
-  | { ok: false; status: 400; field: string; error: string };
+  | { ok: false; status: 422; field: string; error: string };
 
-function fail(field: string, error: string): { ok: false; status: 400; field: string; error: string } {
-  return { ok: false, status: 400, field, error };
+function fail(field: string, error: string): { ok: false; status: 422; field: string; error: string } {
+  return { ok: false, status: 422, field, error };
 }
 
 function nonEmptyString(v: unknown): v is string {
@@ -30,6 +35,36 @@ function parseIntStrict(v: unknown): number | null {
   if (typeof v === "number" && Number.isInteger(v)) return v;
   if (typeof v === "string" && /^-?\d+$/.test(v.trim())) return parseInt(v.trim(), 10);
   return null;
+}
+
+// ── Period ─────────────────────────────────────────────────────────────────
+
+export interface PeriodCreateData {
+  clientId: string;
+  month: number;
+  year: number;
+}
+
+/**
+ * Valida la forma de un alta de período. NO comprueba que `clientId` exista ni
+ * pertenezca a la organización: de eso se ocupa `requireClientAccess` (404).
+ */
+export function buildPeriodInput(body: unknown): InputResult<PeriodCreateData> {
+  if (typeof body !== "object" || body === null) return fail("body", "cuerpo inválido");
+  const b = body as Record<string, unknown>;
+
+  if (!nonEmptyString(b.clientId)) return fail("clientId", "clientId requerido");
+
+  const month = parseIntStrict(b.month);
+  if (month === null || month < 1 || month > 12) return fail("month", "mes inválido (1 a 12)");
+
+  const maxYear = new Date().getUTCFullYear() + 1;
+  const year = parseIntStrict(b.year);
+  if (year === null || year < 2000 || year > maxYear) {
+    return fail("year", `año inválido (2000 a ${maxYear})`);
+  }
+
+  return { ok: true, data: { clientId: b.clientId, month, year } };
 }
 
 // ── Invoice ────────────────────────────────────────────────────────────────
@@ -59,7 +94,8 @@ export function buildInvoiceInput(body: unknown): InputResult<InvoiceCreateData>
 
   if (!nonEmptyString(b.type)) return fail("type", "tipo de comprobante requerido");
   if (!nonEmptyString(b.entityName)) return fail("entityName", "razón social requerida");
-  if (!nonEmptyString(b.entityCuit)) return fail("entityCuit", "CUIT requerido");
+  const entityCuit = normalizeCuit(b.entityCuit);
+  if (!entityCuit.ok) return fail("entityCuit", entityCuit.error);
   if (!nonEmptyString(b.periodId)) return fail("periodId", "periodId requerido");
 
   const category = b.category;
@@ -99,7 +135,7 @@ export function buildInvoiceInput(body: unknown): InputResult<InvoiceCreateData>
       pointOfSale,
       number,
       entityName: b.entityName,
-      entityCuit: b.entityCuit,
+      entityCuit: entityCuit.value,
       netAmount: net.value,
       vatRate: rate.value,
       vatAmount,
@@ -162,7 +198,10 @@ export function buildClientInput(body: unknown): InputResult<ClientCreateData> {
   const b = body as Record<string, unknown>;
 
   if (!nonEmptyString(b.name)) return fail("name", "nombre requerido");
-  if (!nonEmptyString(b.cuit)) return fail("cuit", "CUIT requerido");
+  // Canónico NN-NNNNNNNN-N antes de persistir: la unicidad por organización
+  // compara siempre el mismo formato.
+  const cuit = normalizeCuit(b.cuit);
+  if (!cuit.ok) return fail("cuit", cuit.error);
   if (!nonEmptyString(b.condition)) return fail("condition", "condición fiscal requerida");
 
   const address =
@@ -181,5 +220,5 @@ export function buildClientInput(body: unknown): InputResult<ClientCreateData> {
     defaultIibbRate = parsed.value;
   }
 
-  return { ok: true, data: { name: b.name, cuit: b.cuit, condition: b.condition, address, defaultIibbRate } };
+  return { ok: true, data: { name: b.name, cuit: cuit.value, condition: b.condition, address, defaultIibbRate } };
 }

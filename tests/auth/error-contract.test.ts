@@ -2,8 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   AuthError,
   UnauthenticatedError,
+  NoProfileError,
+  NoOrganizationError,
   ForbiddenError,
   NotFoundError,
+  OrganizationSelectionRequiredError,
+  ConflictError,
+  BadRequestError,
+  ValidationError,
   MisconfiguredError,
   isAuthError,
   authErrorBody,
@@ -63,5 +69,77 @@ describe("contrato de errores de auth (D4)", () => {
     const r500 = authErrorResponse(new Error("boom"));
     expect(r500.status).toBe(500);
     expect((await r500.json()).error.code).toBe("INTERNAL");
+  });
+});
+
+describe("contrato de errores de authz (Tarea 3B)", () => {
+  it("cada error nuevo trae code + status exactos del brief", () => {
+    expect(new NoProfileError()).toMatchObject({ code: "NO_PROFILE", status: 403 });
+    expect(new NoOrganizationError()).toMatchObject({ code: "NO_ORGANIZATION", status: 403 });
+    expect(new OrganizationSelectionRequiredError()).toMatchObject({
+      code: "ORGANIZATION_SELECTION_REQUIRED",
+      status: 409,
+    });
+    expect(new ConflictError()).toMatchObject({ code: "CONFLICT", status: 409 });
+    expect(new BadRequestError()).toMatchObject({ code: "BAD_REQUEST", status: 400 });
+    expect(new ValidationError()).toMatchObject({ code: "UNPROCESSABLE_ENTITY", status: 422 });
+  });
+
+  it("todos son AuthError y los detecta isAuthError", () => {
+    for (const e of [
+      new NoProfileError(),
+      new NoOrganizationError(),
+      new OrganizationSelectionRequiredError(),
+      new ConflictError(),
+      new BadRequestError(),
+      new ValidationError(),
+    ]) {
+      expect(e).toBeInstanceOf(AuthError);
+      expect(isAuthError(e)).toBe(true);
+    }
+  });
+
+  it("ValidationError transporta `field` y authErrorBody lo expone", () => {
+    const err = new ValidationError("mes inválido", "month");
+    expect(err.field).toBe("month");
+    expect(authErrorBody(err)).toEqual({
+      error: { code: "UNPROCESSABLE_ENTITY", message: "mes inválido" },
+      field: "month",
+    });
+  });
+
+  it("los errores sin `field` no agregan la clave al cuerpo", () => {
+    expect(authErrorBody(new ConflictError("x"))).toEqual({
+      error: { code: "CONFLICT", message: "x" },
+    });
+  });
+
+  it("authErrorResponse: cada error nuevo -> su status + Cache-Control no-store", async () => {
+    for (const [err, status, code] of [
+      [new NoProfileError(), 403, "NO_PROFILE"],
+      [new NoOrganizationError(), 403, "NO_ORGANIZATION"],
+      [new OrganizationSelectionRequiredError(), 409, "ORGANIZATION_SELECTION_REQUIRED"],
+      [new ConflictError(), 409, "CONFLICT"],
+      [new BadRequestError(), 400, "BAD_REQUEST"],
+      [new ValidationError("x", "f"), 422, "UNPROCESSABLE_ENTITY"],
+    ] as const) {
+      const res = authErrorResponse(err);
+      expect(res.status, code).toBe(status);
+      expect(res.headers.get("cache-control"), code).toBe("no-store, max-age=0");
+      expect((await res.json()).error.code, code).toBe(code);
+    }
+  });
+
+  it("ningún mensaje por defecto filtra detalles internos", () => {
+    for (const e of [
+      new NoProfileError(),
+      new NoOrganizationError(),
+      new OrganizationSelectionRequiredError(),
+      new ConflictError(),
+      new BadRequestError(),
+      new ValidationError(),
+    ]) {
+      expect(e.message).not.toMatch(/prisma|P20\d\d|constraint|postgres|token|eyJ/i);
+    }
   });
 });

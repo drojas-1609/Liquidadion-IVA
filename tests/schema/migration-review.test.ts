@@ -11,12 +11,19 @@ const PRIOR_MIGRATIONS = ["0_init", "20260907213357_float_to_decimal"];
 const sql = readFileSync(migrationsDir + NEW_MIGRATION + "/migration.sql", "utf8");
 
 describe("migración org_auth_base — revisión estática (Tarea 3A, NO aplicada)", () => {
-  it("existe una única migración nueva además de las previas", () => {
+  it("la migración de 3A y las previas siguen presentes (pueden convivir con migraciones posteriores)", () => {
     const dirs = readdirSync(migrationsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .sort();
-    expect(dirs).toEqual([...PRIOR_MIGRATIONS, NEW_MIGRATION].sort());
+      .map((d) => d.name);
+    // 3A + previas deben existir. Tarea 3B (y siguientes) apilan carpetas
+    // nuevas DESPUÉS de esta sin modificar ninguna de las anteriores.
+    for (const m of [...PRIOR_MIGRATIONS, NEW_MIGRATION]) {
+      expect(dirs, m).toContain(m);
+    }
+    // ninguna carpeta previa a 3A quedó eliminada.
+    expect(dirs.filter((d) => d <= NEW_MIGRATION).sort()).toEqual(
+      [...PRIOR_MIGRATIONS, NEW_MIGRATION].sort(),
+    );
   });
 
   it("no modifica las migraciones previas (hash de contenido estable)", () => {

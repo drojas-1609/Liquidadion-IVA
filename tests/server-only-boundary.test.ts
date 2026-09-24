@@ -16,7 +16,8 @@ function walk(dir: string, exts: string[]): string[] {
   return out;
 }
 
-// Utilidades server-only: importan Prisma.Decimal y/o hacen cálculo autoritativo.
+// Utilidades server-only: importan Prisma.Decimal y/o hacen cálculo autoritativo
+// y/o acceden a la base / identidad.
 const SERVER_ONLY_LIBS = [
   "lib/decimal.ts",
   "lib/validation/decimal.ts",
@@ -24,6 +25,8 @@ const SERVER_ONLY_LIBS = [
   "lib/api-input.ts",
   "lib/serializers.ts",
   "lib/excel.ts",
+  "lib/auth/authz.ts",
+  "lib/auth/audit.ts",
 ];
 
 describe("límite de responsabilidades server-only (punto 3)", () => {

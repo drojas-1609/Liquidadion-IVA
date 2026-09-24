@@ -167,14 +167,112 @@ fix en npm; hoy la app solo **escribe** xlsx (exposición baja). **Debe
 sustituirse o aislarse** antes de incorporar el importador ARCA, que parseará
 archivos no confiables.
 
-## Qué sigue inseguro al terminar 3A (se resuelve en 3B)
+## Tarea 3B — Autorización por organización, recurso y rol + AuditLog
 
-- `/api/**` y `/client/**` **no** aplican autorización por recurso: un usuario
-  autenticado (cualquiera con login) puede leer/escribir datos de cualquier
-  organización. Los IDOR del diagnóstico siguen vigentes.
-- La matriz de autorización (roles) existe en el modelo pero **no se evalúa**.
-- `createdById`/`updatedById` no se pueblan todavía.
-- `POST /api/clients` está deshabilitado (501) hasta 3B.
-- Sin RLS, sin `AuditLog`, sin CSP completa, sin gestión de miembros.
+### Capa central (`lib/auth/authz.ts`, server-only)
 
-**La aplicación sigue NO APTA para datos reales.**
+Todo acceso a datos de negocio en `app/**` pasa por estos helpers fail-closed:
+
+| Helper | Falla con |
+|---|---|
+| `requireAuthenticatedProfile()` | 401 `UNAUTHENTICATED` · 503 `MISCONFIGURED` · 403 `NO_PROFILE` |
+| `resolveActiveOrganization(profileId)` | 403 `NO_ORGANIZATION` (0 memberships) · 409 `ORGANIZATION_SELECTION_REQUIRED` (>1, sin selector) |
+| `requireOrganizationRole(profileId, orgId, roles)` | 404 `NOT_FOUND` (sin Membership — D4) · 403 `FORBIDDEN` (rol) |
+| `requireClientAccess(profileId, clientId, roles)` | 404 (inexistente **o** de otra org, idéntico) · 403 |
+| `requirePeriodAccess(profileId, periodId, roles, { expectClientId })` | 404 (inexistente / otra org / `[id]` no coincide) · 403 |
+
+Wrappers: `withApiAuthz` (rutas API: mapea `AuthError` a su status, Prisma
+`P2002` → 409 `CONFLICT` genérico, resto → 500 `INTERNAL`; `Cache-Control:
+no-store` siempre), `parseJsonBody` (400 `BAD_REQUEST`, se llama **después** de
+resolver sesión+Profile+org), `guardPage` (páginas SSR: `UNAUTHENTICATED` →
+`redirect('/login')`, `NOT_FOUND` → `notFound()`, resto → `<AccessNotice>`).
+
+### Orden obligatorio en cada handler API
+
+auth → organización → rol (si no depende del recurso) → `parseJsonBody` (400) →
+validación semántica (422) → acceso al recurso (404/403) → `$transaction`
+(negocio + `AuditLog`) → 201 / 409 / 500. Consecuencia: **una petición sin
+sesión responde 401 aunque el body sea inválido**; 400 sólo con sesión+Profile+
+organización+rol OK.
+
+### Matriz de roles (`lib/auth/roles.ts`)
+
+| Acción | OWNER | ADMIN | ACCOUNTANT | VIEWER |
+|---|:--:|:--:|:--:|:--:|
+| Leer / exportar | ✅ | ✅ | ✅ | ✅ |
+| Crear (Client/Period/Invoice/TaxRecord) | ✅ | ✅ | ✅ | ❌ |
+| *(futuro)* modificar | ✅ | ✅ | ✅ | ❌ |
+| *(futuro)* eliminar registros | ✅ | ✅ | ❌ | ❌ |
+| *(futuro)* importar (ARCA) | ✅ | ✅ | ✅ | ❌ |
+| *(futuro)* administrar miembros | ✅ | ✅ | ❌ | ❌ |
+| *(futuro)* cambiar roles | ✅ | ❌ | ❌ | ❌ |
+| *(futuro)* configuración de la organización | ✅ | ✅ | ❌ | ❌ |
+| *(futuro)* consultar `AuditLog` | ✅ | ✅ | ❌ | ❌ |
+| *(futuro)* eliminar la organización | ✅ | ❌ | ❌ | ❌ |
+
+Sólo `ROLES_READ`/`ROLES_CREATE`/`ROLES_EXPORT` se evalúan en 3B; el resto está
+declarado y testeado para las funciones futuras.
+
+### Defensa de base de datos
+
+`organizationId` es columna **directa** en `Period`, `Invoice`, `TaxRecord`. Las
+relaciones son **compuestas** (`Period(clientId, organizationId) →
+Client(id, organizationId)`, `Invoice/TaxRecord(periodId, organizationId) →
+Period(id, organizationId)`): PostgreSQL **rechaza** cualquier relación entre
+organizaciones distintas. Índices explícitos de las columnas hijas de cada FK
+compuesta (Prisma/PostgreSQL no los crean solos); los índices simples previos
+se conservan hasta confirmar cobertura en dev. Migración
+`20260908204819_org_scope_and_audit` (offline, con backfill; **no aplicada** a
+ninguna base todavía).
+
+### AuditLog
+
+Tabla `AuditLog` (`id`, `organizationId`, `actorProfileId?`, `action`,
+`targetType`, `targetId`, `metadata` JSON, `createdAt`). Se escribe **en la
+misma transacción** que la creación de negocio (Client/Period/Invoice/TaxRecord)
+y también en la exportación de liquidación: si el `AuditLog` falla, la operación
+hace rollback. `metadata` está saneada por `lib/auth/audit.ts` (allow-list por
+acción; `client.create` lleva **sólo `{ condition }`**, nunca el CUIT — queda en
+la fila y en `targetId`); nunca contraseñas, tokens, cookies, claves, cadenas de
+conexión, cuerpos completos ni importes fiscales.
+
+- **`AuditLog.organization` es `onDelete: Restrict`** (no `Cascade`): una futura
+  eliminación de `Organization` **no** debe borrar en silencio su historial. La
+  eliminación de organizaciones está fuera de alcance; **antes de habilitarla
+  deberá definirse una política formal de conservación, anonimización o archivo
+  de `AuditLog`**.
+- `AuditLog.actor` es `onDelete: SetNull`.
+- 3B **no** expone endpoint ni UI de `AuditLog`. La lectura futura será sólo
+  `OWNER`/`ADMIN` (`ROLES_AUDIT_READ`), scoped por `organizationId`.
+
+### Exportación (`GET .../export`)
+
+Orden seguro: autenticar/autorizar (incl. `[id] == period.clientId`) → consultar
+→ calcular → **generar completamente el XLSX en memoria** → registrar
+`liquidation.export` en `AuditLog` (sin buffer, importes ni contenido) → **sólo
+si el `AuditLog` se guardó**, devolver el archivo. Falla el cálculo/generación →
+500 sin `AuditLog` ni binario; falla el `AuditLog` → 500 sin binario; cross-org
+→ 404 sin nada de eso.
+
+### `Settings` global (legado)
+
+El modelo `Settings` (clave/valor global, sin `organizationId`) **se conserva
+sin uso**, documentado como legado. `/settings` es un mock de cliente sin
+persistencia. Cualquier cableado futuro de configuración debe migrar a
+`OrgSetting` y exigir `ROLES_CONFIG`.
+
+### `Client → Organization`
+
+Se mantiene `onDelete: Restrict` (sin cambio en 3B).
+
+## Qué sigue fuera de alcance al terminar 3B
+
+- Endpoints de **update / delete**, eliminación de `Organization`, gestión de
+  miembros, cambios de rol, selector multi-organización, importador ARCA.
+- Endpoint/UI de `AuditLog` y su política de retención.
+- RLS en PostgreSQL, CSP completa, rate-limiting.
+- La migración `20260908204819_org_scope_and_audit` **no** se ha aplicado a
+  ninguna base (ni dev ni producción); es un paso separado con autorización
+  propia.
+- Producción: sin migración 3A/3B, sin variables `NEXT_PUBLIC_SUPABASE_*`, sin
+  SMTP ni OWNER; deploys pausados por créditos.

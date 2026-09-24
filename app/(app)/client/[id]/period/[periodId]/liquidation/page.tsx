@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
+import { ROLES_READ } from "@/lib/auth/roles";
+import { NotFoundError } from "@/lib/auth/errors";
+import { AccessNotice } from "@/app/_components/access-notice";
 import { computeLiquidation } from "@/lib/liquidation-calc";
 import { formatMoney } from "@/lib/format";
 
@@ -12,16 +16,20 @@ const clampPos = (d: Prisma.Decimal) => (d.isNegative() ? new Prisma.Decimal(0) 
 export default async function LiquidationPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
     const { id, periodId } = await params;
 
-    const period = await prisma.period.findUnique({
-        where: { id: periodId },
-        include: {
-            invoices: true,
-            taxRecords: true,
-            client: true,
-        },
+    const guard = await guardPage(async () => {
+        const { profileId } = await requireAuthenticatedProfile();
+        const { organizationId } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
+            expectClientId: id,
+        });
+        const found = await prisma.period.findFirst({
+            where: { id: periodId, organizationId },
+            include: { invoices: true, taxRecords: true, client: true },
+        });
+        if (!found) throw new NotFoundError();
+        return found;
     });
-
-    if (!period) return <div>Periodo no encontrado</div>;
+    if (!guard.ok) return <AccessNotice notice={guard.notice} />;
+    const period = guard.data;
 
     const r = computeLiquidation(period);
 

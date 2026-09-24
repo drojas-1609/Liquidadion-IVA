@@ -1,19 +1,28 @@
 import Link from "next/link";
-import type { Client } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import {
+    requireAuthenticatedProfile,
+    resolveActiveOrganization,
+    requireOrganizationRole,
+    guardPage,
+} from "@/lib/auth/authz";
+import { ROLES_READ } from "@/lib/auth/roles";
+import { AccessNotice } from "@/app/_components/access-notice";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClientsPage() {
-    let clients: Client[] = [];
-    try {
-        clients = await prisma.client.findMany({
+    const guard = await guardPage(async () => {
+        const { profileId } = await requireAuthenticatedProfile();
+        const { organizationId } = await resolveActiveOrganization(profileId);
+        await requireOrganizationRole(profileId, organizationId, ROLES_READ);
+        return prisma.client.findMany({
+            where: { organizationId },
             orderBy: { name: "asc" },
         });
-    } catch (error) {
-        console.error("Error fetching clients:", error);
-        clients = [];
-    }
+    });
+    if (!guard.ok) return <AccessNotice notice={guard.notice} />;
+    const clients = guard.data;
 
     return (
         <div className="container">

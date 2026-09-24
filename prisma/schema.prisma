@@ -31,6 +31,10 @@ model Profile {
   createdTaxRecords TaxRecord[] @relation("TaxRecordCreatedBy")
   updatedTaxRecords TaxRecord[] @relation("TaxRecordUpdatedBy")
 
+  // Tarea 3B: actor de la traza de auditoría. onDelete: SetNull (el historial
+  // sobrevive al borrado del Profile).
+  auditLogs AuditLog[] @relation("ProfileAuditLogs")
+
   @@index([email])
 }
 
@@ -51,6 +55,11 @@ model Organization {
   memberships Membership[]
   clients     Client[]
   settings    OrgSetting[]
+
+  // Tarea 3B: historial de auditoría de la organización. onDelete: Restrict
+  // (una futura eliminación de Organization NO debe borrar en silencio su
+  // historial; antes hay que definir política de conservación/archivo).
+  auditLogs AuditLog[] @relation("OrgAuditLogs")
 }
 
 model Membership {
@@ -105,15 +114,22 @@ model Client {
   periods Period[]
 
   @@unique([organizationId, cuit])
+  // Tarea 3B: habilita que (id, organizationId) sea destino de FK compuesta
+  // desde Period, impidiendo relaciones entre organizaciones distintas.
+  @@unique([id, organizationId])
   @@index([organizationId])
 }
 
 model Period {
-  id         String      @id @default(cuid())
-  month      Int
-  year       Int
-  clientId   String
-  client     Client      @relation(fields: [clientId], references: [id])
+  id             String @id @default(cuid())
+  month          Int
+  year           Int
+  clientId       String
+  organizationId String
+
+  // Tarea 3B: relación COMPUESTA. Un Period sólo puede referenciar un Client
+  // de la MISMA organización (PostgreSQL rechaza cualquier otra combinación).
+  client     Client      @relation(fields: [clientId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
   invoices   Invoice[]
   taxRecords TaxRecord[]
 
@@ -125,24 +141,35 @@ model Period {
   updatedBy   Profile? @relation("PeriodUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@unique([month, year, clientId])
+  // Tarea 3B: destino de FK compuesta desde Invoice / TaxRecord.
+  @@unique([id, organizationId])
+  // Índice EXPLÍCITO de la FK compuesta (Prisma/PostgreSQL no lo crean solos).
+  @@index([clientId, organizationId])
+  @@index([organizationId])
+  // @@index([clientId]) se mantiene hasta confirmar en dev (EXPLAIN / pg_indexes)
+  // que [clientId, organizationId] cubre el filtro por su primer campo.
   @@index([clientId])
 }
 
 model Invoice {
-  id          String   @id @default(cuid())
-  date        DateTime
-  type        String
-  pointOfSale Int
-  number      Int
-  entityName  String
-  entityCuit  String
-  netAmount   Decimal  @db.Decimal(18, 2)
-  vatRate     Decimal  @db.Decimal(9, 6) // porcentaje: 21, 10.5, 2.5
-  vatAmount   Decimal  @db.Decimal(18, 2)
-  totalAmount Decimal  @db.Decimal(18, 2)
-  category    String
-  periodId    String
-  period      Period   @relation(fields: [periodId], references: [id])
+  id             String   @id @default(cuid())
+  date           DateTime
+  type           String
+  pointOfSale    Int
+  number         Int
+  entityName     String
+  entityCuit     String
+  netAmount      Decimal  @db.Decimal(18, 2)
+  vatRate        Decimal  @db.Decimal(9, 6) // porcentaje: 21, 10.5, 2.5
+  vatAmount      Decimal  @db.Decimal(18, 2)
+  totalAmount    Decimal  @db.Decimal(18, 2)
+  category       String
+  periodId       String
+  organizationId String
+
+  // Tarea 3B: relación COMPUESTA. Una Invoice sólo puede referenciar un Period
+  // de la MISMA organización.
+  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -151,17 +178,25 @@ model Invoice {
   createdBy   Profile? @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy   Profile? @relation("InvoiceUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
+  // Índice EXPLÍCITO de la FK compuesta.
+  @@index([periodId, organizationId])
+  @@index([organizationId])
+  // @@index([periodId]) se mantiene hasta confirmar cobertura del compuesto.
   @@index([periodId])
 }
 
 model TaxRecord {
-  id          String   @id @default(cuid())
-  date        DateTime
-  type        String
-  amount      Decimal  @db.Decimal(18, 2)
-  description String?
-  periodId    String
-  period      Period   @relation(fields: [periodId], references: [id])
+  id             String   @id @default(cuid())
+  date           DateTime
+  type           String
+  amount         Decimal  @db.Decimal(18, 2)
+  description    String?
+  periodId       String
+  organizationId String
+
+  // Tarea 3B: relación COMPUESTA. Un TaxRecord sólo puede referenciar un Period
+  // de la MISMA organización.
+  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -170,7 +205,35 @@ model TaxRecord {
   createdBy   Profile? @relation("TaxRecordCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy   Profile? @relation("TaxRecordUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
+  // Índice EXPLÍCITO de la FK compuesta.
+  @@index([periodId, organizationId])
+  @@index([organizationId])
+  // @@index([periodId]) se mantiene hasta confirmar cobertura del compuesto.
   @@index([periodId])
+}
+
+/// Tarea 3B: traza de auditoría de escrituras de negocio y exportaciones.
+/// - `organization` con onDelete: Restrict (el historial NO se borra en cascada).
+/// - `actor` opcional con onDelete: SetNull.
+/// - `metadata` es JSON SANEADO por lib/auth/audit.ts: nunca contraseñas,
+///   tokens, cookies, claves, cadenas de conexión, cuerpos completos ni
+///   importes fiscales. Para `client.create` NO incluye el CUIT.
+/// - Sin endpoint ni UI en 3B; la lectura futura será sólo OWNER/ADMIN.
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  actorProfileId String?  @db.Uuid
+  action         String
+  targetType     String
+  targetId       String
+  metadata       Json
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation("OrgAuditLogs", fields: [organizationId], references: [id], onDelete: Restrict)
+  actor        Profile?     @relation("ProfileAuditLogs", fields: [actorProfileId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([targetType, targetId])
 }
 
 /// Se conserva TAL CUAL en 3A (sin uso). Migracion a OrgSetting + cableado de
