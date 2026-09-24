@@ -11,8 +11,8 @@ import type { Prisma } from "@prisma/client";
  *
  * `sanitizeAuditMetadata` es una allow-list POR ACCIÓN. Nada fuera de la lista
  * se persiste. Nunca: contraseñas, tokens, cookies, claves, cadenas de
- * conexión, JWT, headers, cuerpos completos, importes fiscales, ni el CUIT del
- * propio cliente (queda en la fila Client y en `targetId`).
+ * conexión, JWT, headers, cuerpos completos, importes fiscales, ni el CUIT (ni la
+ * dirección) del propio cliente (queda en la fila Client y en `targetId`).
  */
 
 export const AUDIT_ACTIONS = [
@@ -22,9 +22,10 @@ export const AUDIT_ACTIONS = [
   "invoice.create",
   "taxrecord.create",
   "liquidation.export",
-  // Reservadas para 3B+ (NO se emiten todavía; declaradas para no migrar luego)
+  // Gestión de clientes
   "client.update",
   "client.delete",
+  // Reservadas para 3B+ (NO se emiten todavía; declaradas para no migrar luego)
   "period.update",
   "period.delete",
   "invoice.update",
@@ -53,8 +54,9 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "invoiceCount",
     "taxRecordCount",
   ],
-  "client.update": [],
-  "client.delete": [],
+  // changedFields: NOMBRES de campo separados por coma, nunca valores. NO cuit.
+  "client.update": ["changedFields", "condition"],
+  "client.delete": ["condition"], // NO cuit, nombre ni dirección
   "period.update": [],
   "period.delete": [],
   "invoice.update": [],

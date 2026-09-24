@@ -22,7 +22,7 @@ function nonEmptyString(value: unknown): string | null {
 }
 
 /** Extrae `{ code, message }` de un cuerpo de error de la API, o null si no es reconocible. */
-function readApiError(body: unknown): { code: string | null; message: string | null } | null {
+export function readApiError(body: unknown): { code: string | null; message: string | null } | null {
     if (typeof body !== "object" || body === null) return null;
     const error = (body as { error?: unknown }).error;
     if (typeof error === "string") return { code: null, message: nonEmptyString(error) };

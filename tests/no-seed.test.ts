@@ -51,7 +51,10 @@ describe("endpoint de seed eliminado (punto 5)", () => {
   it("estructuralmente el build no puede exponer /api/clients/seed (no hay carpeta de ruta)", () => {
     // Next crea la ruta a partir de app/api/clients/seed/route.ts; sin ese
     // archivo/carpeta, /api/clients/seed responde 404.
-    const clientsApi = readdirSync(join(repo, "app/api/clients"));
-    expect(clientsApi).toEqual(["route.ts"]);
+    // `[id]` es la ruta dinámica de edición/eliminación (PATCH/DELETE); un
+    // segmento dinámico nunca expone /api/clients/seed como ruta estática propia.
+    const clientsApi = readdirSync(join(repo, "app/api/clients")).sort();
+    expect(clientsApi).toEqual(["[id]", "route.ts"]);
+    expect(readdirSync(join(repo, "app/api/clients/[id]"))).toEqual(["route.ts"]);
   });
 });

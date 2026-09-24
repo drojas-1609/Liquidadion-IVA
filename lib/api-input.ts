@@ -222,3 +222,52 @@ export function buildClientInput(body: unknown): InputResult<ClientCreateData> {
 
   return { ok: true, data: { name: b.name, cuit: cuit.value, condition: b.condition, address, defaultIibbRate } };
 }
+
+// ── Client (edición parcial) ────────────────────────────────────────────────
+
+/** Campos editables de un Client. Cualquier otra clave del body se IGNORA. */
+export const CLIENT_UPDATABLE_FIELDS = ["name", "cuit", "condition", "address", "defaultIibbRate"] as const;
+export type ClientUpdatableField = (typeof CLIENT_UPDATABLE_FIELDS)[number];
+
+export type ClientUpdateData = Partial<ClientCreateData>;
+
+/**
+ * Valida un PATCH de Client. Sólo se consideran las claves presentes de
+ * `CLIENT_UPDATABLE_FIELDS`; `organizationId`, `id`, autoría y timestamps del
+ * body se ignoran. El CUIT pasa por `normalizeCuit` (mismo formato canónico que
+ * el alta). Sin ningún campo editable -> 422.
+ */
+export function buildClientUpdateInput(body: unknown): InputResult<ClientUpdateData> {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return fail("body", "cuerpo inválido");
+  }
+  const b = body as Record<string, unknown>;
+  const data: ClientUpdateData = {};
+
+  if (b.name !== undefined) {
+    if (!nonEmptyString(b.name)) return fail("name", "nombre requerido");
+    data.name = b.name.trim();
+  }
+  if (b.cuit !== undefined) {
+    const cuit = normalizeCuit(b.cuit);
+    if (!cuit.ok) return fail("cuit", cuit.error);
+    data.cuit = cuit.value;
+  }
+  if (b.condition !== undefined) {
+    if (!nonEmptyString(b.condition)) return fail("condition", "condición fiscal requerida");
+    data.condition = b.condition.trim();
+  }
+  if (b.address !== undefined) {
+    if (b.address === null || b.address === "") data.address = null;
+    else if (typeof b.address === "string") data.address = b.address.trim() === "" ? null : b.address.trim();
+    else return fail("address", "dirección inválida");
+  }
+  if (b.defaultIibbRate !== undefined) {
+    const parsed = parseRate(b.defaultIibbRate);
+    if (!parsed.ok) return fail("defaultIibbRate", parsed.error);
+    data.defaultIibbRate = parsed.value;
+  }
+
+  if (Object.keys(data).length === 0) return fail("body", "no hay campos para actualizar");
+  return { ok: true, data };
+}

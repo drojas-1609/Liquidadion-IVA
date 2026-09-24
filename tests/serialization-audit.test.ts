@@ -26,6 +26,8 @@ function walk(dir: string): string[] {
  */
 const EXPECTED = {
   "app/api/clients/route.ts": { models: ["Client"], serializer: "serializeClient" },
+  // PATCH devuelve el Client actualizado serializado; DELETE responde 204 sin cuerpo.
+  "app/api/clients/[id]/route.ts": { models: ["Client"], serializer: "serializeClient" },
   "app/api/invoices/route.ts": { models: ["Invoice"], serializer: "serializeInvoice" },
   "app/api/taxes/route.ts": { models: ["TaxRecord"], serializer: "serializeTaxRecord" },
   // Period no tiene campos Decimal, pero igual se serializa (serializePeriod)
