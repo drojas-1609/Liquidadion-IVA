@@ -2,16 +2,28 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Link from "next/link";
 
+import { getAuthClaims } from "@/lib/auth/claims";
+
 export const metadata: Metadata = {
   title: "Tax Liquidator",
   description: "Professional Tax Liquidation App",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Etapa 3A: si Supabase todavía no está configurado localmente, la app
+  // sigue renderizando sin sesión.
+  let userLabel: string | null = null;
+  try {
+    const claims = await getAuthClaims();
+    userLabel = claims ? claims.email ?? claims.sub : null;
+  } catch {
+    userLabel = null;
+  }
+
   return (
     <html lang="es">
       <body>
@@ -36,6 +48,31 @@ export default function RootLayout({
               <NavLink href="/clients">Clientes</NavLink>
               <NavLink href="/settings">Configuración</NavLink>
             </nav>
+            {userLabel && (
+              <div
+                style={{
+                  marginTop: "auto",
+                  paddingTop: "var(--spacing-lg)",
+                  borderTop: "1px solid var(--border)",
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "var(--secondary)",
+                    marginBottom: "var(--spacing-sm)",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {userLabel}
+                </p>
+                <form method="post" action="/logout">
+                  <button type="submit" className="btn btn-secondary" style={{ width: "100%" }}>
+                    Cerrar sesión
+                  </button>
+                </form>
+              </div>
+            )}
           </aside>
           <main style={{ flex: 1, padding: "var(--spacing-xl)", overflowY: "auto" }}>
             {children}
