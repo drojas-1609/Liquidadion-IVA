@@ -1,9 +1,10 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requireClientAccess, guardPage } from "@/lib/auth/authz";
-import { ROLES_READ } from "@/lib/auth/roles";
+import { ROLES_READ, ROLES_CLIENT_MANAGE, ROLES_DELETE, roleAllows } from "@/lib/auth/roles";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
+import { ClientActions } from "./client-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
-        const { organizationId } = await requireClientAccess(profileId, id, ROLES_READ);
+        const { organizationId, role } = await requireClientAccess(profileId, id, ROLES_READ);
         const full = await prisma.client.findFirst({
             where: { id, organizationId },
             include: {
@@ -20,23 +21,28 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
             },
         });
         if (!full) throw new NotFoundError();
-        return full;
+        return { client: full, role };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const client = guard.data;
+    const { client, role } = guard.data;
+    const canEdit = roleAllows(ROLES_CLIENT_MANAGE, role);
+    const canDelete = roleAllows(ROLES_DELETE, role);
 
     return (
         <div className="container">
-            <div style={{ marginBottom: "var(--spacing-xl)" }}>
-                <Link href="/clients" style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
-                    &larr; Volver a Clientes
-                </Link>
-                <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>{client.name}</h1>
-                <div style={{ display: "flex", gap: "var(--spacing-md)", color: "var(--secondary)", marginTop: "var(--spacing-xs)" }}>
-                    <span>{client.cuit}</span>
-                    <span>•</span>
-                    <span>{client.condition}</span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--spacing-md)", flexWrap: "wrap", marginBottom: "var(--spacing-xl)" }}>
+                <div>
+                    <Link href="/clients" style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
+                        &larr; Volver a Clientes
+                    </Link>
+                    <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>{client.name}</h1>
+                    <div style={{ display: "flex", gap: "var(--spacing-md)", color: "var(--secondary)", marginTop: "var(--spacing-xs)" }}>
+                        <span>{client.cuit}</span>
+                        <span>•</span>
+                        <span>{client.condition}</span>
+                    </div>
                 </div>
+                <ClientActions clientId={client.id} clientName={client.name} canEdit={canEdit} canDelete={canDelete} />
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--spacing-lg)" }}>

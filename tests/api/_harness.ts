@@ -16,6 +16,7 @@ import { cuitCheckDigit } from "@/lib/cuit";
 export const SUB_OWNER_A = "aaaaaaaa-0000-4000-8000-000000000001";
 export const SUB_ACCOUNTANT_A = "aaaaaaaa-0000-4000-8000-000000000002";
 export const SUB_VIEWER_A = "aaaaaaaa-0000-4000-8000-000000000003";
+export const SUB_ADMIN_A = "aaaaaaaa-0000-4000-8000-000000000004";
 export const SUB_OWNER_B = "bbbbbbbb-0000-4000-8000-000000000001";
 export const SUB_NO_PROFILE = "cccccccc-0000-4000-8000-000000000009";
 export const SUB_NO_ORG = "dddddddd-0000-4000-8000-000000000009";
@@ -110,16 +111,17 @@ export interface World {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-/** Mundo por defecto: ORG_A (owner/accountant/viewer) + ORG_B (owner). */
+/** Mundo por defecto: ORG_A (owner/admin/accountant/viewer) + ORG_B (owner). */
 export function makeWorld(over: Partial<World> = {}): World {
   return {
     memberships: [
       { profileId: SUB_OWNER_A, organizationId: ORG_A, role: "OWNER" },
       { profileId: SUB_ACCOUNTANT_A, organizationId: ORG_A, role: "ACCOUNTANT" },
       { profileId: SUB_VIEWER_A, organizationId: ORG_A, role: "VIEWER" },
+      { profileId: SUB_ADMIN_A, organizationId: ORG_A, role: "ADMIN" },
       { profileId: SUB_OWNER_B, organizationId: ORG_B, role: "OWNER" },
     ],
-    profiles: new Set([SUB_OWNER_A, SUB_ACCOUNTANT_A, SUB_VIEWER_A, SUB_OWNER_B, SUB_NO_ORG]),
+    profiles: new Set([SUB_OWNER_A, SUB_ACCOUNTANT_A, SUB_VIEWER_A, SUB_ADMIN_A, SUB_OWNER_B, SUB_NO_ORG]),
     clients: [clientRow("c_a", ORG_A), clientRow("c_b", ORG_B)],
     periods: [periodRow("p_a", "c_a", ORG_A), periodRow("p_b", "c_b", ORG_B)],
     ...over,
@@ -133,8 +135,8 @@ type Fn = ReturnType<typeof vi.fn>;
 export interface DbMock {
   profile: { findUnique: Fn };
   membership: { findMany: Fn; findUnique: Fn };
-  client: { findMany: Fn; findUnique: Fn; findFirst: Fn; create: Fn };
-  period: { findUnique: Fn; findFirst: Fn; create: Fn };
+  client: { findMany: Fn; findUnique: Fn; findFirst: Fn; create: Fn; update: Fn; delete: Fn };
+  period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn };
   invoice: { findMany: Fn; create: Fn };
   taxRecord: { findMany: Fn; create: Fn };
   auditLog: { create: Fn };
@@ -145,8 +147,15 @@ export function freshDbMock(): DbMock {
   return {
     profile: { findUnique: vi.fn() },
     membership: { findMany: vi.fn(), findUnique: vi.fn() },
-    client: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
-    period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+    client: {
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    },
+    period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn() },
     invoice: { findMany: vi.fn(), create: vi.fn() },
     taxRecord: { findMany: vi.fn(), create: vi.fn() },
     auditLog: { create: vi.fn() },
@@ -253,6 +262,53 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     });
   });
 
+  const knownError = (code: string, message: string) =>
+    new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: "6.19.3" });
+  const findByCompound = (where: any) => {
+    const { id, organizationId } = where.id_organizationId;
+    return world.clients.findIndex((c) => c.id === id && c.organizationId === organizationId);
+  };
+
+  // update/delete sobre @@unique([id, organizationId]); P2025 si no existe.
+  db.client.update.mockImplementation(async ({ where, data }: AnyArgs) => {
+    const idx = findByCompound(where);
+    if (idx === -1) throw knownError("P2025", "Record to update not found");
+    const current = world.clients[idx];
+    if (
+      data.cuit !== undefined &&
+      world.clients.some(
+        (c) => c.id !== current.id && c.organizationId === current.organizationId && c.cuit === data.cuit,
+      )
+    ) {
+      throw knownError("P2002", "Unique constraint failed");
+    }
+    const next = { ...current, ...data, updatedAt: new Date("2026-02-01T00:00:00.000Z") };
+    world.clients[idx] = next;
+    rec.created.clientUpdate = data;
+    return next;
+  });
+  // FK Restrict desde Period: P2003 si quedan períodos del cliente.
+  db.client.delete.mockImplementation(async ({ where }: AnyArgs) => {
+    const idx = findByCompound(where);
+    if (idx === -1) throw knownError("P2025", "Record to delete does not exist");
+    const current = world.clients[idx];
+    if (world.periods.some((p) => p.clientId === current.id && p.organizationId === current.organizationId)) {
+      throw knownError("P2003", "Foreign key constraint failed");
+    }
+    world.clients.splice(idx, 1);
+    rec.created.clientDelete = where.id_organizationId;
+    return current;
+  });
+
+  db.period.count.mockImplementation(
+    async ({ where }: AnyArgs) =>
+      world.periods.filter(
+        (p) =>
+          p.clientId === where.clientId &&
+          (where.organizationId ? p.organizationId === where.organizationId : true),
+      ).length,
+  );
+
   db.period.create.mockImplementation(async ({ data }: AnyArgs) => {
     if (
       world.periods.some(
@@ -326,11 +382,13 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   db.$transaction.mockImplementation(async (fn: (tx: DbMock) => Promise<unknown>) => {
     const auditsBefore = rec.audits.length;
     const createdBefore = { ...rec.created };
+    const clientsBefore = world.clients.slice();
     try {
       return await fn(db);
     } catch (err) {
       rec.audits.length = auditsBefore;
       rec.created = createdBefore;
+      world.clients.splice(0, world.clients.length, ...clientsBefore);
       throw err;
     }
   });

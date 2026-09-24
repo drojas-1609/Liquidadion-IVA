@@ -12,6 +12,7 @@ import {
   ROLES_CONFIG,
   ROLES_AUDIT_READ,
   ROLES_ORG_DELETE,
+  ROLES_CLIENT_MANAGE,
   roleAllows,
 } from "@/lib/auth/roles";
 
@@ -28,6 +29,8 @@ const MATRIX: Record<string, { roles: readonly Role[]; allowed: Role[] }> = {
   ROLES_READ: { roles: ROLES_READ, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "VIEWER"] },
   ROLES_CREATE: { roles: ROLES_CREATE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT"] },
   ROLES_EXPORT: { roles: ROLES_EXPORT, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "VIEWER"] },
+  // Gestión de clientes (editar)
+  ROLES_CLIENT_MANAGE: { roles: ROLES_CLIENT_MANAGE, allowed: ["OWNER", "ADMIN"] },
   // Futuras
   ROLES_UPDATE: { roles: ROLES_UPDATE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT"] },
   ROLES_DELETE: { roles: ROLES_DELETE, allowed: ["OWNER", "ADMIN"] },
@@ -55,6 +58,7 @@ describe("lib/auth/roles — matriz aprobada (Tarea 3B)", () => {
     for (const c of [
       ROLES_CREATE,
       ROLES_UPDATE,
+      ROLES_CLIENT_MANAGE,
       ROLES_DELETE,
       ROLES_IMPORT,
       ROLES_MEMBERS,
@@ -67,11 +71,12 @@ describe("lib/auth/roles — matriz aprobada (Tarea 3B)", () => {
     }
   });
 
-  it("ACCOUNTANT: crea e importa, pero no borra, no administra miembros, no config, no auditoría", () => {
+  it("ACCOUNTANT: crea e importa, pero no edita/borra clientes, no borra, no administra miembros, no config, no auditoría", () => {
     expect(roleAllows(ROLES_CREATE, "ACCOUNTANT")).toBe(true);
     expect(roleAllows(ROLES_UPDATE, "ACCOUNTANT")).toBe(true);
     expect(roleAllows(ROLES_IMPORT, "ACCOUNTANT")).toBe(true);
     for (const c of [
+      ROLES_CLIENT_MANAGE,
       ROLES_DELETE,
       ROLES_MEMBERS,
       ROLES_ROLE_CHANGE,

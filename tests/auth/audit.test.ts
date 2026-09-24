@@ -72,8 +72,30 @@ describe("sanitizeAuditMetadata — allow-list por acción", () => {
     expect(JSON.stringify(out)).not.toMatch(/PK|binario|999\.99/);
   });
 
+  it("client.update: sólo changedFields y condition; nunca cuit, nombre ni dirección", () => {
+    const out = sanitizeAuditMetadata("client.update", {
+      changedFields: "name,cuit,address",
+      condition: "Monotributo",
+      cuit: "20-12345678-6",
+      name: "Alfa SA",
+      address: "Calle 123",
+    });
+    expect(out).toEqual({ changedFields: "name,cuit,address", condition: "Monotributo" });
+  });
+
+  it("client.delete: sólo condition", () => {
+    expect(
+      sanitizeAuditMetadata("client.delete", {
+        condition: "Exento",
+        cuit: "20-12345678-6",
+        name: "Alfa SA",
+        address: "Calle 123",
+      }),
+    ).toEqual({ condition: "Exento" });
+  });
+
   it("acción reservada (futura) -> siempre {}", () => {
-    for (const a of ["client.update", "member.role_change", "org.config_change"]) {
+    for (const a of ["period.update", "member.role_change", "org.config_change"]) {
       expect(sanitizeAuditMetadata(a, { anything: "value", clientId: "c1" })).toEqual({});
     }
   });

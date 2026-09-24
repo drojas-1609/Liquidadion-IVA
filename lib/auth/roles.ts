@@ -18,6 +18,14 @@ export const ROLES_CREATE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT"];
 /** Exportar liquidación: mismo alcance que leer. */
 export const ROLES_EXPORT: readonly Role[] = ROLES_READ;
 
+// ── Gestión de clientes (editar / eliminar) ────────────────────────────────
+/**
+ * Editar un Client: sólo OWNER y ADMIN (decisión explícita, más estricta que
+ * `ROLES_UPDATE`, que sigue reservada para períodos/comprobantes/impuestos).
+ * Eliminar un Client usa `ROLES_DELETE`.
+ */
+export const ROLES_CLIENT_MANAGE: readonly Role[] = ["OWNER", "ADMIN"];
+
 // ── Futuras (matriz preparada, sin implementar) ────────────────────────────
 export const ROLES_UPDATE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT"];
 export const ROLES_DELETE: readonly Role[] = ["OWNER", "ADMIN"];
