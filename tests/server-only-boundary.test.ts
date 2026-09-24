@@ -51,8 +51,8 @@ describe("límite de responsabilidades server-only (punto 3)", () => {
 
   it("los formularios cliente NO envían vatAmount ni totalAmount", () => {
     for (const rel of [
-      "app/client/[id]/period/[periodId]/sales/new/page.tsx",
-      "app/client/[id]/period/[periodId]/purchases/new/page.tsx",
+      "app/(app)/client/[id]/period/[periodId]/sales/new/page.tsx",
+      "app/(app)/client/[id]/period/[periodId]/purchases/new/page.tsx",
     ]) {
       const s = readFileSync(join(repo, rel), "utf8");
       // el body del POST no incluye esas claves (se ignoran los comentarios)

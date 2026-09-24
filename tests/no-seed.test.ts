@@ -33,6 +33,7 @@ describe("endpoint de seed eliminado (punto 5)", () => {
 
   it("SeedButton no existe", () => {
     expect(existsSync(join(repo, "app/clients/SeedButton.tsx"))).toBe(false);
+    expect(existsSync(join(repo, "app/(app)/clients/SeedButton.tsx"))).toBe(false);
   });
 
   it("no quedan referencias al endpoint ni a ROBINSON S.A. en app/ ni lib/", () => {
