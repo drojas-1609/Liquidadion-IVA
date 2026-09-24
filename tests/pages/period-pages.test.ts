@@ -40,11 +40,11 @@ import {
 } from "../api/_harness";
 import { AccessNotice } from "@/app/_components/access-notice";
 
-import PeriodDashboard from "@/app/client/[id]/period/[periodId]/page";
-import PurchasesPage from "@/app/client/[id]/period/[periodId]/purchases/page";
-import SalesPage from "@/app/client/[id]/period/[periodId]/sales/page";
-import TaxesPage from "@/app/client/[id]/period/[periodId]/taxes/page";
-import LiquidationPage from "@/app/client/[id]/period/[periodId]/liquidation/page";
+import PeriodDashboard from "@/app/(app)/client/[id]/period/[periodId]/page";
+import PurchasesPage from "@/app/(app)/client/[id]/period/[periodId]/purchases/page";
+import SalesPage from "@/app/(app)/client/[id]/period/[periodId]/sales/page";
+import TaxesPage from "@/app/(app)/client/[id]/period/[periodId]/taxes/page";
+import LiquidationPage from "@/app/(app)/client/[id]/period/[periodId]/liquidation/page";
 
 type PageFn = (a: { params: Promise<{ id: string; periodId: string }> }) => Promise<unknown>;
 const PAGES: Array<[string, PageFn]> = [

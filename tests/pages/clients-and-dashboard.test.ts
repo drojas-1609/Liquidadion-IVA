@@ -40,8 +40,8 @@ import {
   ORG_B,
 } from "../api/_harness";
 import { MisconfiguredError } from "@/lib/auth/errors";
-import ClientsPage from "@/app/clients/page";
-import ClientDashboard from "@/app/client/[id]/dashboard/page";
+import ClientsPage from "@/app/(app)/clients/page";
+import ClientDashboard from "@/app/(app)/client/[id]/dashboard/page";
 import { AccessNotice } from "@/app/_components/access-notice";
 
 let db: ReturnType<typeof freshDbMock>;
