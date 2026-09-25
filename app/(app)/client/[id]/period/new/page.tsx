@@ -1,90 +1,30 @@
-"use client";
+import prisma from "@/lib/prisma";
+import { requireAuthenticatedProfile, requireClientAccess, guardPage } from "@/lib/auth/authz";
+import { ROLES_CREATE } from "@/lib/auth/roles";
+import { NotFoundError } from "@/lib/auth/errors";
+import { periodYearOptions } from "@/lib/period";
+import { AccessNotice } from "@/app/_components/access-notice";
+import { NewPeriodForm } from "./new-period-form";
 
-import { useState, use } from "react";
-import { useRouter } from "next/navigation";
+export const dynamic = "force-dynamic";
 
-export default function NewPeriodPage({ params }: { params: Promise<{ id: string }> }) {
-    const { id } = use(params);
-    const router = useRouter();
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
+// Alta de período: OWNER / ADMIN / ACCOUNTANT (ROLES_CREATE). VIEWER ve el
+// aviso de permisos; cliente de otra organización o inexistente -> 404.
+export default async function NewPeriodPage({ params }: { params: Promise<{ id: string }> }) {
+    const { id } = await params;
 
-    async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-        e.preventDefault();
-        setLoading(true);
-        setError("");
+    const guard = await guardPage(async () => {
+        const { profileId } = await requireAuthenticatedProfile();
+        const { organizationId } = await requireClientAccess(profileId, id, ROLES_CREATE);
+        const client = await prisma.client.findFirst({
+            where: { id, organizationId },
+            select: { id: true, name: true },
+        });
+        if (!client) throw new NotFoundError();
+        return client;
+    });
+    if (!guard.ok) return <AccessNotice notice={guard.notice} />;
 
-        const formData = new FormData(e.currentTarget);
-        const month = parseInt(formData.get("month") as string);
-        const year = parseInt(formData.get("year") as string);
-
-        try {
-            const res = await fetch(`/api/periods`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ clientId: id, month, year }),
-            });
-
-            if (!res.ok) throw new Error("Error al crear el periodo");
-
-            router.push(`/client/${id}/dashboard`);
-            router.refresh();
-        } catch (err) {
-            setError("Ocurrió un error al crear el periodo.");
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    const currentYear = new Date().getFullYear();
-    const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
-    const months = [
-        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-    ];
-
-    return (
-        <div className="container" style={{ maxWidth: "600px" }}>
-            <h1 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "var(--spacing-lg)" }}>
-                Nuevo Periodo
-            </h1>
-
-            <form onSubmit={handleSubmit} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
-                {error && (
-                    <div style={{ padding: "var(--spacing-sm)", backgroundColor: "rgba(239, 68, 68, 0.1)", color: "var(--error)", borderRadius: "var(--radius-sm)" }}>
-                        {error}
-                    </div>
-                )}
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--spacing-md)" }}>
-                    <div>
-                        <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Mes</label>
-                        <select name="month" className="input" required>
-                            {months.map((m, i) => (
-                                <option key={i} value={i + 1}>{m}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Año</label>
-                        <select name="year" className="input" required>
-                            {years.map((y) => (
-                                <option key={y} value={y}>{y}</option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--spacing-sm)", marginTop: "var(--spacing-md)" }}>
-                    <button type="button" onClick={() => router.back()} className="btn btn-secondary">
-                        Cancelar
-                    </button>
-                    <button type="submit" className="btn btn-primary" disabled={loading}>
-                        {loading ? "Crear Periodo" : "Crear Periodo"}
-                    </button>
-                </div>
-            </form>
-        </div>
-    );
+    // Misma regla de años (UTC) que la API, en orden descendente.
+    return <NewPeriodForm clientId={guard.data.id} clientName={guard.data.name} years={periodYearOptions()} />;
 }

@@ -1,12 +1,13 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
-import { ROLES_READ } from "@/lib/auth/roles";
+import { ROLES_READ, ROLES_DELETE, roleAllows } from "@/lib/auth/roles";
+import { formatPeriodLabel } from "@/lib/period";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { computeLiquidation } from "@/lib/liquidation-calc";
 import { formatMoney } from "@/lib/format";
-
+import { PeriodActions } from "./period-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
-        const { organizationId } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
+        const { organizationId, role } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
             expectClientId: id,
         });
         const found = await prisma.period.findFirst({
@@ -23,10 +24,12 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
             include: { invoices: true, taxRecords: true, client: true },
         });
         if (!found) throw new NotFoundError();
-        return found;
+        return { period: found, role };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const period = guard.data;
+    const { period, role } = guard.data;
+    const canDelete = roleAllows(ROLES_DELETE, role);
+    const hasMovements = period.invoices.length > 0 || period.taxRecords.length > 0;
 
     // Totales vía la única fuente de cálculo (lib/liquidation-calc).
     const r = computeLiquidation(period);
@@ -38,13 +41,22 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
 
     return (
         <div className="container">
-            <div style={{ marginBottom: "var(--spacing-xl)" }}>
-                <Link href={`/client/${id}/dashboard`} style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
-                    &larr; Volver al Cliente
-                </Link>
-                <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>
-                    Periodo {period.month.toString().padStart(2, "0")}/{period.year}
-                </h1>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--spacing-md)", flexWrap: "wrap", marginBottom: "var(--spacing-xl)" }}>
+                <div>
+                    <Link href={`/client/${id}/dashboard`} style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
+                        &larr; Volver al Cliente
+                    </Link>
+                    <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>
+                        Período {formatPeriodLabel(period)}
+                    </h1>
+                </div>
+                <PeriodActions
+                    clientId={id}
+                    periodId={period.id}
+                    periodLabel={formatPeriodLabel(period)}
+                    canDelete={canDelete}
+                    hasMovements={hasMovements}
+                />
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--spacing-lg)", marginBottom: "var(--spacing-xl)" }}>
@@ -93,7 +105,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
 
             <div className="card">
                 <h3 style={{ fontSize: "1.25rem", marginBottom: "var(--spacing-md)" }}>Retenciones y Percepciones</h3>
-                <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-md)" }}>Gestiona las retenciones y percepciones sufridas en el periodo.</p>
+                <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-md)" }}>Gestiona las retenciones y percepciones sufridas en el período.</p>
                 <Link href={`/client/${id}/period/${periodId}/taxes`} className="btn btn-secondary">
                     Gestionar Retenciones/Percepciones
                 </Link>

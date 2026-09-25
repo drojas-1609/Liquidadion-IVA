@@ -33,6 +33,8 @@ const EXPECTED = {
   // Period no tiene campos Decimal, pero igual se serializa (serializePeriod)
   // para NO exponer organizationId/createdById/updatedById.
   "app/api/periods/route.ts": { models: [], serializer: "serializePeriod" },
+  // DELETE de un período vacío: 204 sin cuerpo (no expone modelos).
+  "app/api/periods/[id]/route.ts": { models: [], serializer: null },
   // Devuelve XLSX binario (no JSON); internamente serializeLiquidation -> strings.
   "app/api/client/[id]/period/[periodId]/export/route.ts": { models: ["Invoice", "TaxRecord", "Client"], serializer: "serializeLiquidation" },
 } as const;

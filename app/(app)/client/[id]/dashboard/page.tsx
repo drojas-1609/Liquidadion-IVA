@@ -1,7 +1,8 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requireClientAccess, guardPage } from "@/lib/auth/authz";
-import { ROLES_READ, ROLES_CLIENT_MANAGE, ROLES_DELETE, roleAllows } from "@/lib/auth/roles";
+import { ROLES_READ, ROLES_CREATE, ROLES_CLIENT_MANAGE, ROLES_DELETE, roleAllows } from "@/lib/auth/roles";
+import { formatPeriodLabel } from "@/lib/period";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { ClientActions } from "./client-actions";
@@ -27,6 +28,7 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
     const { client, role } = guard.data;
     const canEdit = roleAllows(ROLES_CLIENT_MANAGE, role);
     const canDelete = roleAllows(ROLES_DELETE, role);
+    const canCreatePeriod = roleAllows(ROLES_CREATE, role);
 
     return (
         <div className="container">
@@ -46,37 +48,33 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--spacing-lg)" }}>
-                <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>Periodos Fiscales</h2>
-                <Link href={`/client/${id}/period/new`} className="btn btn-primary">
-                    Nuevo Periodo
-                </Link>
+                <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>Períodos fiscales</h2>
+                {canCreatePeriod && (
+                    <Link href={`/client/${id}/period/new`} className="btn btn-primary">
+                        Nuevo período
+                    </Link>
+                )}
             </div>
 
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>
                 <table className="table">
                     <thead>
                         <tr>
-                            <th>Periodo</th>
-                            <th>Estado</th>
+                            <th>Período</th>
                             <th>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
                         {client.periods.length === 0 ? (
                             <tr>
-                                <td colSpan={3} style={{ textAlign: "center", color: "var(--secondary)" }}>
-                                    No hay periodos registrados.
+                                <td colSpan={2} style={{ textAlign: "center", color: "var(--secondary)" }}>
+                                    No hay períodos registrados.
                                 </td>
                             </tr>
                         ) : (
                             client.periods.map((period) => (
                                 <tr key={period.id}>
-                                    <td>
-                                        {period.month.toString().padStart(2, "0")}/{period.year}
-                                    </td>
-                                    <td>
-                                        <span className="badge">Abierto</span>
-                                    </td>
+                                    <td>{formatPeriodLabel(period)}</td>
                                     <td>
                                         <Link
                                             href={`/client/${id}/period/${period.id}`}

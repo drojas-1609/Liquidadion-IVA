@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { D, computeVatAmount, computeTotalAmount, moneyInRange, MONEY_MAX } from "./decimal";
 import { parseMoney, parseRate } from "./validation/decimal";
 import { normalizeCuit } from "./cuit";
+import { isValidPeriodMonth, isValidPeriodYear, periodYearRange } from "./period";
 
 /**
  * Construcción y validación de los `data` de creación para las rutas de API.
@@ -49,19 +50,20 @@ export interface PeriodCreateData {
  * Valida la forma de un alta de período. NO comprueba que `clientId` exista ni
  * pertenezca a la organización: de eso se ocupa `requireClientAccess` (404).
  */
-export function buildPeriodInput(body: unknown): InputResult<PeriodCreateData> {
+export function buildPeriodInput(body: unknown, now: Date = new Date()): InputResult<PeriodCreateData> {
   if (typeof body !== "object" || body === null) return fail("body", "cuerpo inválido");
   const b = body as Record<string, unknown>;
 
   if (!nonEmptyString(b.clientId)) return fail("clientId", "clientId requerido");
 
   const month = parseIntStrict(b.month);
-  if (month === null || month < 1 || month > 12) return fail("month", "mes inválido (1 a 12)");
+  if (month === null || !isValidPeriodMonth(month)) return fail("month", "mes inválido (1 a 12)");
 
-  const maxYear = new Date().getUTCFullYear() + 1;
+  // Misma regla (UTC) que el formulario de alta: lib/period.ts.
   const year = parseIntStrict(b.year);
-  if (year === null || year < 2000 || year > maxYear) {
-    return fail("year", `año inválido (2000 a ${maxYear})`);
+  if (year === null || !isValidPeriodYear(year, now)) {
+    const { min, max } = periodYearRange(now);
+    return fail("year", `año inválido (${min} a ${max})`);
   }
 
   return { ok: true, data: { clientId: b.clientId, month, year } };

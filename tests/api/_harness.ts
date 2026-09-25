@@ -136,9 +136,9 @@ export interface DbMock {
   profile: { findUnique: Fn };
   membership: { findMany: Fn; findUnique: Fn };
   client: { findMany: Fn; findUnique: Fn; findFirst: Fn; create: Fn; update: Fn; delete: Fn };
-  period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn };
-  invoice: { findMany: Fn; create: Fn };
-  taxRecord: { findMany: Fn; create: Fn };
+  period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn; delete: Fn };
+  invoice: { findMany: Fn; create: Fn; count: Fn };
+  taxRecord: { findMany: Fn; create: Fn; count: Fn };
   auditLog: { create: Fn };
   $transaction: Fn;
 }
@@ -155,9 +155,9 @@ export function freshDbMock(): DbMock {
       update: vi.fn(),
       delete: vi.fn(),
     },
-    period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn() },
-    invoice: { findMany: vi.fn(), create: vi.fn() },
-    taxRecord: { findMany: vi.fn(), create: vi.fn() },
+    period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), delete: vi.fn() },
+    invoice: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
+    taxRecord: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
   };
@@ -309,6 +309,30 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       ).length,
   );
 
+  const countByPeriod = (rows: any[] | undefined, where: any) =>
+    (rows ?? []).filter(
+      (r) =>
+        r.periodId === where.periodId &&
+        (where.organizationId ? r.organizationId === where.organizationId : true),
+    ).length;
+  db.invoice.count.mockImplementation(async ({ where }: AnyArgs) => countByPeriod(world.invoices, where));
+  db.taxRecord.count.mockImplementation(async ({ where }: AnyArgs) => countByPeriod(world.taxRecords, where));
+
+  // delete sobre @@unique([id, organizationId]); P2025 si no existe; FK Restrict
+  // desde Invoice/TaxRecord: P2003 si quedan movimientos.
+  db.period.delete.mockImplementation(async ({ where }: AnyArgs) => {
+    const { id, organizationId } = where.id_organizationId;
+    const idx = world.periods.findIndex((p) => p.id === id && p.organizationId === organizationId);
+    if (idx === -1) throw knownError("P2025", "Record to delete does not exist");
+    const key = { periodId: id, organizationId };
+    if (countByPeriod(world.invoices, key) > 0 || countByPeriod(world.taxRecords, key) > 0) {
+      throw knownError("P2003", "Foreign key constraint failed");
+    }
+    const [removed] = world.periods.splice(idx, 1);
+    rec.created.periodDelete = where.id_organizationId;
+    return removed;
+  });
+
   db.period.create.mockImplementation(async ({ data }: AnyArgs) => {
     if (
       world.periods.some(
@@ -383,12 +407,14 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     const auditsBefore = rec.audits.length;
     const createdBefore = { ...rec.created };
     const clientsBefore = world.clients.slice();
+    const periodsBefore = world.periods.slice();
     try {
       return await fn(db);
     } catch (err) {
       rec.audits.length = auditsBefore;
       rec.created = createdBefore;
       world.clients.splice(0, world.clients.length, ...clientsBefore);
+      world.periods.splice(0, world.periods.length, ...periodsBefore);
       throw err;
     }
   });
