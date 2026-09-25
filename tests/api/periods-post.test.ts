@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const H = vi.hoisted(() => ({
   claims: { throw: null as unknown, value: null as unknown },
@@ -24,10 +24,13 @@ import {
   claimsFor,
   periodRow,
   SUB_OWNER_A,
+  SUB_ADMIN_A,
+  SUB_ACCOUNTANT_A,
   SUB_VIEWER_A,
   SUB_NO_PROFILE,
   SUB_NO_ORG,
   ORG_A,
+  ORG_B,
 } from "./_harness";
 import { POST } from "@/app/api/periods/route";
 
@@ -146,5 +149,72 @@ describe("POST /api/periods", () => {
     expect(res.status).toBe(500);
     expect(rec.created.period).toBeUndefined();
     expect(rec.audits).toHaveLength(0);
+  });
+
+  // ── matriz de roles ────────────────────────────────────────────────────
+  it.each([
+    ["OWNER", SUB_OWNER_A],
+    ["ADMIN", SUB_ADMIN_A],
+    ["ACCOUNTANT", SUB_ACCOUNTANT_A],
+  ])("%s puede crear -> 201 con AuditLog", async (_role, sub) => {
+    H.claims.value = claimsFor(sub);
+    const res = await post(jbody(valid));
+    expect(res.status).toBe(201);
+    expect(rec.audits[0]).toMatchObject({ action: "period.create", actorProfileId: sub });
+  });
+
+  // ── defensa en profundidad: organización del Client == organización activa ──
+  it("Client de OTRA organización aunque la Membership lo habilite -> 404, sin escritura", async () => {
+    // Lecturas inconsistentes (p. ej. una Membership nueva entre consultas):
+    // resolveActiveOrganization ve sólo ORG_A, pero requireClientAccess
+    // encontraría rol en ORG_B. La ruta igual debe negar con el MISMO 404.
+    db.membership.findUnique.mockImplementation(
+      async ({ where }: { where: { profileId_organizationId: { organizationId: string } } }) => {
+        const { organizationId } = where.profileId_organizationId;
+        return organizationId === ORG_A || organizationId === ORG_B ? { role: "OWNER" } : null;
+      },
+    );
+    const res = await post(jbody({ ...valid, clientId: "c_b" }));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe("NOT_FOUND");
+    expect(db.period.create).not.toHaveBeenCalled();
+    expect(rec.audits).toHaveLength(0);
+  });
+});
+
+describe("POST /api/periods — límites de año (regla UTC compartida con el formulario)", () => {
+  // Reloj fijo: 31/12/2026 23:30 UTC-3 == 01/01/2027 02:30 UTC -> año UTC 2027.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2027-01-01T02:30:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    [2000, 201],
+    [2028, 201], // año UTC (2027) + 1
+    [1999, 422],
+    [2029, 422],
+  ])("year=%i -> %i", async (year, status) => {
+    const res = await post(jbody({ ...valid, year }));
+    expect(res.status).toBe(status);
+    if (status === 422) {
+      const body = await res.json();
+      expect(body.field).toBe("year");
+      expect(body.error.message).toBe("año inválido (2000 a 2028)");
+    }
+  });
+
+  it.each([[0], [13], [1.5], ["6a"], [null]])("month=%s -> 422 field month", async (month) => {
+    const res = await post(jbody({ ...valid, month }));
+    expect(res.status).toBe(422);
+    expect((await res.json()).field).toBe("month");
+  });
+
+  it("month/year como string numérico -> se aceptan (\"6\", \"2026\")", async () => {
+    const res = await post(jbody({ ...valid, month: "6", year: "2026" }));
+    expect(res.status).toBe(201);
   });
 });

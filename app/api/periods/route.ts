@@ -12,7 +12,7 @@ import {
 } from "@/lib/auth/authz";
 import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_CREATE } from "@/lib/auth/roles";
-import { ValidationError } from "@/lib/auth/errors";
+import { NotFoundError, ValidationError } from "@/lib/auth/errors";
 
 // POST /api/periods — alta de período para un cliente de la organización activa.
 //
@@ -28,7 +28,11 @@ export const POST = withApiAuthz(async (request: Request) => {
     const parsed = buildPeriodInput(body);
     if (!parsed.ok) throw new ValidationError(parsed.error, parsed.field);
 
-    await requireClientAccess(profileId, parsed.data.clientId, ROLES_CREATE);
+    const access = await requireClientAccess(profileId, parsed.data.clientId, ROLES_CREATE);
+    // Defensa en profundidad: el Client debe ser de la organización ACTIVA. Si
+    // no, mismo 404 que un cliente inexistente (la FK compuesta lo rechazaría
+    // igual, pero como 500).
+    if (access.organizationId !== organizationId) throw new NotFoundError();
 
     const created = await prisma.$transaction(async (tx) => {
         const period = await tx.period.create({

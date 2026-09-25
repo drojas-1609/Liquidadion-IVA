@@ -25,9 +25,10 @@ export const AUDIT_ACTIONS = [
   // Gestión de clientes
   "client.update",
   "client.delete",
+  // Gestión de períodos
+  "period.delete",
   // Reservadas para 3B+ (NO se emiten todavía; declaradas para no migrar luego)
   "period.update",
-  "period.delete",
   "invoice.update",
   "invoice.delete",
   "taxrecord.update",
@@ -57,8 +58,8 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   // changedFields: NOMBRES de campo separados por coma, nunca valores. NO cuit.
   "client.update": ["changedFields", "condition"],
   "client.delete": ["condition"], // NO cuit, nombre ni dirección
+  "period.delete": ["clientId", "month", "year"],
   "period.update": [],
-  "period.delete": [],
   "invoice.update": [],
   "invoice.delete": [],
   "taxrecord.update": [],

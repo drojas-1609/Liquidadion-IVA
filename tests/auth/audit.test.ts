@@ -94,6 +94,19 @@ describe("sanitizeAuditMetadata — allow-list por acción", () => {
     ).toEqual({ condition: "Exento" });
   });
 
+  it("period.delete: sólo clientId, month y year", () => {
+    expect(
+      sanitizeAuditMetadata("period.delete", {
+        clientId: "c1",
+        month: 4,
+        year: 2026,
+        organizationId: "org",
+        cuit: "20-12345678-6",
+        invoices: [{ total: "999.99" }],
+      }),
+    ).toEqual({ clientId: "c1", month: 4, year: 2026 });
+  });
+
   it("acción reservada (futura) -> siempre {}", () => {
     for (const a of ["period.update", "member.role_change", "org.config_change"]) {
       expect(sanitizeAuditMetadata(a, { anything: "value", clientId: "c1" })).toEqual({});
