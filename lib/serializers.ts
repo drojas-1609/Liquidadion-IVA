@@ -81,49 +81,94 @@ export function serializePeriod(p: {
 
 export interface InvoiceDTO {
   id: string;
-  date: string;
-  type: string;
+  // Columnas heredadas (semántica anterior; nullable desde la Fase A).
+  date: string | null;
+  type: string | null;
   pointOfSale: number;
   number: number;
-  entityName: string;
-  entityCuit: string;
+  entityName: string | null;
+  entityCuit: string | null;
   netAmount: string;
-  vatRate: string;
+  vatRate: string | null;
   vatAmount: string;
   totalAmount: string;
   category: string;
   periodId: string;
+  // Modelo contable (Fase A). NULL en filas heredadas sin representar.
+  voucherCode: number | null;
+  /** `AAAA-MM-DD`, sin zona horaria. */
+  voucherDate: string | null;
+  currencyCode: string | null;
+  exchangeRate: string | null;
+  taxedNetAmount: string | null;
+  totalVatAmount: string | null;
+  directComputableVatCreditAmount: string | null;
+  reportedComputableVatCreditAmount: string | null;
+  netWithoutVatBreakdownAmount: string | null;
+  grossIncomeTaxBaseAmount: string | null;
+  voucherTotalAmount: string | null;
+  turivaRefundAmount: string | null;
+  lidSection: string | null;
 }
+
+type Dec = Prisma.Decimal;
+const moneyOrNull = (d: Dec | null | undefined): string | null => (d == null ? null : money(d));
 
 export function serializeInvoice(i: {
   id: string;
-  date: Date;
-  type: string;
+  date: Date | null;
+  type: string | null;
   pointOfSale: number;
   number: number;
-  entityName: string;
-  entityCuit: string;
-  netAmount: Prisma.Decimal;
-  vatRate: Prisma.Decimal;
-  vatAmount: Prisma.Decimal;
-  totalAmount: Prisma.Decimal;
+  entityName: string | null;
+  entityCuit: string | null;
+  netAmount: Dec;
+  vatRate: Dec | null;
+  vatAmount: Dec;
+  totalAmount: Dec;
   category: string;
   periodId: string;
+  voucherCode?: number | null;
+  voucherDate?: Date | null;
+  currencyCode?: string | null;
+  exchangeRate?: Dec | null;
+  taxedNetAmount?: Dec | null;
+  totalVatAmount?: Dec | null;
+  directComputableVatCreditAmount?: Dec | null;
+  reportedComputableVatCreditAmount?: Dec | null;
+  netWithoutVatBreakdownAmount?: Dec | null;
+  grossIncomeTaxBaseAmount?: Dec | null;
+  voucherTotalAmount?: Dec | null;
+  turivaRefundAmount?: Dec | null;
+  lidSection?: string | null;
 }): InvoiceDTO {
   return {
     id: i.id,
-    date: iso(i.date),
+    date: i.date ? iso(i.date) : null,
     type: i.type,
     pointOfSale: i.pointOfSale,
     number: i.number,
     entityName: i.entityName,
     entityCuit: i.entityCuit,
     netAmount: money(i.netAmount),
-    vatRate: rate(i.vatRate),
+    vatRate: i.vatRate == null ? null : rate(i.vatRate),
     vatAmount: money(i.vatAmount),
     totalAmount: money(i.totalAmount),
     category: i.category,
     periodId: i.periodId,
+    voucherCode: i.voucherCode ?? null,
+    voucherDate: i.voucherDate ? iso(i.voucherDate).slice(0, 10) : null,
+    currencyCode: i.currencyCode ?? null,
+    exchangeRate: i.exchangeRate == null ? null : i.exchangeRate.toString(),
+    taxedNetAmount: moneyOrNull(i.taxedNetAmount),
+    totalVatAmount: moneyOrNull(i.totalVatAmount),
+    directComputableVatCreditAmount: moneyOrNull(i.directComputableVatCreditAmount),
+    reportedComputableVatCreditAmount: moneyOrNull(i.reportedComputableVatCreditAmount),
+    netWithoutVatBreakdownAmount: moneyOrNull(i.netWithoutVatBreakdownAmount),
+    grossIncomeTaxBaseAmount: moneyOrNull(i.grossIncomeTaxBaseAmount),
+    voucherTotalAmount: moneyOrNull(i.voucherTotalAmount),
+    turivaRefundAmount: moneyOrNull(i.turivaRefundAmount),
+    lidSection: i.lidSection ?? null,
   };
 }
 
@@ -157,7 +202,18 @@ export function serializeTaxRecord(t: {
 export interface LiquidationDTO {
   sales: { net: string; vat: string; total: string };
   purchases: { net: string; vat: string; total: string };
-  iva: { debit: string; credit: string; balance: string; retentions: string; payable: string };
+  iva: {
+    debit: string;
+    /** Crédito fiscal computable total = directo + prorrateo global. */
+    credit: string;
+    creditDirect: string;
+    creditProrated: string;
+    /** IVA sujeto a prorrateo global (base del prorrateo). */
+    globalProrationVat: string;
+    balance: string;
+    retentions: string;
+    payable: string;
+  };
   iibb: { rate: string; base: string; tax: string; retentions: string; payable: string };
 }
 
@@ -169,6 +225,9 @@ export function serializeLiquidation(r: LiquidationResult): LiquidationDTO {
     iva: {
       debit: money(r.iva.debit),
       credit: money(r.iva.credit),
+      creditDirect: money(r.iva.creditDirect),
+      creditProrated: money(r.iva.creditProrated),
+      globalProrationVat: money(r.iva.globalProrationVat),
       balance: money(r.iva.balance),
       retentions: money(r.iva.retentions),
       payable: money(r.iva.payable),

@@ -26,7 +26,7 @@ describe("lib/api-input", () => {
       expect(res.data.vatAmount.toFixed(2)).toBe("210.00");
       expect(res.data.totalAmount.toFixed(2)).toBe("1210.00");
       expect(res.data.netAmount.toFixed(2)).toBe("1000.00");
-      expect(res.data.vatRate.toString()).toBe("21");
+      expect(res.data.vatRate?.toString()).toBe("21");
     }
   });
 

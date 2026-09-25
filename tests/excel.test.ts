@@ -8,7 +8,16 @@ const sampleData = {
   cuit: "30-11111111-8",
   sales: { net: "150000.00", vat: "26250.00", total: "176250.00" },
   purchases: { net: "80000.00", vat: "16800.00", total: "96800.00" },
-  iva: { debit: "26250.00", credit: "16800.00", balance: "9450.00", retentions: "1234.56", payable: "8215.44" },
+  iva: {
+    debit: "26250.00",
+    credit: "16800.00",
+    creditDirect: "16800.00",
+    creditProrated: "0.00",
+    globalProrationVat: "0.00",
+    balance: "9450.00",
+    retentions: "1234.56",
+    payable: "8215.44",
+  },
   iibb: { rate: "3.523456", base: "150000.00", tax: "5285.18", retentions: "750.00", payable: "4535.18" },
 };
 

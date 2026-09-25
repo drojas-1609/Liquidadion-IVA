@@ -11,12 +11,14 @@ const PRIOR = ["0_init", "20260907213357_float_to_decimal", "20260908021123_org_
 const sql = readFileSync(migrationsDir + MIGRATION + "/migration.sql", "utf8");
 
 describe("migración org_scope_and_audit — revisión estática (Tarea 3B, NO aplicada)", () => {
-  it("es UNA sola carpeta nueva, apilada después de las 3 previas", () => {
+  it("es UNA sola carpeta nueva, apilada después de las 3 previas (pueden seguir migraciones posteriores)", () => {
     const dirs = readdirSync(migrationsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
       .sort();
-    expect(dirs).toEqual([...PRIOR, MIGRATION].sort());
+    // Hasta 3B inclusive: exactamente las 3 previas + 3B. Fase A (y siguientes)
+    // apilan carpetas DESPUÉS sin modificar ninguna anterior.
+    expect(dirs.filter((d) => d <= MIGRATION)).toEqual([...PRIOR, MIGRATION].sort());
     // el timestamp es posterior al de org_auth_base
     expect(MIGRATION > "20260908021123_org_auth_base").toBe(true);
   });

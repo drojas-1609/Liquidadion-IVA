@@ -27,6 +27,9 @@ export const AUDIT_ACTIONS = [
   "client.delete",
   // Gestión de períodos
   "period.delete",
+  // Configuración de IVA del período (declarada en Fase A; se emitirá cuando
+  // exista el endpoint que modifique PeriodVatSettings).
+  "period.vat_settings_change",
   // Reservadas para 3B+ (NO se emiten todavía; declaradas para no migrar luego)
   "period.update",
   "invoice.update",
@@ -45,7 +48,8 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "client.create": ["condition"], // NO cuit
   "period.create": ["clientId", "month", "year"],
-  "invoice.create": ["periodId", "category", "type"],
+  // Fase A: voucherCode (código oficial) reemplaza a `type`. Sin CUIT, nombres ni importes.
+  "invoice.create": ["periodId", "category", "voucherCode"],
   "taxrecord.create": ["periodId", "type"],
   "liquidation.export": [
     "periodId",
@@ -59,6 +63,19 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "client.update": ["changedFields", "condition"],
   "client.delete": ["condition"], // NO cuit, nombre ni dirección
   "period.delete": ["clientId", "month", "year"],
+  // Reconstruye cómo se obtuvo una liquidación. Coeficientes como strings
+  // decimales EXACTOS (nunca float). Sin CUIT, nombres ni importes.
+  "period.vat_settings_change": [
+    "changedFields",
+    "prorationModeBefore",
+    "prorationModeAfter",
+    "coefficientBefore",
+    "coefficientAfter",
+    "coefficientStatusBefore",
+    "coefficientStatusAfter",
+    "turivaIncludedBefore",
+    "turivaIncludedAfter",
+  ],
   "period.update": [],
   "invoice.update": [],
   "invoice.delete": [],

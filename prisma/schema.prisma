@@ -22,14 +22,16 @@ model Profile {
 
   memberships Membership[]
 
-  createdClients    Client[]    @relation("ClientCreatedBy")
-  updatedClients    Client[]    @relation("ClientUpdatedBy")
-  createdPeriods    Period[]    @relation("PeriodCreatedBy")
-  updatedPeriods    Period[]    @relation("PeriodUpdatedBy")
-  createdInvoices   Invoice[]   @relation("InvoiceCreatedBy")
-  updatedInvoices   Invoice[]   @relation("InvoiceUpdatedBy")
-  createdTaxRecords TaxRecord[] @relation("TaxRecordCreatedBy")
-  updatedTaxRecords TaxRecord[] @relation("TaxRecordUpdatedBy")
+  createdClients           Client[]            @relation("ClientCreatedBy")
+  updatedClients           Client[]            @relation("ClientUpdatedBy")
+  createdPeriods           Period[]            @relation("PeriodCreatedBy")
+  updatedPeriods           Period[]            @relation("PeriodUpdatedBy")
+  createdInvoices          Invoice[]           @relation("InvoiceCreatedBy")
+  updatedInvoices          Invoice[]           @relation("InvoiceUpdatedBy")
+  createdTaxRecords        TaxRecord[]         @relation("TaxRecordCreatedBy")
+  updatedTaxRecords        TaxRecord[]         @relation("TaxRecordUpdatedBy")
+  createdPeriodVatSettings PeriodVatSettings[] @relation("PeriodVatSettingsCreatedBy")
+  updatedPeriodVatSettings PeriodVatSettings[] @relation("PeriodVatSettingsUpdatedBy")
 
   // Tarea 3B: actor de la traza de auditoría. onDelete: SetNull (el historial
   // sobrevive al borrado del Profile).
@@ -129,9 +131,14 @@ model Period {
 
   // Tarea 3B: relación COMPUESTA. Un Period sólo puede referenciar un Client
   // de la MISMA organización (PostgreSQL rechaza cualquier otra combinación).
-  client     Client      @relation(fields: [clientId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
-  invoices   Invoice[]
-  taxRecords TaxRecord[]
+  client           Client             @relation(fields: [clientId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
+  invoices         Invoice[]          @relation("InvoicePeriod")
+  // Fase A (M1): destino de la FK (periodId, clientId, organizationId) que
+  // garantiza en la base que Invoice.clientId coincide con el del período.
+  invoicesByClient Invoice[]          @relation("InvoicePeriodClient")
+  // Fase A: configuración de IVA del período (1:1, opcional).
+  vatSettings      PeriodVatSettings?
+  taxRecords       TaxRecord[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -143,6 +150,8 @@ model Period {
   @@unique([month, year, clientId])
   // Tarea 3B: destino de FK compuesta desde Invoice / TaxRecord.
   @@unique([id, organizationId])
+  // Fase A (M1): destino de la FK compuesta Invoice(periodId, clientId, organizationId).
+  @@unique([id, clientId, organizationId])
   // Índice EXPLÍCITO de la FK compuesta (Prisma/PostgreSQL no lo crean solos).
   @@index([clientId, organizationId])
   @@index([organizationId])
@@ -151,25 +160,114 @@ model Period {
   @@index([clientId])
 }
 
+/// Origen de un comprobante. IMPORT se usará cuando exista el importador
+/// (fase C/E); hasta entonces todo comprobante es MANUAL.
+enum InvoiceSource {
+  MANUAL
+  IMPORT
+}
+
+/// Comprobante de compra o venta.
+///
+/// Fase A — migración M1 (expand). Convivencia de dos representaciones:
+///  - Columnas HEREDADAS (`date`, `type`, `entityName`, `entityCuit`, `vatRate`,
+///    `netAmount`, `vatAmount`, `totalAmount`): semántica anterior, importes CON
+///    signo (una nota de crédito se guardaba en negativo). El código las sigue
+///    completando para que el código publicado anterior funcione y se pueda
+///    volver atrás. `entityCuit` puede contener transitoriamente un número de
+///    documento que no es CUIT (sólo compatibilidad). Se eliminan en M3.
+///  - Columnas NUEVAS (nullable en M1): importes SIEMPRE positivos y en pesos;
+///    el signo contable sale EXCLUSIVAMENTE de `voucherCode` (lib/arca/vouchers).
+///    `voucherCode = NULL` significa "fila heredada sin representar": se lee con
+///    `normalizeInvoiceRow` en modo heredado. M2 (contract) las hará NOT NULL.
+///
+/// Objetos que Prisma 6.19 NO representa y viven sólo en migration.sql
+/// (protegidos por tests/schema/invoice-model-migration.test.ts; NUNCA aplicar
+/// la salida de `prisma migrate diff`/`migrate dev` sin revisarla, porque
+/// propondría borrarlos):
+///  - índices únicos PARCIALES `Invoice_sales_voucher_key` y
+///    `Invoice_purchases_voucher_key` (duplicados en todos los períodos del cliente);
+///  - restricciones CHECK `Invoice_*_check`, `InvoiceVatLine_*_check` y
+///    `PeriodVatSettings_*_check`.
 model Invoice {
-  id             String   @id @default(cuid())
-  date           DateTime
-  type           String
+  id             String    @id @default(cuid())
+  // ── Columnas heredadas (ver arriba) ──────────────────────────────────────
+  date           DateTime?
+  type           String?
   pointOfSale    Int
   number         Int
-  entityName     String
-  entityCuit     String
-  netAmount      Decimal  @db.Decimal(18, 2)
-  vatRate        Decimal  @db.Decimal(9, 6) // porcentaje: 21, 10.5, 2.5
-  vatAmount      Decimal  @db.Decimal(18, 2)
-  totalAmount    Decimal  @db.Decimal(18, 2)
+  entityName     String?
+  entityCuit     String?
+  netAmount      Decimal   @db.Decimal(18, 2)
+  vatRate        Decimal?  @db.Decimal(9, 6) // porcentaje: 21, 10.5, 2.5
+  vatAmount      Decimal   @db.Decimal(18, 2)
+  totalAmount    Decimal   @db.Decimal(18, 2)
   category       String
   periodId       String
   organizationId String
 
+  // ── Modelo contable (Fase A, M1: nullable hasta M2) ──────────────────────
+  clientId                          String?
+  source                            InvoiceSource?
+  /// Código oficial de tipo de comprobante (ARCA). Define el signo contable.
+  voucherCode                       Int?
+  /// Último número de un rango "desde/hasta"; NULL = comprobante único.
+  numberTo                          Int?
+  /// Fecha contable, sin hora ni zona horaria.
+  voucherDate                       DateTime?      @db.Date
+  counterpartyDocType               Int?
+  /// Sólo dígitos.
+  counterpartyDocNumber             String?
+  counterpartyName                  String?
+  currencyCode                      String?        @db.Char(3)
+  exchangeRate                      Decimal?       @db.Decimal(19, 6)
+  /// Σ netAmount de las líneas de IVA.
+  taxedNetAmount                    Decimal?       @db.Decimal(18, 2)
+  /// Σ vatAmount de las líneas de IVA (IVA liquidado).
+  totalVatAmount                    Decimal?       @db.Decimal(18, 2)
+  /// Crédito fiscal computable DIRECTO: Σ computableVatAmount de las líneas
+  /// DIRECT_COMPUTABLE (0 en ventas). NO incluye el prorrateo global, que se
+  /// determina por período (PeriodVatSettings.globalCoefficient).
+  directComputableVatCreditAmount   Decimal?       @db.Decimal(18, 2)
+  /// Crédito fiscal computable INFORMADO oficialmente (futura importación del
+  /// Libro IVA Digital, Compras campo 21). Se conserva tal cual; NULL en carga manual.
+  reportedComputableVatCreditAmount Decimal?       @db.Decimal(18, 2)
+  /// Importe de una operación sin IVA discriminado. NO afirma que sea exenta
+  /// ni no gravada.
+  netWithoutVatBreakdownAmount      Decimal?       @db.Decimal(18, 2)
+  nonTaxedAmount                    Decimal?       @db.Decimal(18, 2)
+  exemptAmount                      Decimal?       @db.Decimal(18, 2)
+  // Percepciones informadas EN el comprobante. Separadas de TaxRecord y fuera
+  // del cálculo hasta la fase F.
+  vatPerceptionAmount               Decimal?       @db.Decimal(18, 2)
+  nationalPerceptionAmount          Decimal?       @db.Decimal(18, 2)
+  iibbPerceptionAmount              Decimal?       @db.Decimal(18, 2)
+  municipalPerceptionAmount         Decimal?       @db.Decimal(18, 2)
+  internalTaxesAmount               Decimal?       @db.Decimal(18, 2)
+  otherTaxesAmount                  Decimal?       @db.Decimal(18, 2)
+  /// Base imponible de IIBB (sólo ventas; ≥ 0; sin IVA ni percepciones).
+  /// Su determinación fiscal definitiva (jurisdicción, actividad, exenciones)
+  /// se amplía en la fase F.
+  grossIncomeTaxBaseAmount          Decimal?       @db.Decimal(18, 2)
+  /// Total del comprobante en pesos (fórmula en lib/invoice-model.ts).
+  voucherTotalAmount                Decimal?       @db.Decimal(18, 2)
+  /// Reintegro Decreto 1043/2016 / Devolución IVA Turistas Extranjeros (TurIVA):
+  /// Ventas campo 23, Compras campo 26. SEPARADO del IVA, percepciones,
+  /// tributos y voucherTotalAmount; fuera del cálculo hasta la fase F.
+  turivaRefundAmount                Decimal?       @db.Decimal(18, 2)
+  /// Pestaña del Libro IVA Digital. TURIVA exige PeriodVatSettings.turivaIncluded.
+  lidSection                        LidSection     @default(GENERAL)
+  /// Código de operación (tabla oficial); reservado para la importación.
+  operationCode                     String?        @db.Char(1)
+
   // Tarea 3B: relación COMPUESTA. Una Invoice sólo puede referenciar un Period
   // de la MISMA organización.
-  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
+  period       Period  @relation("InvoicePeriod", fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
+  // Fase A (M1): además, el Period debe ser del MISMO cliente. Con clientId
+  // NULL (filas del código anterior) PostgreSQL no la evalúa (MATCH SIMPLE).
+  periodClient Period? @relation("InvoicePeriodClient", fields: [periodId, clientId, organizationId], references: [id, clientId, organizationId], onUpdate: Cascade, onDelete: Restrict)
+
+  vatLines InvoiceVatLine[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -178,11 +276,105 @@ model Invoice {
   createdBy   Profile? @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy   Profile? @relation("InvoiceUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
+  // Fase A (M1): destino de la FK compuesta desde InvoiceVatLine.
+  @@unique([id, organizationId])
   // Índice EXPLÍCITO de la FK compuesta.
   @@index([periodId, organizationId])
+  // Índice EXPLÍCITO de la FK (periodId, clientId, organizationId).
+  @@index([periodId, clientId, organizationId])
   @@index([organizationId])
   // @@index([periodId]) se mantiene hasta confirmar cobertura del compuesto.
   @@index([periodId])
+}
+
+/// Neto e IVA de un comprobante para UNA alícuota (código oficial ARCA) y UNA
+/// atribución del crédito fiscal. El porcentaje no se persiste: se deriva del
+/// código (lib/arca/catalogs). Importes siempre positivos; el signo lo da el
+/// comprobante. La atribución por línea es una clasificación INTERNA: los
+/// archivos oficiales informan el crédito computable por comprobante.
+model InvoiceVatLine {
+  id                   String              @id @default(cuid())
+  organizationId       String
+  invoiceId            String
+  vatRateCode          Int
+  netAmount            Decimal             @db.Decimal(18, 2)
+  vatAmount            Decimal             @db.Decimal(18, 2)
+  /// Ventas: NOT_APPLICABLE. Compras: DIRECT_COMPUTABLE | DIRECT_NON_COMPUTABLE | GLOBAL_PRORATION.
+  creditAllocation     VatCreditAllocation
+  /// DIRECT_COMPUTABLE: 0..vatAmount · DIRECT_NON_COMPUTABLE: 0 ·
+  /// GLOBAL_PRORATION y NOT_APPLICABLE: NULL (el prorrateo es por período).
+  computableVatAmount  Decimal?            @db.Decimal(18, 2)
+  /// true si el usuario corrigió el computable de una línea DIRECT_COMPUTABLE.
+  computableOverridden Boolean             @default(false)
+  createdAt            DateTime            @default(now())
+
+  // Las líneas son parte del comprobante: se borran con él.
+  invoice Invoice @relation(fields: [invoiceId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
+
+  // Una línea por alícuota y atribución: admite dos conceptos al 21 % con
+  // distinta atribución e impide duplicados accidentales.
+  @@unique([invoiceId, vatRateCode, creditAllocation])
+  @@index([invoiceId, organizationId])
+  @@index([organizationId])
+}
+
+/// Atribución del crédito fiscal de una línea de IVA.
+enum VatCreditAllocation {
+  NOT_APPLICABLE
+  DIRECT_COMPUTABLE
+  DIRECT_NON_COMPUTABLE
+  GLOBAL_PRORATION
+}
+
+/// Pestaña del Libro IVA Digital en la que se registra el comprobante.
+enum LidSection {
+  GENERAL
+  TURIVA
+}
+
+/// Modalidad del crédito fiscal computable del período ("Datos iniciales"
+/// del Libro IVA Digital).
+enum CreditProrationMode {
+  NONE
+  DIRECT
+  GLOBAL
+  DIRECT_AND_GLOBAL
+}
+
+enum CoefficientStatus {
+  PROVISIONAL
+  DEFINITIVE
+}
+
+/// Configuración de IVA de un período fiscal (1:1 con Period, opcional).
+/// Sin fila: modalidad NONE, TurIVA desactivado, sin coeficiente.
+/// El ajuste anual del prorrateo NO se modela todavía (tendrá su propio
+/// modelo por cliente y ejercicio).
+model PeriodVatSettings {
+  id                      String              @id @default(cuid())
+  organizationId          String
+  periodId                String              @unique
+  creditProrationMode     CreditProrationMode @default(NONE)
+  /// Coeficiente de prorrateo global (0..1). Obligatorio en GLOBAL / DIRECT_AND_GLOBAL.
+  globalCoefficient       Decimal?            @db.Decimal(11, 10)
+  globalCoefficientStatus CoefficientStatus?
+  /// "Incluido en el Régimen TurIVA".
+  turivaIncluded          Boolean             @default(false)
+
+  // FK COMPUESTA: la configuración sólo puede referenciar un Period de la
+  // MISMA organización. Se borra con el período (es parte de él).
+  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+  createdBy   Profile? @relation("PeriodVatSettingsCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy   Profile? @relation("PeriodVatSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  // 1:1 con la FK compuesta (también es el índice explícito de la FK).
+  @@unique([periodId, organizationId])
+  @@index([organizationId])
 }
 
 model TaxRecord {

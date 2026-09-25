@@ -17,3 +17,12 @@ export function formatRate(value: string): string {
   if (!Number.isFinite(n)) return value;
   return n.toLocaleString("es-AR", { maximumFractionDigits: 6 });
 }
+
+/**
+ * Fecha contable `AAAA-MM-DD` -> `DD/MM/AAAA`, sin pasar por `Date` (no hay
+ * zona horaria que pueda correr el día). Entrada inválida o null -> "—".
+ */
+export function formatIsoDate(value: string | null): string {
+  const m = value ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "—";
+}
