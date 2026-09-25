@@ -1,9 +1,10 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
-import { D, computeVatAmount, computeTotalAmount, moneyInRange, MONEY_MAX } from "./decimal";
+import { D, moneyInRange, MONEY_MAX } from "./decimal";
 import { parseMoney, parseRate } from "./validation/decimal";
 import { normalizeCuit } from "./cuit";
 import { isValidPeriodMonth, isValidPeriodYear, periodYearRange } from "./period";
+import { modelFromLegacyInput, legacyColumnsFor, type InvoiceCategory, type InvoiceModelData } from "./invoice-model";
 
 /**
  * Construcción y validación de los `data` de creación para las rutas de API.
@@ -72,6 +73,7 @@ export function buildPeriodInput(body: unknown, now: Date = new Date()): InputRe
 // ── Invoice ────────────────────────────────────────────────────────────────
 
 export interface InvoiceCreateData {
+  // Columnas heredadas (semántica anterior, con signo), derivadas del modelo.
   date: Date;
   type: string;
   pointOfSale: number;
@@ -79,13 +81,20 @@ export interface InvoiceCreateData {
   entityName: string;
   entityCuit: string;
   netAmount: Prisma.Decimal;
-  vatRate: Prisma.Decimal;
+  vatRate: Prisma.Decimal | null;
   vatAmount: Prisma.Decimal;
   totalAmount: Prisma.Decimal;
-  category: string;
+  category: InvoiceCategory;
   periodId: string;
+  /** Modelo contable (Fase A): importes positivos, signo por código oficial. */
+  model: InvoiceModelData;
 }
 
+/**
+ * Contrato ACTUAL de /api/invoices (una alícuota). Fase A: además de validar,
+ * construye el modelo contable (`modelFromLegacyInput`) y deriva de él las
+ * columnas heredadas, para que ambas representaciones liquiden igual.
+ */
 export function buildInvoiceInput(body: unknown): InputResult<InvoiceCreateData> {
   if (typeof body !== "object" || body === null) return fail("body", "cuerpo inválido");
   const b = body as Record<string, unknown>;
@@ -116,34 +125,47 @@ export function buildInvoiceInput(body: unknown): InputResult<InvoiceCreateData>
   if (!rate.ok) return fail("vatRate", rate.error);
 
   // Autoritativo: se ignoran b.vatAmount / b.totalAmount del cliente.
-  const vatAmount = computeVatAmount(net.value, rate.value);
-  const totalAmount = computeTotalAmount(net.value, vatAmount);
+  const built = modelFromLegacyInput({
+    category,
+    type: b.type,
+    date,
+    pointOfSale,
+    number,
+    entityName: b.entityName,
+    entityCuit: entityCuit.value,
+    netAmount: net.value,
+    vatRate: rate.value,
+  });
+  if (!built.ok) return fail(built.field, built.error);
+  const model = built.model;
 
   // Un neto válido puede derivar en un IVA o total fuera de NUMERIC(18,2).
-  // Se corta acá con 400; nunca llega como 500 desde PostgreSQL.
+  // Se corta acá con 422; nunca llega como 500 desde PostgreSQL.
   const limit = `debe estar entre -${MONEY_MAX.toFixed(2)} y ${MONEY_MAX.toFixed(2)}`;
-  if (!moneyInRange(vatAmount)) {
-    return fail("vatAmount", `el IVA calculado (${vatAmount.toFixed(2)}) queda fuera de rango: ${limit}`);
+  if (!moneyInRange(model.totalVatAmount)) {
+    return fail("vatAmount", `el IVA calculado (${model.totalVatAmount.toFixed(2)}) queda fuera de rango: ${limit}`);
   }
-  if (!moneyInRange(totalAmount)) {
-    return fail("totalAmount", `el total calculado (${totalAmount.toFixed(2)}) queda fuera de rango: ${limit}`);
+  if (!moneyInRange(model.voucherTotalAmount)) {
+    return fail("totalAmount", `el total calculado (${model.voucherTotalAmount.toFixed(2)}) queda fuera de rango: ${limit}`);
   }
 
+  const legacy = legacyColumnsFor(model);
   return {
     ok: true,
     data: {
-      date,
-      type: b.type,
+      date: legacy.date,
+      type: legacy.type,
       pointOfSale,
       number,
-      entityName: b.entityName,
-      entityCuit: entityCuit.value,
-      netAmount: net.value,
-      vatRate: rate.value,
-      vatAmount,
-      totalAmount,
+      entityName: legacy.entityName,
+      entityCuit: legacy.entityCuit,
+      netAmount: legacy.netAmount,
+      vatRate: legacy.vatRate,
+      vatAmount: legacy.vatAmount,
+      totalAmount: legacy.totalAmount,
       category,
       periodId: b.periodId,
+      model,
     },
   };
 }

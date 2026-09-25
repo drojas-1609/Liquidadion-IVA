@@ -76,7 +76,8 @@ describe("schema.prisma — modelo de organización (Tarea 3A)", () => {
   it("Campos monetarios Decimal de Tarea 2 sin cambios", () => {
     const inv = modelBlock("Invoice");
     expect(inv).toMatch(/netAmount\s+Decimal\s+@db\.Decimal\(18, 2\)/);
-    expect(inv).toMatch(/vatRate\s+Decimal\s+@db\.Decimal\(9, 6\)/);
+    // Fase A: vatRate pasa a nullable (columna heredada); tipo y escala sin cambios.
+    expect(inv).toMatch(/vatRate\s+Decimal\??\s+@db\.Decimal\(9, 6\)/);
     expect(modelBlock("Client")).toMatch(/defaultIibbRate\s+Decimal\s+@default\(3\.000000\)\s+@db\.Decimal\(9, 6\)/);
   });
 });

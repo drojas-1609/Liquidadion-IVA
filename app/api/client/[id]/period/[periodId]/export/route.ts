@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateLiquidationExcel } from "@/lib/excel";
-import { computeLiquidation } from "@/lib/liquidation-calc";
+import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-calc";
+import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { serializeLiquidation } from "@/lib/serializers";
 import {
     requireAuthenticatedProfile,
@@ -12,7 +13,7 @@ import {
 } from "@/lib/auth/authz";
 import { sanitizeAuditMetadata } from "@/lib/auth/audit";
 import { ROLES_EXPORT } from "@/lib/auth/roles";
-import { NotFoundError } from "@/lib/auth/errors";
+import { ConflictError, NotFoundError } from "@/lib/auth/errors";
 
 /** Parte ASCII/unicode segura para el nombre del archivo (sin control, comillas, /). */
 function safeFilePart(name: string): string {
@@ -49,12 +50,21 @@ export const GET = withApiAuthz(
         // 2 · consultar el period y sus datos (ya autorizado)
         const full = await prisma.period.findFirst({
             where: { id: periodId, organizationId },
-            include: { invoices: true, taxRecords: true, client: true },
+            include: { invoices: { include: { vatLines: true } }, taxRecords: true, client: true, vatSettings: true },
         });
         if (!full) throw new NotFoundError();
 
         // 3 · calcular  ·  4 · generar completamente el buffer en memoria
-        const dto = serializeLiquidation(computeLiquidation(full));
+        // Falla cerrada: sin coeficiente de prorrateo global -> 409 legible, sin
+        // generar el archivo ni auditar.
+        let liquidation: LiquidationResult;
+        try {
+            liquidation = computeLiquidation(full);
+        } catch (err) {
+            if (err instanceof MissingGlobalProrationCoefficientError) throw new ConflictError(err.message);
+            throw err;
+        }
+        const dto = serializeLiquidation(liquidation);
         const mm = String(full.month).padStart(2, "0");
         const excelBuffer = generateLiquidationExcel({
             ...dto,

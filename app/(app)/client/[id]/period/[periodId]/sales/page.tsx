@@ -3,7 +3,8 @@ import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
 import { ROLES_READ } from "@/lib/auth/roles";
 import { AccessNotice } from "@/app/_components/access-notice";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatIsoDate } from "@/lib/format";
+import { normalizeInvoiceRow } from "@/lib/invoice-model";
 
 
 export const dynamic = "force-dynamic";
@@ -59,17 +60,21 @@ export default async function SalesPage({ params }: { params: Promise<{ id: stri
                                 </td>
                             </tr>
                         ) : (
-                            invoices.map((invoice) => (
-                                <tr key={invoice.id}>
-                                    <td>{new Date(invoice.date).toLocaleDateString("es-AR")}</td>
-                                    <td>{invoice.type}</td>
-                                    <td>{invoice.pointOfSale.toString().padStart(4, "0")}-{invoice.number.toString().padStart(8, "0")}</td>
-                                    <td>{invoice.entityName}</td>
-                                    <td>${formatMoney(invoice.netAmount.toFixed(2))}</td>
-                                    <td>${formatMoney(invoice.vatAmount.toFixed(2))}</td>
-                                    <td>${formatMoney(invoice.totalAmount.toFixed(2))}</td>
-                                </tr>
-                            ))
+                            invoices.map((invoice) => {
+                                // Vista única (modelo contable o fila heredada), con signo contable.
+                                const view = normalizeInvoiceRow(invoice);
+                                return (
+                                    <tr key={invoice.id}>
+                                        <td>{formatIsoDate(view.voucherDate)}</td>
+                                        <td>{view.voucherLabel}</td>
+                                        <td>{invoice.pointOfSale.toString().padStart(4, "0")}-{invoice.number.toString().padStart(8, "0")}</td>
+                                        <td>{view.counterpartyName}</td>
+                                        <td>${formatMoney(view.signedNet.toFixed(2))}</td>
+                                        <td>${formatMoney(view.signedVat.toFixed(2))}</td>
+                                        <td>${formatMoney(view.signedTotal.toFixed(2))}</td>
+                                    </tr>
+                                );
+                            })
                         )}
                     </tbody>
                 </table>

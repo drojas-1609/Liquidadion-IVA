@@ -37,7 +37,7 @@ describe("schema.prisma — scope de organización + auditoría (Tarea 3B)", () 
     for (const m of ["Invoice", "TaxRecord"]) {
       const b = modelBlock(m);
       expect(b, m).toMatch(
-        /period\s+Period\s+@relation\(fields:\s*\[periodId,\s*organizationId\],\s*references:\s*\[id,\s*organizationId\]/,
+        /period\s+Period\s+@relation\((?:"InvoicePeriod",\s*)?fields:\s*\[periodId,\s*organizationId\],\s*references:\s*\[id,\s*organizationId\]/,
       );
       expect(b, m).toMatch(/onDelete:\s*Restrict/);
     }
@@ -110,12 +110,114 @@ describe("schema.prisma — scope de organización + auditoría (Tarea 3B)", () 
   it("campos monetarios Decimal de Tarea 2 sin cambios", () => {
     const inv = modelBlock("Invoice");
     expect(inv).toMatch(/netAmount\s+Decimal\s+@db\.Decimal\(18, 2\)/);
-    expect(inv).toMatch(/vatRate\s+Decimal\s+@db\.Decimal\(9, 6\)/);
+    // Fase A: vatRate pasa a nullable (columna heredada); tipo y escala sin cambios.
+    expect(inv).toMatch(/vatRate\s+Decimal\??\s+@db\.Decimal\(9, 6\)/);
     expect(inv).toMatch(/vatAmount\s+Decimal\s+@db\.Decimal\(18, 2\)/);
     expect(inv).toMatch(/totalAmount\s+Decimal\s+@db\.Decimal\(18, 2\)/);
     expect(modelBlock("TaxRecord")).toMatch(/amount\s+Decimal\s+@db\.Decimal\(18, 2\)/);
     expect(modelBlock("Client")).toMatch(
       /defaultIibbRate\s+Decimal\s+@default\(3\.000000\)\s+@db\.Decimal\(9, 6\)/,
     );
+  });
+});
+
+describe("schema.prisma — modelo contable de comprobantes (Fase A)", () => {
+  it("Invoice: columnas nuevas NULLABLE en M1 (compatibilidad expand)", () => {
+    const b = modelBlock("Invoice");
+    for (const [field, type] of [
+      ["clientId", "String\\?"],
+      ["source", "InvoiceSource\\?"],
+      ["voucherCode", "Int\\?"],
+      ["voucherDate", "DateTime\\?\\s+@db\\.Date"],
+      ["counterpartyDocType", "Int\\?"],
+      ["counterpartyDocNumber", "String\\?"],
+      ["counterpartyName", "String\\?"],
+      ["currencyCode", "String\\?\\s+@db\\.Char\\(3\\)"],
+      ["exchangeRate", "Decimal\\?\\s+@db\\.Decimal\\(19, 6\\)"],
+      ["directComputableVatCreditAmount", "Decimal\\?\\s+@db\\.Decimal\\(18, 2\\)"],
+      ["reportedComputableVatCreditAmount", "Decimal\\?\\s+@db\\.Decimal\\(18, 2\\)"],
+      ["turivaRefundAmount", "Decimal\\?\\s+@db\\.Decimal\\(18, 2\\)"],
+      ["netWithoutVatBreakdownAmount", "Decimal\\?\\s+@db\\.Decimal\\(18, 2\\)"],
+      ["grossIncomeTaxBaseAmount", "Decimal\\?\\s+@db\\.Decimal\\(18, 2\\)"],
+      ["voucherTotalAmount", "Decimal\\?\\s+@db\\.Decimal\\(18, 2\\)"],
+    ]) {
+      expect(b, field).toMatch(new RegExp(`\\n\\s*${field}\\s+${type}`));
+    }
+  });
+
+  it("Invoice: importes heredados siguen obligatorios; texto heredado pasa a nullable", () => {
+    const b = modelBlock("Invoice");
+    for (const f of ["netAmount", "vatAmount", "totalAmount"]) {
+      expect(b, f).toMatch(new RegExp(`\\n\\s*${f}\\s+Decimal\\s+@db`));
+    }
+    for (const f of ["date", "type", "entityName", "entityCuit"]) {
+      expect(b, f).toMatch(new RegExp(`\\n\\s*${f}\\s+\\w+\\?`));
+    }
+  });
+
+  it("Invoice: FK (periodId, clientId, organizationId) -> Period y destino (id, organizationId) para las líneas", () => {
+    const b = modelBlock("Invoice");
+    expect(b).toMatch(
+      /periodClient\s+Period\?\s+@relation\("InvoicePeriodClient",\s*fields:\s*\[periodId,\s*clientId,\s*organizationId\],\s*references:\s*\[id,\s*clientId,\s*organizationId\]/,
+    );
+    expect(b).toMatch(/@@unique\(\[id, organizationId\]\)/);
+    expect(modelBlock("Period")).toMatch(/@@unique\(\[id, clientId, organizationId\]\)/);
+  });
+
+  it("InvoiceVatLine: FK compuesta con CASCADE, una línea por alícuota, importes Decimal(18,2)", () => {
+    const b = modelBlock("InvoiceVatLine");
+    expect(b).toMatch(/organizationId\s+String\s*\n/);
+    expect(b).toMatch(
+      /invoice\s+Invoice\s+@relation\(fields:\s*\[invoiceId,\s*organizationId\],\s*references:\s*\[id,\s*organizationId\],[^)]*onDelete:\s*Cascade/,
+    );
+    expect(b).toMatch(/@@unique\(\[invoiceId, vatRateCode, creditAllocation\]\)/);
+    expect(b).not.toMatch(/@@unique\(\[invoiceId, vatRateCode\]\)/);
+    expect(b).toMatch(/creditAllocation\s+VatCreditAllocation\s*\n/);
+    expect(b).toMatch(/computableVatAmount\s+Decimal\?\s+@db\.Decimal\(18, 2\)/);
+    expect(b).toMatch(/computableOverridden\s+Boolean\s+@default\(false\)/);
+    expect(b).toMatch(/netAmount\s+Decimal\s+@db\.Decimal\(18, 2\)/);
+    expect(b).toMatch(/vatAmount\s+Decimal\s+@db\.Decimal\(18, 2\)/);
+    expect(b).not.toMatch(/vatRate\s+Decimal/); // el porcentaje se deriva del código
+  });
+
+  it("Invoice: lidSection con default GENERAL; sin el nombre ambiguo computableVatCreditAmount", () => {
+    const b = modelBlock("Invoice");
+    expect(b).toMatch(/lidSection\s+LidSection\s+@default\(GENERAL\)/);
+    expect(b).not.toMatch(/\n\s*computableVatCreditAmount\s/);
+  });
+
+  it("enums de atribución, pestaña, modalidad y estado del coeficiente", () => {
+    for (const [name, values] of [
+      ["VatCreditAllocation", ["NOT_APPLICABLE", "DIRECT_COMPUTABLE", "DIRECT_NON_COMPUTABLE", "GLOBAL_PRORATION"]],
+      ["LidSection", ["GENERAL", "TURIVA"]],
+      ["CreditProrationMode", ["NONE", "DIRECT", "GLOBAL", "DIRECT_AND_GLOBAL"]],
+      ["CoefficientStatus", ["PROVISIONAL", "DEFINITIVE"]],
+    ] as const) {
+      const start = schema.indexOf(`enum ${name} {`);
+      expect(start, name).toBeGreaterThan(-1);
+      const block = schema.slice(start, schema.indexOf("}", start));
+      const found = block.split("\n").slice(1).map((l) => l.trim()).filter(Boolean);
+      expect(found, name).toEqual([...values]);
+    }
+  });
+
+  it("PeriodVatSettings: 1:1 con Period, FK compuesta por organización, coeficiente Decimal(11,10), autoría", () => {
+    const b = modelBlock("PeriodVatSettings");
+    expect(b).toMatch(/periodId\s+String\s+@unique/);
+    expect(b).toMatch(/@@unique\(\[periodId, organizationId\]\)/);
+    expect(b).toMatch(
+      /period\s+Period\s+@relation\(fields:\s*\[periodId,\s*organizationId\],\s*references:\s*\[id,\s*organizationId\]/,
+    );
+    expect(b).toMatch(/creditProrationMode\s+CreditProrationMode\s+@default\(NONE\)/);
+    expect(b).toMatch(/globalCoefficient\s+Decimal\?\s+@db\.Decimal\(11, 10\)/);
+    expect(b).toMatch(/globalCoefficientStatus\s+CoefficientStatus\?/);
+    expect(b).toMatch(/turivaIncluded\s+Boolean\s+@default\(false\)/);
+    for (const f of ["createdAt", "updatedAt", "createdById", "updatedById"]) expect(b, f).toMatch(new RegExp(`\\n\\s*${f}\\s`));
+    expect(modelBlock("Period")).toMatch(/vatSettings\s+PeriodVatSettings\?/);
+  });
+
+  it("ImportBatch todavía NO existe (diferido a la fase de importación)", () => {
+    expect(schema).not.toMatch(/model ImportBatch/);
+    expect(schema).not.toMatch(/importBatchId/);
   });
 });

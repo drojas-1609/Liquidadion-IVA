@@ -5,7 +5,8 @@ import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/l
 import { ROLES_READ } from "@/lib/auth/roles";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
-import { computeLiquidation } from "@/lib/liquidation-calc";
+import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-calc";
+import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { formatMoney } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
         });
         const found = await prisma.period.findFirst({
             where: { id: periodId, organizationId },
-            include: { invoices: true, taxRecords: true, client: true },
+            include: { invoices: { include: { vatLines: true } }, taxRecords: true, client: true, vatSettings: true },
         });
         if (!found) throw new NotFoundError();
         return found;
@@ -31,7 +32,21 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
     const period = guard.data;
 
-    const r = computeLiquidation(period);
+    // Falla cerrada: con líneas sujetas a prorrateo global y sin coeficiente no
+    // se muestra una liquidación parcial.
+    let r: LiquidationResult;
+    try {
+        r = computeLiquidation(period);
+    } catch (err) {
+        if (!(err instanceof MissingGlobalProrationCoefficientError)) throw err;
+        return (
+            <div className="container">
+                <div role="alert" className="card" style={{ color: "var(--error)" }}>
+                    {err.message}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="container" style={{ maxWidth: "800px" }}>

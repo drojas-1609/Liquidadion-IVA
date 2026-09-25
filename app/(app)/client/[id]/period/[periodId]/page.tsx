@@ -5,7 +5,8 @@ import { ROLES_READ, ROLES_DELETE, roleAllows } from "@/lib/auth/roles";
 import { formatPeriodLabel } from "@/lib/period";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
-import { computeLiquidation } from "@/lib/liquidation-calc";
+import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-calc";
+import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { formatMoney } from "@/lib/format";
 import { PeriodActions } from "./period-actions";
 
@@ -21,7 +22,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
         });
         const found = await prisma.period.findFirst({
             where: { id: periodId, organizationId },
-            include: { invoices: true, taxRecords: true, client: true },
+            include: { invoices: { include: { vatLines: true } }, taxRecords: true, client: true, vatSettings: true },
         });
         if (!found) throw new NotFoundError();
         return { period: found, role };
@@ -32,7 +33,21 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
     const hasMovements = period.invoices.length > 0 || period.taxRecords.length > 0;
 
     // Totales vía la única fuente de cálculo (lib/liquidation-calc).
-    const r = computeLiquidation(period);
+    // Falla cerrada: con líneas sujetas a prorrateo global y sin coeficiente no
+    // se muestra una liquidación parcial.
+    let r: LiquidationResult;
+    try {
+        r = computeLiquidation(period);
+    } catch (err) {
+        if (!(err instanceof MissingGlobalProrationCoefficientError)) throw err;
+        return (
+            <div className="container">
+                <div role="alert" className="card" style={{ color: "var(--error)" }}>
+                    {err.message}
+                </div>
+            </div>
+        );
+    }
     const totalSales = r.sales.total;
     const totalSalesVAT = r.sales.vat;
     const totalPurchases = r.purchases.total;

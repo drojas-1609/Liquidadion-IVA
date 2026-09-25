@@ -67,19 +67,19 @@ describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
       expect(r.error).toMatch(/fuera de rango/i);
     }
 
-    // neto válido, IVA ok, pero net + vat desborda el TOTAL:
-    // net = 9.99e15, vat 0% -> total = net (ok). Buscamos total > MAX con vat pequeño:
+    // neto válido, IVA ok, pero net + vat desborda el TOTAL. (Fase A: sólo
+    // alícuotas de la tabla oficial; se usa 27 % en lugar del 1 % anterior.)
     const net2 = "9999999999999999.00";
-    const r2 = buildInvoiceInput({ ...baseInvoice, netAmount: net2, vatRate: "1" });
-    // vat = 9999999999999999 * 1 / 100 = 99999999999999.99 -> total = 10099999999999998.99 > MAX
+    const r2 = buildInvoiceInput({ ...baseInvoice, netAmount: net2, vatRate: "27" });
+    // vat = 2699999999999999.73 (en rango) -> total = 12699999999999998.73 > MAX
     expect(r2.ok).toBe(false);
     if (!r2.ok) expect(r2.field).toBe("totalAmount");
   });
 
   it("6: valor negativo cuyo total excede el mínimo -> 422", () => {
     const net = "-9999999999999999.00";
-    const r = buildInvoiceInput({ ...baseInvoice, type: "NC A", netAmount: net, vatRate: "1" });
-    // vat = -99999999999999.99 ; total = -10099999999999998.99 < MIN
+    const r = buildInvoiceInput({ ...baseInvoice, type: "NC A", netAmount: net, vatRate: "27" });
+    // |total| = 12699999999999998.73 > MAX (heredado: total < MIN)
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.field).toBe("totalAmount");

@@ -41,7 +41,10 @@ export default function NewPurchasePage({ params }: { params: Promise<{ id: stri
 
             if (!res.ok) {
                 const j = await res.json().catch(() => null);
-                throw new Error(j?.field ? `${j.field}: ${j.error}` : j?.error || "Error al crear la factura");
+                // Contrato de error: { error: { code, message }, field? }. Nunca
+                // se convierte un objeto a string (evita "[object Object]").
+                const message = typeof j?.error?.message === "string" ? j.error.message : "Error al crear la factura";
+                throw new Error(typeof j?.field === "string" ? `${j.field}: ${message}` : message);
             }
 
             router.push(`/client/${id}/period/${periodId}/purchases`);

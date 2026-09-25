@@ -29,10 +29,11 @@ describe("sanitizeAuditMetadata — allow-list por acción", () => {
     ).toEqual({ clientId: "c1", month: 5, year: 2026 });
   });
 
-  it("invoice.create: periodId, category, type (sin netAmount/vatAmount/totalAmount ni contraparte)", () => {
+  it("invoice.create: periodId, category, voucherCode (sin importes, contraparte ni `type` heredado)", () => {
     const out = sanitizeAuditMetadata("invoice.create", {
       periodId: "p1",
       category: "SALES",
+      voucherCode: 1,
       type: "FC A",
       netAmount: "1000.00",
       vatAmount: "210.00",
@@ -40,7 +41,7 @@ describe("sanitizeAuditMetadata — allow-list por acción", () => {
       entityName: "Proveedor SA",
       entityCuit: "30-9",
     });
-    expect(out).toEqual({ periodId: "p1", category: "SALES", type: "FC A" });
+    expect(out).toEqual({ periodId: "p1", category: "SALES", voucherCode: 1 });
     expect(JSON.stringify(out)).not.toMatch(/1000|210|1210|Proveedor|30-9/);
   });
 
@@ -107,6 +108,38 @@ describe("sanitizeAuditMetadata — allow-list por acción", () => {
     ).toEqual({ clientId: "c1", month: 4, year: 2026 });
   });
 
+  it("period.vat_settings_change: sólo los 9 campos aprobados; coeficientes como strings exactos", () => {
+    const out = sanitizeAuditMetadata("period.vat_settings_change", {
+      changedFields: "creditProrationMode,globalCoefficient",
+      prorationModeBefore: "NONE",
+      prorationModeAfter: "GLOBAL",
+      coefficientBefore: null,
+      coefficientAfter: "0.1234567891",
+      coefficientStatusBefore: null,
+      coefficientStatusAfter: "PROVISIONAL",
+      turivaIncludedBefore: false,
+      turivaIncludedAfter: true,
+      organizationId: "org",
+      cuit: "20-12345678-6",
+      clientName: "Alfa SA",
+      invoiceTotal: "1210.00",
+    });
+    expect(out).toEqual({
+      changedFields: "creditProrationMode,globalCoefficient",
+      prorationModeBefore: "NONE",
+      prorationModeAfter: "GLOBAL",
+      coefficientBefore: null,
+      coefficientAfter: "0.1234567891",
+      coefficientStatusBefore: null,
+      coefficientStatusAfter: "PROVISIONAL",
+      turivaIncludedBefore: false,
+      turivaIncludedAfter: true,
+    });
+    // el coeficiente se conserva exacto (10 decimales), sin pasar por float
+    expect(typeof (out as Record<string, unknown>).coefficientAfter).toBe("string");
+    expect(JSON.stringify(out)).not.toMatch(/20-12345678-6|Alfa SA|1210/);
+  });
+
   it("acción reservada (futura) -> siempre {}", () => {
     for (const a of ["period.update", "member.role_change", "org.config_change"]) {
       expect(sanitizeAuditMetadata(a, { anything: "value", clientId: "c1" })).toEqual({});
@@ -125,9 +158,9 @@ describe("sanitizeAuditMetadata — allow-list por acción", () => {
       sanitizeAuditMetadata("invoice.create", {
         periodId: "postgresql://user:pass@host:5432/db",
         category: "SALES",
-        type: "FC A",
+        voucherCode: 1,
       }),
-    ).toEqual({ category: "SALES", type: "FC A" });
+    ).toEqual({ category: "SALES", voucherCode: 1 });
   });
 
   it("descarta objetos/arrays anidados (sólo escalares)", () => {
@@ -138,8 +171,8 @@ describe("sanitizeAuditMetadata — allow-list por acción", () => {
 
   it("recorta strings largos a 256 y respeta el tope de 2KB", () => {
     const long = "x".repeat(5000);
-    const out = sanitizeAuditMetadata("invoice.create", { type: long, periodId: "p1", category: "SALES" });
-    expect((out as Record<string, string>).type.length).toBe(256);
+    const out = sanitizeAuditMetadata("invoice.create", { category: long, periodId: "p1", voucherCode: 1 });
+    expect((out as Record<string, string>).category.length).toBe(256);
     expect(JSON.stringify(out).length).toBeLessThanOrEqual(2048);
   });
 
