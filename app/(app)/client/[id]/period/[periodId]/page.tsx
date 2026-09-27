@@ -1,7 +1,7 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
-import { ROLES_READ, ROLES_DELETE, roleAllows } from "@/lib/auth/roles";
+import { ROLES_READ, ROLES_DELETE, ROLES_UPDATE, roleAllows } from "@/lib/auth/roles";
 import { formatPeriodLabel } from "@/lib/period";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
@@ -9,6 +9,7 @@ import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-ca
 import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { formatMoney } from "@/lib/format";
 import { PeriodActions } from "./period-actions";
+import { TurivaSetting } from "./turiva-setting";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +33,23 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
     const canDelete = roleAllows(ROLES_DELETE, role);
     const hasMovements = period.invoices.length > 0 || period.taxRecords.length > 0;
 
+    // Inclusión en el Régimen TurIVA: sin PeriodVatSettings -> false. Al cliente
+    // sólo llegan dos booleanos (nada de organización, rol ni configuración).
+    // key: tras router.refresh() con otro valor del servidor, se reinicia el estado.
+    const turivaIncluded = period.vatSettings?.turivaIncluded === true;
+    const turivaCard = (
+        <TurivaSetting
+            key={String(turivaIncluded)}
+            periodId={period.id}
+            turivaIncluded={turivaIncluded}
+            canEdit={roleAllows(ROLES_UPDATE, role)}
+        />
+    );
+
     // Totales vía la única fuente de cálculo (lib/liquidation-calc).
     // Falla cerrada: con líneas sujetas a prorrateo global y sin coeficiente no
-    // se muestra una liquidación parcial.
+    // se muestra una liquidación parcial (sí la configuración TurIVA, que no
+    // depende de la liquidación).
     let r: LiquidationResult;
     try {
         r = computeLiquidation(period);
@@ -45,6 +60,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
                 <div role="alert" className="card" style={{ color: "var(--error)" }}>
                     {err.message}
                 </div>
+                {turivaCard}
             </div>
         );
     }
@@ -125,6 +141,8 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
                     Gestionar Retenciones/Percepciones
                 </Link>
             </div>
+
+            {turivaCard}
         </div>
     );
 }

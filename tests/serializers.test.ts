@@ -36,6 +36,45 @@ describe("lib/serializers (caso 12: JSON -> string, serialización explícita)",
     expect(typeof parsed.totalAmount).toBe("string");
   });
 
+  it("serializeInvoice: columnas del PR B; NULL en filas heredadas sin esas columnas", () => {
+    const base = {
+      id: "i1",
+      date: new Date("2026-01-15T00:00:00.000Z"),
+      type: "FC A",
+      pointOfSale: 1,
+      number: 1001,
+      entityName: "Cliente Ejemplo SRL",
+      entityCuit: "30-99999999-5",
+      netAmount: D("1000"),
+      vatRate: D("21"),
+      vatAmount: D("210"),
+      totalAmount: D("1210"),
+      category: "SALES",
+      periodId: "p1",
+    };
+    const legacy = serializeInvoice(base);
+    expect(legacy.counterpartyVatConditionCode).toBeNull();
+    expect(legacy.turivaRelationCode).toBeNull();
+    expect(legacy.voucherVariant).toBeNull();
+
+    const withNulls = serializeInvoice({ ...base, counterpartyVatConditionCode: null, turivaRelationCode: null, voucherVariant: null });
+    expect(withNulls).toMatchObject({ counterpartyVatConditionCode: null, turivaRelationCode: null, voucherVariant: null });
+
+    const modeled = serializeInvoice({
+      ...base,
+      voucherCode: 195,
+      counterpartyVatConditionCode: 5,
+      turivaRelationCode: "0001",
+      voucherVariant: null,
+    });
+    expect(modeled).toMatchObject({ counterpartyVatConditionCode: 5, turivaRelationCode: "0001", voucherVariant: null });
+    expect(serializeInvoice({ ...base, voucherCode: 1, voucherVariant: "PAGO_EN_CBU_INFORMADA" }).voucherVariant).toBe(
+      "PAGO_EN_CBU_INFORMADA",
+    );
+    // Contrato mínimo: nada de organización ni autoría.
+    for (const k of ["organizationId", "createdById", "updatedById", "clientId"]) expect(modeled).not.toHaveProperty(k);
+  });
+
   it("serializeClient: defaultIibbRate como string canónico", () => {
     const dto = serializeClient({
       id: "c1",

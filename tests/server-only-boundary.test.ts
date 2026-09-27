@@ -27,6 +27,7 @@ const SERVER_ONLY_LIBS = [
   "lib/excel.ts",
   "lib/auth/authz.ts",
   "lib/auth/audit.ts",
+  "lib/invoice-form-context.ts",
 ];
 
 describe("límite de responsabilidades server-only (punto 3)", () => {
@@ -45,25 +46,55 @@ describe("límite de responsabilidades server-only (punto 3)", () => {
     });
     expect(clientFiles.length).toBeGreaterThan(0); // hay formularios cliente
 
-    const forbidden = /@\/lib\/(decimal|liquidation-calc|api-input|serializers|excel)\b|@\/lib\/validation\/decimal\b/;
+    const forbidden = /@\/lib\/(decimal|liquidation-calc|api-input|serializers|excel|invoice-form-context)\b|@\/lib\/validation\/decimal\b/;
     for (const f of clientFiles) {
       const s = readFileSync(f, "utf8");
       expect(forbidden.test(s), `${f.slice(repo.length)} importa una utilidad server-only`).toBe(false);
     }
   });
 
-  it("los formularios cliente NO envían vatAmount ni totalAmount", () => {
-    for (const rel of [
-      "app/(app)/client/[id]/period/[periodId]/sales/new/page.tsx",
-      "app/(app)/client/[id]/period/[periodId]/purchases/new/page.tsx",
-    ]) {
+  const INVOICE_FORM = "app/(app)/client/[id]/period/[periodId]/_components/invoice-form.tsx";
+  const INVOICE_FORM_CLIENT = "lib/invoice-form-client.ts";
+
+  it("el formulario compartido de comprobantes es cliente y sus módulos de lib son puros (también transitivamente)", () => {
+    expect(readFileSync(join(repo, INVOICE_FORM), "utf8").startsWith('"use client";')).toBe(true);
+    // Cierre transitivo de los imports relativos/alias a lib/ desde el formulario.
+    const seen = new Set<string>();
+    const queue = ["lib/invoice-form-client.ts", "lib/invoice-form-options.ts"];
+    while (queue.length) {
+      const rel = queue.shift() as string;
+      if (seen.has(rel)) continue;
+      seen.add(rel);
       const s = readFileSync(join(repo, rel), "utf8");
-      // el body del POST no incluye esas claves (se ignoran los comentarios)
-      const body = s
-        .slice(s.indexOf("JSON.stringify("), s.indexOf("});", s.indexOf("JSON.stringify(")))
-        .replace(/\/\/.*$/gm, "");
-      expect(body).not.toMatch(/vatAmount\s*[:,]/);
-      expect(body).not.toMatch(/totalAmount\s*[:,]/);
+      expect(/^import\s+["']server-only["']/m.test(s), `${rel} es server-only`).toBe(false);
+      expect(/from\s+["']@prisma\/client["']/.test(s), `${rel} importa Prisma`).toBe(false);
+      for (const m of s.matchAll(/from\s+["'](\.{1,2}\/[^"']+|@\/lib\/[^"']+)["']/g)) {
+        const spec = m[1];
+        const target = spec.startsWith("@/")
+          ? spec.slice(2)
+          : join(rel, "..", spec).replace(/\\/g, "/");
+        queue.push(`${target}.ts`);
+      }
+    }
+    expect(seen.has("lib/arca/document-rules.ts")).toBe(true);
+    for (const rel of seen) expect(SERVER_ONLY_LIBS, rel).not.toContain(rel);
+  });
+
+  it("el formulario de comprobantes NO envía importes ni datos derivados", () => {
+    // El formulario sólo envía por submitInvoice(buildInvoiceV2Body(...)): no arma JSON propio.
+    const form = readFileSync(join(repo, INVOICE_FORM), "utf8");
+    expect(form).not.toMatch(/JSON\.stringify\(/);
+    expect(form).not.toMatch(/fetch\(/);
+    expect(form).toMatch(/buildInvoiceV2Body\(/);
+    expect(form).toMatch(/submitInvoice\(/);
+
+    // Cuerpo real: el literal que devuelve buildInvoiceV2Body (sin comentarios).
+    const lib = readFileSync(join(repo, INVOICE_FORM_CLIENT), "utf8");
+    const fn = lib.slice(lib.indexOf("export function buildInvoiceV2Body"));
+    const literal = fn.slice(fn.indexOf("body: {"), fn.indexOf("\n}\n")).replace(/\/\/.*$/gm, "");
+    expect(literal.length).toBeGreaterThan(0);
+    for (const key of ["vatAmount", "totalAmount", "legalClass", "mandatoryLegend", "lidSection", "source", "organizationId", "clientId", "clientCondition", "partialValidation"]) {
+      expect(literal, key).not.toMatch(new RegExp(`\\b${key}\\s*[:,]`));
     }
   });
 

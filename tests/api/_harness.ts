@@ -108,6 +108,8 @@ export interface World {
   periods: PeriodRow[];
   invoices?: any[];
   taxRecords?: any[];
+  /** Filas de PeriodVatSettings (periodId, organizationId, turivaIncluded, …). */
+  vatSettings?: any[];
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -140,7 +142,10 @@ export interface DbMock {
   invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn };
   taxRecord: { findMany: Fn; create: Fn; count: Fn };
   auditLog: { create: Fn };
+  periodVatSettings: { findUnique: Fn; create: Fn; update: Fn };
   $transaction: Fn;
+  /** Sólo simula el bloqueo de Period (SELECT … FOR UPDATE); no hay locks reales. */
+  $queryRaw: Fn;
 }
 
 export function freshDbMock(): DbMock {
@@ -159,7 +164,9 @@ export function freshDbMock(): DbMock {
     invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn() },
     taxRecord: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
     auditLog: { create: vi.fn() },
+    periodVatSettings: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
   };
 }
 
@@ -168,9 +175,11 @@ export interface Recorder {
   audits: any[];
   created: Record<string, any>;
   failAudit: boolean;
+  /** Bloqueos de Period solicitados vía $queryRaw: { sql, values }. */
+  locks: Array<{ sql: string; values: unknown[] }>;
 }
 export function freshRecorder(): Recorder {
-  return { audits: [], created: {}, failAudit: false };
+  return { audits: [], created: {}, failAudit: false, locks: [] };
 }
 
 export function wireDb(db: DbMock, world: World, rec: Recorder): void {
@@ -326,7 +335,8 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     (rows ?? []).filter(
       (r) =>
         r.periodId === where.periodId &&
-        (where.organizationId ? r.organizationId === where.organizationId : true),
+        (where.organizationId ? r.organizationId === where.organizationId : true) &&
+        (where.voucherCode?.in ? where.voucherCode.in.includes(r.voucherCode) : true),
     ).length;
   db.invoice.count.mockImplementation(async ({ where }: AnyArgs) => countByPeriod(world.invoices, where));
   db.taxRecord.count.mockImplementation(async ({ where }: AnyArgs) => countByPeriod(world.taxRecords, where));
@@ -388,6 +398,13 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       updatedById: data.updatedById ?? null,
       createdAt: new Date(0),
       updatedAt: new Date(0),
+      // Modelo contable y columnas del PR B: la fila devuelve lo que se escribió.
+      voucherCode: data.voucherCode ?? null,
+      voucherDate: data.voucherDate ?? null,
+      lidSection: data.lidSection ?? "GENERAL",
+      counterpartyVatConditionCode: data.counterpartyVatConditionCode ?? null,
+      turivaRelationCode: data.turivaRelationCode ?? null,
+      voucherVariant: data.voucherVariant ?? null,
     };
   });
 
@@ -414,6 +431,48 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     return { id: mkId("audit"), ...data };
   });
 
+  // PeriodVatSettings por @@unique([periodId, organizationId]).
+  const vatSettingsOf = (where: any) => {
+    const { periodId, organizationId } = where.periodId_organizationId;
+    return (world.vatSettings ?? []).find((s) => s.periodId === periodId && s.organizationId === organizationId) ?? null;
+  };
+  db.periodVatSettings.findUnique.mockImplementation(async ({ where, select }: AnyArgs) => {
+    const row = vatSettingsOf(where);
+    if (!row || !select) return row;
+    return Object.fromEntries(Object.keys(select).map((k) => [k, row[k]]));
+  });
+  db.periodVatSettings.create.mockImplementation(async ({ data }: AnyArgs) => {
+    // Defaults del schema para los campos no informados.
+    const row = {
+      creditProrationMode: "NONE",
+      globalCoefficient: null,
+      globalCoefficientStatus: null,
+      turivaIncluded: false,
+      ...data,
+    };
+    world.vatSettings = [...(world.vatSettings ?? []), row];
+    rec.created.vatSettings = data;
+    return row;
+  });
+  db.periodVatSettings.update.mockImplementation(async ({ where, data }: AnyArgs) => {
+    const row = vatSettingsOf(where);
+    if (!row) throw knownError("P2025", "Record to update not found");
+    Object.assign(row, data);
+    rec.created.vatSettingsUpdate = data;
+    return row;
+  });
+
+  // $queryRaw como tagged template: sólo se admite el bloqueo de Period.
+  // Registra la consulta y sus parámetros; devuelve la fila si existe para
+  // (id, organizationId). No existe un lock real en memoria.
+  db.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const sql = strings.join("?");
+    rec.locks.push({ sql, values });
+    if (!/FOR UPDATE/.test(sql) || !/FROM "Period"/.test(sql)) throw new Error(`consulta raw inesperada: ${sql}`);
+    const [id, organizationId] = values;
+    return world.periods.some((p) => p.id === id && p.organizationId === organizationId) ? [{ id }] : [];
+  });
+
   // $transaction(fn) -> corre fn con el propio db. Atomicidad simulada: si fn
   // lanza, se revierte lo que `rec` registró durante la transacción.
   db.$transaction.mockImplementation(async (fn: (tx: DbMock) => Promise<unknown>) => {
@@ -421,6 +480,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     const createdBefore = { ...rec.created };
     const clientsBefore = world.clients.slice();
     const periodsBefore = world.periods.slice();
+    const vatSettingsBefore = world.vatSettings?.map((s) => ({ ...s }));
     try {
       return await fn(db);
     } catch (err) {
@@ -428,6 +488,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       rec.created = createdBefore;
       world.clients.splice(0, world.clients.length, ...clientsBefore);
       world.periods.splice(0, world.periods.length, ...periodsBefore);
+      world.vatSettings = vatSettingsBefore;
       throw err;
     }
   });

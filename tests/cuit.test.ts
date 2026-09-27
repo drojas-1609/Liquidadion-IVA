@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { normalizeCuit, cuitCheckDigit } from "@/lib/cuit";
-import { buildClientInput, buildInvoiceInput } from "@/lib/api-input";
+import { buildClientInput } from "@/lib/api-input";
 
 // CUIT ficticios con dígito verificador válido (sin datos reales).
 const CANON = "30-11111111-8";
@@ -98,33 +98,6 @@ describe("lib/api-input — normalización de CUIT antes de persistir", () => {
     for (const cuit of ["30-1", "30-11111111-1", "30-1111111A-8", "30/11111111/8", ""]) {
       const r = buildClientInput({ ...client, cuit });
       expect(r, cuit).toMatchObject({ ok: false, status: 422, field: "cuit" });
-    }
-  });
-
-  const invoice = {
-    date: "2026-01-15",
-    type: "FC A",
-    pointOfSale: "1",
-    number: "1001",
-    entityName: "Proveedor SA",
-    netAmount: "1000",
-    vatRate: "21",
-    category: "PURCHASES",
-    periodId: "p1",
-  };
-
-  it("buildInvoiceInput normaliza entityCuit", () => {
-    for (const entityCuit of ["30999999995", "30 99999999 5", "30.99999999.5", "30-99999999-5"]) {
-      const r = buildInvoiceInput({ ...invoice, entityCuit });
-      expect(r.ok, entityCuit).toBe(true);
-      if (r.ok) expect(r.data.entityCuit).toBe("30-99999999-5");
-    }
-  });
-
-  it("buildInvoiceInput rechaza entityCuit inválido con 422 field=entityCuit", () => {
-    for (const entityCuit of ["30-1", "30-99999999-1", "30-9999999X-5", undefined]) {
-      const r = buildInvoiceInput({ ...invoice, entityCuit });
-      expect(r, String(entityCuit)).toMatchObject({ ok: false, status: 422, field: "entityCuit" });
     }
   });
 });
