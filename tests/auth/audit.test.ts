@@ -45,6 +45,55 @@ describe("sanitizeAuditMetadata — allow-list por acción", () => {
     expect(JSON.stringify(out)).not.toMatch(/1000|210|1210|Proveedor|30-9/);
   });
 
+  it("invoice.update: identificación antes/después y changedFields (sin importes, alícuotas ni contraparte)", () => {
+    const out = sanitizeAuditMetadata("invoice.update", {
+      periodId: "p1",
+      category: "PURCHASES",
+      voucherCodeBefore: 1,
+      voucherCodeAfter: 3,
+      pointOfSaleBefore: 1,
+      pointOfSaleAfter: 2,
+      numberBefore: 1001,
+      numberAfter: 1002,
+      changedFields: "voucherCode,pointOfSale,number,netAmount",
+      netAmount: "1000.00",
+      vatRate: "21",
+      counterpartyDocNumber: "30999999995",
+      counterpartyName: "Proveedor SA",
+      before: { netAmount: "1000.00" },
+      body: { number: "1002" },
+    });
+    expect(out).toEqual({
+      periodId: "p1",
+      category: "PURCHASES",
+      voucherCodeBefore: 1,
+      voucherCodeAfter: 3,
+      pointOfSaleBefore: 1,
+      pointOfSaleAfter: 2,
+      numberBefore: 1001,
+      numberAfter: 1002,
+      changedFields: "voucherCode,pointOfSale,number,netAmount",
+    });
+    expect(JSON.stringify(out)).not.toMatch(/1000\.00|"21"|30999999995|Proveedor/);
+  });
+
+  it("invoice.delete: periodId, category, voucherCode, pointOfSale, number (sin importes ni contraparte)", () => {
+    const out = sanitizeAuditMetadata("invoice.delete", {
+      periodId: "p1",
+      category: "SALES",
+      voucherCode: 1,
+      pointOfSale: 1,
+      number: 1001,
+      netAmount: "1000.00",
+      vatRate: "21",
+      counterpartyDocNumber: "30999999995",
+      counterpartyName: "Cliente SA",
+      changedFields: "number",
+    });
+    expect(out).toEqual({ periodId: "p1", category: "SALES", voucherCode: 1, pointOfSale: 1, number: 1001 });
+    expect(JSON.stringify(out)).not.toMatch(/1000\.00|"21"|30999999995|Cliente SA/);
+  });
+
   it("taxrecord.create: periodId, type", () => {
     expect(
       sanitizeAuditMetadata("taxrecord.create", { periodId: "p1", type: "RETENCION IVA", amount: "5.00" }),
@@ -257,6 +306,11 @@ describe("recordAudit", () => {
         metadata: { clientId: "c1", month: 1, year: 2026 },
       }),
     ).rejects.toThrow("db down");
+  });
+
+  it("AUDIT_ACTIONS incluye la corrección de comprobantes manuales", () => {
+    expect(AUDIT_ACTIONS).toContain("invoice.update");
+    expect(AUDIT_ACTIONS).toContain("invoice.delete");
   });
 
   it("AUDIT_ACTIONS incluye las 5 emitidas en 3B", () => {

@@ -226,6 +226,8 @@ export interface InvoiceErrorFeedback {
     message: string;
     /** La API marcó la combinación como pendiente de confirmación normativa. */
     pending: boolean;
+    /** 409 por concurrencia (edición): hay que recargar los datos actuales. */
+    stale?: true;
 }
 
 export function invoiceErrorFeedback(status: number, body: unknown): InvoiceErrorFeedback {
@@ -265,4 +267,235 @@ export async function submitInvoice(body: InvoiceV2Body, fetchImpl: typeof fetch
     if (res.ok) return { ok: true };
     const json: unknown = await res.json().catch(() => null);
     return { ok: false, feedback: invoiceErrorFeedback(res.status, json) };
+}
+
+// ── Edición (PATCH /api/invoices/[id]) ────────────────────────────────────
+
+export const INVOICE_EDIT_TEXT = {
+    SALES: { title: "Editar venta", save: "Guardar cambios", saving: "Guardando cambios..." },
+    PURCHASES: { title: "Editar compra", save: "Guardar cambios", saving: "Guardando cambios..." },
+} as const;
+
+export function invoiceEditHref(
+    direction: InvoiceFormContext["direction"],
+    clientId: string,
+    periodId: string,
+    invoiceId: string,
+): string {
+    return `${invoiceListHref(direction, clientId, periodId)}/${encodeURIComponent(invoiceId)}/edit`;
+}
+
+/**
+ * Datos mínimos de la edición que el servidor entrega al formulario: el id, el
+ * token de concurrencia (updatedAt ISO exacto) y los valores guardados en la
+ * forma del formulario (SIN normalizar: la normalización ocurre en el cliente
+ * con la misma matriz que el alta). Las dos banderas marcan las excepciones
+ * de filas anteriores al contrato v2 (condición de la contraparte o variante
+ * nulas): el selector queda vacío y el envío bloqueado hasta completarlo.
+ */
+export interface InvoiceEditFormProps {
+    invoiceId: string;
+    updatedAt: string;
+    initial: InvoiceFormState;
+    requiresCounterpartyCondition: boolean;
+    requiresVoucherVariant: boolean;
+}
+
+/**
+ * Estado inicial de la edición, normalizado con resolveInvoiceFormOptions
+ * (única preselección: la variante cuando la matriz admite exactamente una).
+ * El número de documento se conserva mientras el tipo de documento no cambie.
+ * Condición de la contraparte nula (fila antigua): se conserva la selección
+ * guardada tal cual para que, al elegir la condición, la normalización
+ * recupere el comprobante, el documento y la alícuota guardados.
+ */
+export function initialEditState(ctx: InvoiceFormContext, initial: InvoiceFormState): InvoiceFormState {
+    if (initial.selection.counterpartyCondition === null) return initial;
+    const selection = resolveInvoiceFormOptions(ctx, initial.selection).selection;
+    const docKept = selection.docType === initial.selection.docType;
+    return { selection, fields: docKept ? initial.fields : { ...initial.fields, docNumber: "" } };
+}
+
+export const EDIT_PENDING_CONDITION_MESSAGE =
+    "Este comprobante se cargó sin la condición frente al IVA de la contraparte: elegila para poder guardar los cambios.";
+export const EDIT_PENDING_VARIANT_MESSAGE =
+    "Este comprobante se cargó sin la variante del comprobante: elegila para poder guardar los cambios.";
+
+/** Avisos bloqueantes de las excepciones antiguas mientras sigan sin completar. */
+export function editPendingNotices(
+    edit: Pick<InvoiceEditFormProps, "requiresCounterpartyCondition" | "requiresVoucherVariant">,
+    options: InvoiceFormOptions,
+): string[] {
+    const out: string[] = [];
+    if (edit.requiresCounterpartyCondition && options.selection.counterpartyCondition === null) {
+        out.push(EDIT_PENDING_CONDITION_MESSAGE);
+    }
+    if (edit.requiresVoucherVariant && options.variants.length > 0 && options.selection.voucherVariant === null) {
+        out.push(EDIT_PENDING_VARIANT_MESSAGE);
+    }
+    return out;
+}
+
+export type InvoiceUpdateBody = InvoiceV2Body & { expectedUpdatedAt: string };
+
+/** Cuerpo del PATCH: el cuerpo v2 COMPLETO más el token de concurrencia; nada más. */
+export function buildInvoiceUpdateBody(body: InvoiceV2Body, expectedUpdatedAt: string): InvoiceUpdateBody {
+    return { ...body, expectedUpdatedAt };
+}
+
+/**
+ * Mensaje EXACTO del 409 por concurrencia de PATCH / DELETE
+ * /api/invoices/[id] (verificado por test contra la ruta). Cualquier otro 409
+ * es de duplicidad y se muestra el mensaje del servidor.
+ */
+export const INVOICE_STALE_SERVER_MESSAGE =
+    "El comprobante fue modificado por otra persona. Volvé a abrirlo para ver los datos actuales.";
+export const INVOICE_STALE_EDIT_ERROR =
+    "Otra persona modificó este comprobante mientras lo editabas. Tus cambios no se guardaron: recargá los datos actuales y volvé a intentarlo.";
+export const INVOICE_UPDATE_FORBIDDEN_ERROR = "No tenés permisos para modificar comprobantes.";
+export const INVOICE_EDIT_NOT_FOUND_ERROR = "El comprobante no existe, fue eliminado o no pertenece a tu organización.";
+
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const isStaleConflict = (status: number, body: unknown) =>
+    status === 409 && readApiError(body)?.message === INVOICE_STALE_SERVER_MESSAGE;
+
+export function invoiceUpdateErrorFeedback(status: number, body: unknown): InvoiceErrorFeedback {
+    if (isStaleConflict(status, body)) return { control: "form", message: INVOICE_STALE_EDIT_ERROR, pending: false, stale: true };
+    if (status === 403) return { control: "form", message: INVOICE_UPDATE_FORBIDDEN_ERROR, pending: false };
+    if (status === 404) return { control: "form", message: INVOICE_EDIT_NOT_FOUND_ERROR, pending: false };
+    return invoiceErrorFeedback(status, body);
+}
+
+export type InvoiceUpdateResult = { ok: true; updatedAt: string | null } | { ok: false; feedback: InvoiceErrorFeedback };
+
+export async function submitInvoiceUpdate(
+    invoiceId: string,
+    body: InvoiceUpdateBody,
+    fetchImpl: typeof fetch = fetch,
+): Promise<InvoiceUpdateResult> {
+    let res: Response;
+    try {
+        res = await fetchImpl(`/api/invoices/${encodeURIComponent(invoiceId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+    } catch {
+        return { ok: false, feedback: { control: "form", message: INVOICE_GENERIC_ERROR, pending: false } };
+    }
+    const json: unknown = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, feedback: invoiceUpdateErrorFeedback(res.status, json) };
+    const updatedAt = (json as { updatedAt?: unknown } | null)?.updatedAt;
+    return { ok: true, updatedAt: typeof updatedAt === "string" && ISO_INSTANT.test(updatedAt) ? updatedAt : null };
+}
+
+/** Nuevo token tras un PATCH: el updatedAt devuelto si es válido; si no, el vigente. */
+export function nextUpdateToken(current: string, result: InvoiceUpdateResult): string {
+    return result.ok && result.updatedAt !== null ? result.updatedAt : current;
+}
+
+// ── Baja (DELETE /api/invoices/[id]?expectedUpdatedAt=…) ──────────────────
+
+export function invoiceDeleteUrl(invoiceId: string, expectedUpdatedAt: string): string {
+    return `/api/invoices/${encodeURIComponent(invoiceId)}?expectedUpdatedAt=${encodeURIComponent(expectedUpdatedAt)}`;
+}
+
+export const INVOICE_DELETE_GENERIC_ERROR = "Ocurrió un error inesperado al eliminar el comprobante.";
+export const INVOICE_DELETE_FORBIDDEN_ERROR = "No tenés permisos para eliminar comprobantes.";
+export const INVOICE_DELETE_NOT_FOUND_ERROR = "El comprobante no existe o ya fue eliminado.";
+export const INVOICE_STALE_DELETE_ERROR =
+    "Otra persona modificó este comprobante. No se eliminó: recargá la página para ver los datos actuales.";
+
+export interface InvoiceDeleteFeedback {
+    message: string;
+    stale: boolean;
+}
+
+/** Errores de la baja: mensajes propios o el del servidor (nunca importes ni datos de la fila). */
+export function invoiceDeleteFeedback(status: number, body: unknown): InvoiceDeleteFeedback {
+    if (isStaleConflict(status, body)) return { message: INVOICE_STALE_DELETE_ERROR, stale: true };
+    const apiError = readApiError(body);
+    if (status === 403) return { message: INVOICE_DELETE_FORBIDDEN_ERROR, stale: false };
+    if (status === 404) return { message: INVOICE_DELETE_NOT_FOUND_ERROR, stale: false };
+    if ((status === 409 || status === 422) && apiError?.message) return { message: apiError.message, stale: false };
+    return { message: INVOICE_DELETE_GENERIC_ERROR, stale: false };
+}
+
+export type InvoiceDeleteResult = { ok: true } | { ok: false; feedback: InvoiceDeleteFeedback };
+
+export async function deleteInvoice(
+    invoiceId: string,
+    expectedUpdatedAt: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<InvoiceDeleteResult> {
+    let res: Response;
+    try {
+        res = await fetchImpl(invoiceDeleteUrl(invoiceId, expectedUpdatedAt), { method: "DELETE" });
+    } catch {
+        return { ok: false, feedback: { message: INVOICE_DELETE_GENERIC_ERROR, stale: false } };
+    }
+    if (res.ok) return { ok: true };
+    const json: unknown = await res.json().catch(() => null);
+    return { ok: false, feedback: invoiceDeleteFeedback(res.status, json) };
+}
+
+/** Guardia en vuelo compartido (un `useRef(false)` de React cumple esta forma). */
+export interface InFlightGuard {
+    current: boolean;
+}
+
+export type ExclusiveResult<T> = { ran: true; value: T } | { ran: false };
+
+/**
+ * Ejecuta `operation` sólo si el guardia está libre: lo activa ANTES de
+ * llamarla y lo libera en `finally`. Con el guardia activo no ejecuta nada
+ * ({ ran: false }). Propaga el valor ({ ran: true, value }) o el error. Es el
+ * mismo helper que usan las acciones de fila (baja) y sus tests.
+ */
+export async function runExclusive<T>(guard: InFlightGuard, operation: () => Promise<T>): Promise<ExclusiveResult<T>> {
+    if (guard.current) return { ran: false };
+    guard.current = true;
+    try {
+        return { ran: true, value: await operation() };
+    } finally {
+        guard.current = false;
+    }
+}
+
+/**
+ * Estado de las acciones de una fila. La confirmación vive en la página (sin
+ * diálogos del navegador). Sin actualización optimista: tras el 204 la fila
+ * desaparece cuando el servidor devuelve la lista nueva.
+ *  idle -> open -> confirming -> start -> deleting -> done | fail
+ * Mientras `deleting`, se ignoran cancelar y un segundo `start` (doble clic).
+ */
+export type RowActionState =
+    | { phase: "idle" }
+    | { phase: "confirming" }
+    | { phase: "deleting" }
+    | { phase: "deleted" }
+    | { phase: "error"; feedback: InvoiceDeleteFeedback };
+
+export type RowActionEvent =
+    | { type: "open" }
+    | { type: "cancel" }
+    | { type: "start" }
+    | { type: "done" }
+    | { type: "fail"; feedback: InvoiceDeleteFeedback };
+
+export const ROW_ACTION_INITIAL: RowActionState = { phase: "idle" };
+
+export function rowActionReducer(state: RowActionState, event: RowActionEvent): RowActionState {
+    switch (event.type) {
+        case "open":
+            return state.phase === "idle" || state.phase === "error" ? { phase: "confirming" } : state;
+        case "cancel":
+            return state.phase === "confirming" || state.phase === "error" ? { phase: "idle" } : state;
+        case "start":
+            return state.phase === "confirming" ? { phase: "deleting" } : state;
+        case "done":
+            return state.phase === "deleting" ? { phase: "deleted" } : state;
+        case "fail":
+            return state.phase === "deleting" ? { phase: "error", feedback: event.feedback } : state;
+    }
 }

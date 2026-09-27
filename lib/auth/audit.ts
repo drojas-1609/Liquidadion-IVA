@@ -30,10 +30,11 @@ export const AUDIT_ACTIONS = [
   // Configuración de IVA del período (declarada en Fase A; se emitirá cuando
   // exista el endpoint que modifique PeriodVatSettings).
   "period.vat_settings_change",
-  // Reservadas para 3B+ (NO se emiten todavía; declaradas para no migrar luego)
-  "period.update",
+  // Corrección de comprobantes manuales (PATCH / DELETE /api/invoices/[id])
   "invoice.update",
   "invoice.delete",
+  // Reservadas para 3B+ (NO se emiten todavía; declaradas para no migrar luego)
+  "period.update",
   "taxrecord.update",
   "taxrecord.delete",
   "member.add",
@@ -77,8 +78,23 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "turivaIncludedAfter",
   ],
   "period.update": [],
-  "invoice.update": [],
-  "invoice.delete": [],
+  // Corrección de comprobantes manuales. Identifican el comprobante (código,
+  // punto de venta y número) sin datos personales ni importes. Los "Before" y
+  // la baja salen de la fila BLOQUEADA; los "After", de lo normalizado por el
+  // servidor. changedFields: NOMBRES de campo separados por coma, nunca valores.
+  // NUNCA importes, alícuotas, CUIT, documento, nombre ni valores sin normalizar.
+  "invoice.update": [
+    "periodId",
+    "category",
+    "voucherCodeBefore",
+    "voucherCodeAfter",
+    "pointOfSaleBefore",
+    "pointOfSaleAfter",
+    "numberBefore",
+    "numberAfter",
+    "changedFields",
+  ],
+  "invoice.delete": ["periodId", "category", "voucherCode", "pointOfSale", "number"],
   "taxrecord.update": [],
   "taxrecord.delete": [],
   "member.add": [],

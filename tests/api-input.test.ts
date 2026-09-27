@@ -6,6 +6,9 @@ import {
   buildPeriodInput,
   buildTurivaSettingInput,
   buildInvoiceInputV2,
+  buildInvoiceUpdateInput,
+  parseExpectedUpdatedAt,
+  EXPECTED_UPDATED_AT_ERROR,
   INVOICE_CONTRACT_OUTDATED_MESSAGE,
   VOUCHER_INT_MAX,
 } from "@/lib/api-input";
@@ -368,5 +371,64 @@ describe("buildTurivaSettingInput", () => {
       ok: true,
       data: { turivaIncluded: true },
     });
+  });
+});
+
+describe("parseExpectedUpdatedAt — ISO exacto AAAA-MM-DDTHH:mm:ss.sssZ", () => {
+  it("ISO exacto con milisegundos y Z -> Date del mismo instante", () => {
+    const r = parseExpectedUpdatedAt("2026-05-11T10:00:00.123Z");
+    expect(r.ok && r.data.toISOString()).toBe("2026-05-11T10:00:00.123Z");
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+    ["número", 1778493600000],
+    ["Date", new Date("2026-05-11T10:00:00.000Z")],
+    ["vacío", ""],
+    ["sin milisegundos", "2026-05-11T10:00:00Z"],
+    ["milisegundos incompletos", "2026-05-11T10:00:00.12Z"],
+    ["con offset", "2026-05-11T07:00:00.000-03:00"],
+    ["sin Z", "2026-05-11T10:00:00.000"],
+    ["sólo fecha", "2026-05-11"],
+    ["espacios", " 2026-05-11T10:00:00.000Z"],
+    ["mes 13", "2026-13-11T10:00:00.000Z"],
+    ["30 de febrero (no round-trip)", "2026-02-30T10:00:00.000Z"],
+    ["hora 24 (no round-trip)", "2026-05-11T24:00:00.000Z"],
+  ])("%s -> 422 expectedUpdatedAt", (_l, v) => {
+    expect(parseExpectedUpdatedAt(v)).toEqual({ ok: false, status: 422, field: "expectedUpdatedAt", error: EXPECTED_UPDATED_AT_ERROR });
+  });
+});
+
+describe("buildInvoiceUpdateInput — contrato v2 completo + expectedUpdatedAt", () => {
+  const T = "2026-05-11T10:00:00.000Z";
+
+  it("válido -> datos del v2 + expectedUpdatedAt", () => {
+    const r = buildInvoiceUpdateInput({ ...v2Invoice, expectedUpdatedAt: T });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.data.expectedUpdatedAt.toISOString()).toBe(T);
+      expect(r.data.number).toBe(1001);
+      expect(r.data.category).toBe("SALES");
+    }
+  });
+
+  it("errores del v2 primero (mismos campos y mensajes que el alta)", () => {
+    const rest: Partial<typeof v2Invoice> = { ...v2Invoice };
+    delete rest.contractVersion;
+    expect(Object.prototype.hasOwnProperty.call(rest, "contractVersion")).toBe(false);
+    expect(buildInvoiceUpdateInput({ ...rest, expectedUpdatedAt: "x" })).toMatchObject({
+      ok: false,
+      field: "contractVersion",
+      error: INVOICE_CONTRACT_OUTDATED_MESSAGE,
+    });
+  });
+
+  it("v2 válido sin expectedUpdatedAt -> 422 expectedUpdatedAt", () => {
+    expect(buildInvoiceUpdateInput(v2Invoice)).toMatchObject({ ok: false, status: 422, field: "expectedUpdatedAt" });
+  });
+
+  it.each([[null], [5], ["x"], [[]]])("cuerpo no objeto %j -> 422 body", (body) => {
+    expect(buildInvoiceUpdateInput(body)).toMatchObject({ ok: false, field: "body" });
   });
 });

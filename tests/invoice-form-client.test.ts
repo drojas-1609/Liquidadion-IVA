@@ -16,9 +16,36 @@ import {
   invoiceListHref,
   parseSelectionValue,
   submitInvoice,
+  EDIT_PENDING_CONDITION_MESSAGE,
+  EDIT_PENDING_VARIANT_MESSAGE,
+  INVOICE_DELETE_FORBIDDEN_ERROR,
+  INVOICE_DELETE_GENERIC_ERROR,
+  INVOICE_DELETE_NOT_FOUND_ERROR,
+  INVOICE_EDIT_NOT_FOUND_ERROR,
+  INVOICE_STALE_DELETE_ERROR,
+  INVOICE_STALE_EDIT_ERROR,
+  INVOICE_STALE_SERVER_MESSAGE,
+  INVOICE_UPDATE_FORBIDDEN_ERROR,
+  ROW_ACTION_INITIAL,
+  buildInvoiceUpdateBody,
+  deleteInvoice,
+  editPendingNotices,
+  initialEditState,
+  invoiceDeleteFeedback,
+  invoiceDeleteUrl,
+  invoiceEditHref,
+  invoiceUpdateErrorFeedback,
+  nextUpdateToken,
+  rowActionReducer,
+  submitInvoiceUpdate,
+  runExclusive,
+  type InFlightGuard,
   type InvoiceFormState,
+  type RowActionState,
   type SelectionKey,
 } from "@/lib/invoice-form-client";
+import { readFileSync } from "node:fs";
+import { resolveInvoiceFormOptions } from "@/lib/invoice-form-options";
 import type { InvoiceFormContext } from "@/lib/invoice-form-options";
 // Sólo en el test: la constante del servidor (api-input es server-only y el cliente no la importa).
 import { INVOICE_CONTRACT_VERSION, VOUCHER_INT_MAX, buildInvoiceInputV2 } from "@/lib/api-input";
@@ -309,5 +336,381 @@ describe("submitInvoice", () => {
       ok: false,
       feedback: { control: "form", message: INVOICE_GENERIC_ERROR, pending: false },
     });
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════
+// Edición y baja
+// ═════════════════════════════════════════════════════════════════════════
+
+const T0 = "2026-05-11T10:00:00.000Z";
+const T1 = "2026-05-11T10:00:01.000Z";
+
+/** Valores guardados (forma del formulario) de una FC A de venta a un RI. */
+const stored = (over: Partial<InvoiceFormState["selection"]> = {}, fields: Partial<InvoiceFormState["fields"]> = {}): InvoiceFormState => ({
+  selection: {
+    date: "2026-05-10",
+    counterpartyCondition: 1,
+    voucherCode: 1,
+    voucherVariant: "NONE",
+    docType: 80,
+    turivaRelationCode: null,
+    vatRate: "21",
+    ...over,
+  },
+  fields: { counterpartyName: "Cliente SA", docNumber: "30999999995", pointOfSale: "1", number: "1001", netAmount: "1000.00", ...fields },
+});
+
+const jsonRes = (status: number, body: unknown) => new Response(body === undefined ? null : JSON.stringify(body), { status });
+const apiErr = (status: number, message: string, extra: Record<string, unknown> = {}) =>
+  jsonRes(status, { error: { code: "X", message }, ...extra });
+const fetchOnce = (res: Response | (() => never)) =>
+  vi.fn(async () => (typeof res === "function" ? res() : res)) as unknown as typeof fetch & { mock: { calls: unknown[][] } };
+
+describe("initialEditState — estado inicial normalizado por la matriz", () => {
+  it("fila completa y vigente -> igual a lo guardado (idempotente)", () => {
+    const s = initialEditState(ctx(), stored());
+    expect(s).toEqual(stored());
+    expect(initialEditState(ctx(), s)).toEqual(s);
+    expect(resolveInvoiceFormOptions(ctx(), s.selection).derived).not.toBeNull();
+  });
+
+  // Fixtures confirmados en invoice-form-options.test.ts ("variantes: única válida
+  // (compra A de 06/2020)" y "variantes: A en 2026 -> NONE y CBU sin preselección").
+  const PURCHASE_A_2020 = { date: "2020-06-10", counterpartyCondition: 1, voucherCode: 1, docType: 80, vatRate: "21" } as const;
+  const SALE_A_2026 = { date: "2026-05-10", counterpartyCondition: 1, voucherCode: 1, docType: 80, vatRate: "21" } as const;
+
+  it("variante nula y UNA sola válida (compra A de 06/2020) -> preselecciona exactamente NONE", () => {
+    const c = ctx({ direction: "PURCHASES" });
+    expect(resolveInvoiceFormOptions(c, stored({ ...PURCHASE_A_2020, voucherVariant: null }).selection).variants.map((v) => v.value)).toEqual(["NONE"]);
+    const s = initialEditState(c, stored({ ...PURCHASE_A_2020, voucherVariant: null }));
+    expect(s.selection).toEqual({ ...stored().selection, ...PURCHASE_A_2020, voucherVariant: "NONE" });
+    expect(editPendingNotices({ requiresCounterpartyCondition: false, requiresVoucherVariant: true }, resolveInvoiceFormOptions(c, s.selection))).toEqual([]);
+  });
+
+  it("variante nula y DOS válidas (venta A de 2026) -> queda null, aviso y envío bloqueado", () => {
+    const s = initialEditState(ctx(), stored({ ...SALE_A_2026, voucherVariant: null }));
+    const opts = resolveInvoiceFormOptions(ctx(), s.selection);
+    expect(opts.variants.map((v) => v.value)).toEqual(["NONE", "PAGO_EN_CBU_INFORMADA"]);
+    expect(s.selection.voucherVariant).toBeNull();
+    expect(opts.derived).toBeNull();
+    expect(editPendingNotices({ requiresCounterpartyCondition: false, requiresVoucherVariant: true }, opts)).toEqual([EDIT_PENDING_VARIANT_MESSAGE]);
+    expect(buildInvoiceV2Body({ ctx: ctx(), periodId: "p_a", state: s }).ok).toBe(false);
+  });
+
+  it.each(["NONE", "PAGO_EN_CBU_INFORMADA"] as const)(
+    "fila antigua con variante nula: al elegir %s, el PATCH incluye voucherVariant",
+    (variant) => {
+      const s = initialEditState(ctx(), stored({ ...SALE_A_2026, voucherVariant: null }));
+      const { state, options } = applySelectionChange(ctx(), s, "voucherVariant", variant);
+      expect(editPendingNotices({ requiresCounterpartyCondition: false, requiresVoucherVariant: true }, options)).toEqual([]);
+      const built = buildInvoiceV2Body({ ctx: ctx(), periodId: "p_a", state });
+      if (!built.ok) throw new Error(built.message);
+      const patch = buildInvoiceUpdateBody(built.body, T0);
+      expect(patch.voucherVariant).toBe(variant);
+      expect(patch).toMatchObject({ voucherCode: 1, counterparty: { docType: 80, docNumber: "30999999995", vatConditionCode: 1 }, expectedUpdatedAt: T0 });
+    },
+  );
+
+  it("fila antigua con variante nula y única válida: el PATCH lleva la variante preseleccionada sin tocar el selector", () => {
+    const c = ctx({ direction: "PURCHASES" });
+    const built = buildInvoiceV2Body({ ctx: c, periodId: "p_a", state: initialEditState(c, stored({ ...PURCHASE_A_2020, voucherVariant: null })) });
+    if (!built.ok) throw new Error(built.message);
+    expect(buildInvoiceUpdateBody(built.body, T0).voucherVariant).toBe("NONE");
+  });
+
+  it("condición nula (fila antigua) -> se conserva lo guardado; al elegirla se recupera todo", () => {
+    const raw = stored({ counterpartyCondition: null });
+    const s = initialEditState(ctx(), raw);
+    expect(s).toEqual(raw);
+    // Mientras tanto la vista normalizada deja el selector vacío y no hay derivados (envío bloqueado).
+    const pendingView = resolveInvoiceFormOptions(ctx(), s.selection);
+    expect(pendingView.selection.counterpartyCondition).toBeNull();
+    expect(pendingView.derived).toBeNull();
+    expect(buildInvoiceV2Body({ ctx: ctx(), periodId: "p_a", state: s }).ok).toBe(false);
+    // Elegir la condición restaura comprobante, documento, variante y alícuota guardados.
+    const next = applySelectionChange(ctx(), s, "counterpartyCondition", "1").state;
+    expect(next).toEqual(stored());
+  });
+
+  it("el número de documento se conserva mientras no cambie el tipo; se borra si la normalización lo cambia", () => {
+    expect(initialEditState(ctx(), stored()).fields.docNumber).toBe("30999999995");
+    // Tipo de documento no admitido para la combinación -> normalizado a null -> número borrado.
+    const s = initialEditState(ctx(), stored({ docType: 99999 }));
+    expect(s.selection.docType).toBeNull();
+    expect(s.fields.docNumber).toBe("");
+    expect(s.fields.counterpartyName).toBe("Cliente SA");
+  });
+
+  it("combinación ya no ofrecida (T sin inclusión TurIVA) -> comprobante descartado, sin inferir otro", () => {
+    const s = initialEditState(ctx({ turivaIncluded: false }), stored({ voucherCode: 195, voucherVariant: null, turivaRelationCode: "0001", docType: 94 }));
+    expect(s.selection.voucherCode).toBeNull();
+  });
+});
+
+describe("editPendingNotices — excepciones antiguas", () => {
+  const flags = (c: boolean, v: boolean) => ({ requiresCounterpartyCondition: c, requiresVoucherVariant: v });
+
+  it("condición pendiente -> aviso explícito mientras siga vacía", () => {
+    const s = initialEditState(ctx(), stored({ counterpartyCondition: null }));
+    expect(editPendingNotices(flags(true, false), resolveInvoiceFormOptions(ctx(), s.selection))).toEqual([EDIT_PENDING_CONDITION_MESSAGE]);
+    const done = applySelectionChange(ctx(), s, "counterpartyCondition", "1");
+    expect(editPendingNotices(flags(true, false), done.options)).toEqual([]);
+  });
+
+  it("variante pendiente -> aviso mientras haya variantes y ninguna elegida (venta A de 2026: dos variantes)", () => {
+    const opts = resolveInvoiceFormOptions(ctx(), stored({ voucherVariant: null }).selection);
+    expect(opts.variants).toHaveLength(2);
+    expect(editPendingNotices(flags(false, true), opts)).toEqual([EDIT_PENDING_VARIANT_MESSAGE]);
+    expect(editPendingNotices(flags(false, true), resolveInvoiceFormOptions(ctx(), stored().selection))).toEqual([]);
+  });
+
+  it("sin banderas -> nunca hay avisos", () => {
+    const opts = resolveInvoiceFormOptions(ctx(), stored({ counterpartyCondition: null }).selection);
+    expect(editPendingNotices(flags(false, false), opts)).toEqual([]);
+  });
+});
+
+describe("PATCH — cuerpo, URL y token", () => {
+  const v2 = () => {
+    const b = buildInvoiceV2Body({ ctx: ctx(), periodId: "p_a", state: initialEditState(ctx(), stored()) });
+    if (!b.ok) throw new Error(b.message);
+    return b.body;
+  };
+
+  it("cuerpo EXACTO: v2 completo + expectedUpdatedAt; sin derivados, organización, cliente, autores ni source", () => {
+    const body = buildInvoiceUpdateBody(v2(), T0);
+    expect(body).toEqual({
+      contractVersion: 2,
+      category: "SALES",
+      periodId: "p_a",
+      date: "2026-05-10",
+      voucherCode: 1,
+      voucherVariant: "NONE",
+      pointOfSale: 1,
+      number: 1001,
+      counterparty: { name: "Cliente SA", docType: 80, docNumber: "30999999995", vatConditionCode: 1 },
+      turivaRelationCode: null,
+      netAmount: "1000.00",
+      vatRate: "21",
+      expectedUpdatedAt: T0,
+    });
+  });
+
+  it("ese cuerpo es aceptado por el parser del PATCH (buildInvoiceUpdateInput) del servidor", async () => {
+    const { buildInvoiceUpdateInput } = await import("@/lib/api-input");
+    const r = buildInvoiceUpdateInput(JSON.parse(JSON.stringify(buildInvoiceUpdateBody(v2(), T0))));
+    expect(r.ok).toBe(true);
+  });
+
+  it("URL y método exactos; id codificado; 200 -> updatedAt devuelto", async () => {
+    const f = fetchOnce(jsonRes(200, { id: "inv 1", updatedAt: T1 }));
+    const result = await submitInvoiceUpdate("inv 1", buildInvoiceUpdateBody(v2(), T0), f);
+    expect(result).toEqual({ ok: true, updatedAt: T1 });
+    const [url, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/invoices/inv%201");
+    expect(init.method).toBe("PATCH");
+    expect(init.headers).toEqual({ "Content-Type": "application/json" });
+    expect(JSON.parse(String(init.body))).toEqual(buildInvoiceUpdateBody(v2(), T0));
+  });
+
+  it("token: se reemplaza por el updatedAt devuelto; si falta o es inválido, se conserva", async () => {
+    expect(nextUpdateToken(T0, { ok: true, updatedAt: T1 })).toBe(T1);
+    expect(nextUpdateToken(T0, { ok: true, updatedAt: null })).toBe(T0);
+    expect(nextUpdateToken(T0, { ok: false, feedback: { control: "form", message: "x", pending: false } })).toBe(T0);
+    expect(await submitInvoiceUpdate("i", buildInvoiceUpdateBody(v2(), T0), fetchOnce(jsonRes(200, { updatedAt: "ayer" })))).toEqual({ ok: true, updatedAt: null });
+  });
+
+  it("dos ediciones seguidas usan cada una el token de la anterior", async () => {
+    let token = T0;
+    const sent: string[] = [];
+    const f = vi.fn(async (_u: string, init: RequestInit) => {
+      const b = JSON.parse(String(init.body));
+      sent.push(b.expectedUpdatedAt);
+      return jsonRes(200, { updatedAt: b.expectedUpdatedAt === T0 ? T1 : "2026-05-11T10:00:02.000Z" });
+    }) as unknown as typeof fetch;
+    for (let n = 0; n < 2; n++) {
+      token = nextUpdateToken(token, await submitInvoiceUpdate("i", buildInvoiceUpdateBody(v2(), token), f));
+    }
+    expect(sent).toEqual([T0, T1]);
+    expect(token).toBe("2026-05-11T10:00:02.000Z");
+  });
+
+  it.each([
+    [403, apiErr(403, "Forbidden"), { control: "form", message: INVOICE_UPDATE_FORBIDDEN_ERROR, pending: false }],
+    [404, apiErr(404, "Not found"), { control: "form", message: INVOICE_EDIT_NOT_FOUND_ERROR, pending: false }],
+    [409, apiErr(409, INVOICE_STALE_SERVER_MESSAGE), { control: "form", message: INVOICE_STALE_EDIT_ERROR, pending: false, stale: true }],
+    [409, apiErr(409, "El comprobante ya existe en el período 04/2026."), { control: "form", message: "El comprobante ya existe en el período 04/2026.", pending: false }],
+    [422, apiErr(422, "fecha fuera del período", { field: "date" }), { control: "date", message: "fecha fuera del período", pending: false }],
+    [422, apiErr(422, "no editable", { field: "invoice" }), { control: "form", message: "no editable", pending: false }],
+    [500, apiErr(500, "Error interno."), { control: "form", message: INVOICE_GENERIC_ERROR, pending: false }],
+  ] as const)("%i -> feedback", async (_s, res, expected) => {
+    expect(await submitInvoiceUpdate("i", buildInvoiceUpdateBody(v2(), T0), fetchOnce(res))).toEqual({ ok: false, feedback: expected });
+  });
+
+  it("red caída -> error genérico", async () => {
+    const down = fetchOnce(() => {
+      throw new Error("offline");
+    });
+    expect(await submitInvoiceUpdate("i", buildInvoiceUpdateBody(v2(), T0), down)).toEqual({
+      ok: false,
+      feedback: { control: "form", message: INVOICE_GENERIC_ERROR, pending: false },
+    });
+  });
+
+  it("el 409 por concurrencia se reconoce SÓLO por el mensaje exacto de la ruta", () => {
+    const route = readFileSync(new URL("../app/api/invoices/[id]/route.ts", import.meta.url), "utf8");
+    expect(route).toContain(`"${INVOICE_STALE_SERVER_MESSAGE}"`);
+    expect(invoiceUpdateErrorFeedback(409, { error: { message: INVOICE_STALE_SERVER_MESSAGE.slice(0, -1) } }).stale).toBeUndefined();
+  });
+
+  it("los mensajes propios no incluyen importes ni datos de la fila", () => {
+    for (const m of [INVOICE_STALE_EDIT_ERROR, INVOICE_UPDATE_FORBIDDEN_ERROR, INVOICE_EDIT_NOT_FOUND_ERROR]) {
+      expect(m).not.toMatch(/\d/);
+    }
+  });
+
+  it("invoiceEditHref separa ventas y compras y codifica el id", () => {
+    expect(invoiceEditHref("SALES", "c_a", "p_a", "inv 1")).toBe("/client/c_a/period/p_a/sales/inv%201/edit");
+    expect(invoiceEditHref("PURCHASES", "c_a", "p_a", "inv_1")).toBe("/client/c_a/period/p_a/purchases/inv_1/edit");
+  });
+});
+
+describe("DELETE — URL, respuesta y errores", () => {
+  it("URL EXACTA con expectedUpdatedAt codificado; método DELETE sin cuerpo; 204 -> ok", async () => {
+    expect(invoiceDeleteUrl("inv_1", T0)).toBe("/api/invoices/inv_1?expectedUpdatedAt=2026-05-11T10%3A00%3A00.000Z");
+    const f = fetchOnce(new Response(null, { status: 204 }));
+    expect(await deleteInvoice("inv/1", T0, f)).toEqual({ ok: true });
+    const [url, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/invoices/inv%2F1?expectedUpdatedAt=2026-05-11T10%3A00%3A00.000Z");
+    expect(init).toEqual({ method: "DELETE" });
+    // El servidor recibe el valor original.
+    expect(new URL(`http://x${url}`).searchParams.get("expectedUpdatedAt")).toBe(T0);
+  });
+
+  it.each([
+    [403, apiErr(403, "Forbidden"), { message: INVOICE_DELETE_FORBIDDEN_ERROR, stale: false }],
+    [404, apiErr(404, "Not found"), { message: INVOICE_DELETE_NOT_FOUND_ERROR, stale: false }],
+    [409, apiErr(409, INVOICE_STALE_SERVER_MESSAGE), { message: INVOICE_STALE_DELETE_ERROR, stale: true }],
+    [409, apiErr(409, "Ya existe un registro con esos datos."), { message: "Ya existe un registro con esos datos.", stale: false }],
+    [422, apiErr(422, "El comprobante fue importado: no se puede corregir ni eliminar manualmente.", { field: "invoice" }), { message: "El comprobante fue importado: no se puede corregir ni eliminar manualmente.", stale: false }],
+    [500, apiErr(500, "Error interno."), { message: INVOICE_DELETE_GENERIC_ERROR, stale: false }],
+    [502, jsonRes(502, undefined), { message: INVOICE_DELETE_GENERIC_ERROR, stale: false }],
+  ] as const)("%i -> feedback", async (_s, res, expected) => {
+    expect(await deleteInvoice("i", T0, fetchOnce(res))).toEqual({ ok: false, feedback: expected });
+  });
+
+  it("red caída -> error genérico", async () => {
+    const down = fetchOnce(() => {
+      throw new Error("offline");
+    });
+    expect(await deleteInvoice("i", T0, down)).toEqual({ ok: false, feedback: { message: INVOICE_DELETE_GENERIC_ERROR, stale: false } });
+  });
+
+  it("feedback sin cuerpo -> mensajes propios", () => {
+    expect(invoiceDeleteFeedback(422, null)).toEqual({ message: INVOICE_DELETE_GENERIC_ERROR, stale: false });
+    for (const m of [INVOICE_DELETE_FORBIDDEN_ERROR, INVOICE_DELETE_NOT_FOUND_ERROR, INVOICE_STALE_DELETE_ERROR, INVOICE_DELETE_GENERIC_ERROR]) {
+      expect(m).not.toMatch(/\d/);
+    }
+  });
+});
+
+describe("rowActionReducer — confirmación, cancelación, doble clic", () => {
+  const run = (events: Parameters<typeof rowActionReducer>[1][], from: RowActionState = ROW_ACTION_INITIAL) =>
+    events.reduce(rowActionReducer, from);
+  const fb = { message: "x", stale: false };
+
+  it("abrir -> confirmar -> eliminado", () => {
+    expect(run([{ type: "open" }])).toEqual({ phase: "confirming" });
+    expect(run([{ type: "open" }, { type: "start" }])).toEqual({ phase: "deleting" });
+    expect(run([{ type: "open" }, { type: "start" }, { type: "done" }])).toEqual({ phase: "deleted" });
+  });
+
+  it("cancelar vuelve a idle sin llamar a la API (no hay start)", () => {
+    expect(run([{ type: "open" }, { type: "cancel" }])).toEqual({ phase: "idle" });
+  });
+
+  it("confirmar sin abrir no hace nada (la baja exige confirmación)", () => {
+    expect(run([{ type: "start" }])).toEqual({ phase: "idle" });
+  });
+
+  it("doble clic: un segundo start mientras elimina se ignora; cancelar también", () => {
+    const deleting = run([{ type: "open" }, { type: "start" }]);
+    expect(rowActionReducer(deleting, { type: "start" })).toBe(deleting);
+    expect(rowActionReducer(deleting, { type: "cancel" })).toBe(deleting);
+    expect(rowActionReducer(deleting, { type: "open" })).toBe(deleting);
+  });
+
+  it("error -> se muestra; se puede reintentar (abrir) o cerrar (cancelar)", () => {
+    const err = run([{ type: "open" }, { type: "start" }, { type: "fail", feedback: fb }]);
+    expect(err).toEqual({ phase: "error", feedback: fb });
+    expect(rowActionReducer(err, { type: "open" })).toEqual({ phase: "confirming" });
+    expect(rowActionReducer(err, { type: "cancel" })).toEqual({ phase: "idle" });
+  });
+
+  it("done / fail fuera de deleting se ignoran", () => {
+    expect(run([{ type: "done" }])).toEqual({ phase: "idle" });
+    expect(run([{ type: "open" }, { type: "fail", feedback: fb }])).toEqual({ phase: "confirming" });
+  });
+
+});
+
+describe("runExclusive — guardia compartido de la baja (mismo helper que invoice-row-actions)", () => {
+  const guard = (): InFlightGuard => ({ current: false });
+
+  it("éxito: activa el guardia DURANTE la llamada, devuelve el valor y lo libera", async () => {
+    const g = guard();
+    let during: boolean | null = null;
+    const f = fetchOnce(new Response(null, { status: 204 }));
+    const r = await runExclusive(g, async () => {
+      during = g.current;
+      return deleteInvoice("i", T0, f);
+    });
+    expect(during).toBe(true);
+    expect(r).toEqual({ ran: true, value: { ok: true } });
+    expect(g.current).toBe(false);
+  });
+
+  it("respuesta de error: devuelve el resultado fallido y libera el guardia", async () => {
+    const g = guard();
+    const r = await runExclusive(g, () => deleteInvoice("i", T0, fetchOnce(apiErr(403, "Forbidden"))));
+    expect(r).toEqual({ ran: true, value: { ok: false, feedback: { message: INVOICE_DELETE_FORBIDDEN_ERROR, stale: false } } });
+    expect(g.current).toBe(false);
+  });
+
+  it("excepción: se propaga y el guardia queda libre", async () => {
+    const g = guard();
+    await expect(runExclusive(g, async () => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
+    expect(g.current).toBe(false);
+  });
+
+  it("guardia ya activo: no ejecuta nada", async () => {
+    const g = { current: true };
+    const op = vi.fn(async () => 1);
+    expect(await runExclusive(g, op)).toEqual({ ran: false });
+    expect(op).not.toHaveBeenCalled();
+    expect(g.current).toBe(true);
+  });
+
+  it("doble invocación concurrente (doble clic): una sola llamada DELETE; después se puede volver a usar", async () => {
+    const g = guard();
+    let resolve!: (r: Response) => void;
+    const f = vi.fn(() => new Promise<Response>((r) => (resolve = r))) as unknown as typeof fetch & { mock: { calls: unknown[][] } };
+    const first = runExclusive(g, () => deleteInvoice("i", T0, f));
+    const second = runExclusive(g, () => deleteInvoice("i", T0, f));
+    resolve(new Response(null, { status: 204 }));
+    expect(await Promise.all([first, second])).toEqual([{ ran: true, value: { ok: true } }, { ran: false }]);
+    expect(f.mock.calls).toHaveLength(1);
+    expect(g.current).toBe(false);
+    const again = await runExclusive(g, () => deleteInvoice("i", T0, fetchOnce(new Response(null, { status: 204 }))));
+    expect(again).toEqual({ ran: true, value: { ok: true } });
+  });
+
+  it("el componente usa exactamente este helper con su ref (sin guardia propio)", () => {
+    const src = readFileSync(new URL("../app/(app)/client/[id]/period/[periodId]/_components/invoice-row-actions.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/import \{[^}]*\brunExclusive\b[^}]*\} from "@\/lib\/invoice-form-client";/);
+    expect(src).toMatch(/await runExclusive\(inFlight, async \(\) => \{\s*dispatch\(\{ type: "start" \}\);\s*const result = await deleteInvoice\(invoiceId, updatedAt\);/);
+    expect(src).not.toMatch(/inFlight\.current\s*=/);
+    expect(src).not.toMatch(/if \(inFlight\.current/);
   });
 });
