@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { buildInvoiceInput } from "@/lib/api-input";
+import { checkVoucherDate, duplicateVoucherMessage, duplicateVoucherWhere } from "@/lib/invoice-rules";
 import { serializeInvoice } from "@/lib/serializers";
 import {
     requireAuthenticatedProfile,
@@ -12,13 +14,15 @@ import {
 } from "@/lib/auth/authz";
 import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_CREATE } from "@/lib/auth/roles";
-import { NotFoundError, ValidationError } from "@/lib/auth/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/auth/errors";
 
 // POST /api/invoices — alta de comprobante en un período de la organización activa.
 //
 // Orden (brief §7.1): auth -> organización -> rol -> parseo -> validación
 // (recalcula vatAmount/totalAmount en el servidor) -> acceso al Period (404 si
-// es de otra org o no existe) -> escritura + AuditLog en una transacción.
+// es de otra org o no existe) -> fecha frente al período (422) -> duplicidad
+// global del cliente (409 con el período donde ya existe) -> escritura +
+// AuditLog en una transacción.
 export const POST = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
@@ -32,7 +36,40 @@ export const POST = withApiAuthz(async (request: Request) => {
     // Defensa en profundidad: el período debe ser de la organización ACTIVA.
     if (access.organizationId !== organizationId) throw new NotFoundError();
 
+    // Mes y año del período (requirePeriodAccess sólo trae id/cliente/organización).
+    const period = await prisma.period.findFirst({
+        where: { id: access.period.id, organizationId },
+        select: { month: true, year: true },
+    });
+    if (!period) throw new NotFoundError();
+
     const { model } = parsed.data;
+    const dateCheck = checkVoucherDate(parsed.data.category, model.voucherDate, period);
+    if (!dateCheck.ok) throw new ValidationError(dateCheck.error, dateCheck.field);
+
+    // Duplicidad entre TODOS los períodos del cliente, con la misma clave que
+    // los índices únicos parciales. El 409 sólo identifica el período propio
+    // donde ya está cargado (mismo cliente y organización: sin datos ajenos).
+    const duplicateWhere = duplicateVoucherWhere({
+        organizationId,
+        clientId: access.period.clientId,
+        category: parsed.data.category,
+        voucherCode: model.voucherCode,
+        pointOfSale: parsed.data.pointOfSale,
+        number: parsed.data.number,
+        counterpartyDocType: model.counterpartyDocType,
+        counterpartyDocNumber: model.counterpartyDocNumber,
+    });
+    const findDuplicatePeriod = async () => {
+        const dup = await prisma.invoice.findFirst({
+            where: duplicateWhere,
+            select: { period: { select: { month: true, year: true } } },
+        });
+        return dup?.period ?? null;
+    };
+    const existing = await findDuplicatePeriod();
+    if (existing) throw new ConflictError(duplicateVoucherMessage(existing));
+
     const created = await prisma.$transaction(async (tx) => {
         // Importes ya recalculados en el servidor. Se escriben las columnas
         // heredadas (con signo, compatibilidad con el código anterior) Y el
@@ -110,8 +147,18 @@ export const POST = withApiAuthz(async (request: Request) => {
             },
         });
         return invoice;
+    }).catch(async (err: unknown) => {
+        // Carrera con otra alta: P2002 sobre los índices únicos parciales. Se
+        // informa el período si ya es visible; si no, 409 genérico (withApiAuthz).
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+            const racing = await findDuplicatePeriod();
+            if (racing) throw new ConflictError(duplicateVoucherMessage(racing));
+        }
+        throw err;
     });
 
-    // P2002 sobre los índices únicos parciales de ventas/compras -> 409 CONFLICT.
-    return NextResponse.json(serializeInvoice(created), { status: 201 });
+    return NextResponse.json(
+        { ...serializeInvoice(created), warnings: dateCheck.warnings },
+        { status: 201 },
+    );
 });

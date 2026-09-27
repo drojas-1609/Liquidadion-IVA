@@ -189,6 +189,10 @@ enum InvoiceSource {
 ///    `Invoice_purchases_voucher_key` (duplicados en todos los períodos del cliente);
 ///  - restricciones CHECK `Invoice_*_check`, `InvoiceVatLine_*_check` y
 ///    `PeriodVatSettings_*_check`.
+/// La migración 20260925210133_invoice_counterparty_turiva_variant_expand agrega
+/// otros CHECK sobre `counterpartyVatConditionCode`, `turivaRelationCode`,
+/// `voucherVariant` y `lidSection` (protegidos por
+/// tests/schema/invoice-counterparty-variant-migration.test.ts).
 model Invoice {
   id             String    @id @default(cuid())
   // ── Columnas heredadas (ver arriba) ──────────────────────────────────────
@@ -259,6 +263,19 @@ model Invoice {
   lidSection                        LidSection     @default(GENERAL)
   /// Código de operación (tabla oficial); reservado para la importación.
   operationCode                     String?        @db.Char(1)
+
+  // ── PR B (expand): nullable, sin default ni backfill ─────────────────────
+  /// Condición frente al IVA de la contraparte (tabla oficial "Tipos de
+  /// responsables"). NULL = fila heredada o importada; obligatoria en nuevas
+  /// altas manuales por aplicación.
+  counterpartyVatConditionCode Int?
+  /// Relación emisor-receptor TurIVA ("0001".."0006", con ceros). Obligatoria
+  /// en nuevas altas manuales 195–197 por aplicación.
+  turivaRelationCode           String? @db.VarChar(4)
+  /// Variante elegida para 001–003 en nuevas cargas manuales: NONE |
+  /// PAGO_EN_CBU_INFORMADA. NULL en todo otro caso. La clase y la leyenda de
+  /// 051–053 se DERIVAN por código y fecha (lib/arca/voucher-legal-class.ts).
+  voucherVariant               String? @db.VarChar(32)
 
   // Tarea 3B: relación COMPUESTA. Una Invoice sólo puede referenciar un Period
   // de la MISMA organización.

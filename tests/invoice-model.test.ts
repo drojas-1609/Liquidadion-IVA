@@ -4,6 +4,7 @@ import {
   voucherSign,
   voucherType,
   voucherTypeByLegacyLabel,
+  voucherDisplayLabel,
   vatRateOf,
   vatRateCodeFor,
   computeLineVat,
@@ -63,12 +64,12 @@ describe("voucherSign — ÚNICA regla de signo contable", () => {
     for (const v of VOUCHER_TYPES) {
       expect(voucherSign(v.code), String(v.code)).toBe(v.kind === "CREDIT_NOTE" ? -1 : 1);
     }
-    expect([3, 8, 13].map(voucherSign)).toEqual([-1, -1, -1]);
-    expect([1, 2, 6, 7, 11, 12].map(voucherSign)).toEqual([1, 1, 1, 1, 1, 1]);
+    expect([3, 8, 13, 21, 53, 197].map(voucherSign)).toEqual([-1, -1, -1, -1, -1, -1]);
+    expect([1, 2, 6, 7, 11, 12, 19, 20, 51, 52].map(voucherSign)).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
   });
 
   it("código fuera del catálogo -> lanza (nunca asume un signo)", () => {
-    for (const code of [0, 4, 51, 201, 999, Number.NaN]) {
+    for (const code of [0, 4, 63, 201, 999, Number.NaN]) {
       expect(() => voucherSign(code), String(code)).toThrow(UnknownCatalogCodeError);
     }
   });
@@ -78,6 +79,15 @@ describe("voucherSign — ÚNICA regla de signo contable", () => {
     expect(voucherTypeByLegacyLabel(" FC B ")?.code).toBe(6);
     expect(voucherTypeByLegacyLabel("FACTURA X")).toBeNull();
     expect(voucherType(11).letter).toBe("C");
+  });
+
+  it("019–021 y 051–053 no se alcanzan por etiqueta heredada (contrato anterior); rótulo = denominación oficial", () => {
+    for (const label of ["FC E", "ND E", "NC E", "FC M", "ND M", "NC M", "FACTURAS M", "FACTURAS DE EXPORTACION"]) {
+      expect(voucherTypeByLegacyLabel(label), label).toBeNull();
+    }
+    expect(voucherDisplayLabel(19)).toBe("FACTURAS DE EXPORTACION");
+    expect(voucherDisplayLabel(53)).toBe("NOTAS DE CREDITO M");
+    expect(voucherDisplayLabel(1)).toBe("FC A");
   });
 });
 

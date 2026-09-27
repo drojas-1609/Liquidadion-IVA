@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildInvoiceInput, buildTaxInput, buildClientInput, buildPeriodInput } from "@/lib/api-input";
+import { buildInvoiceInput, buildTaxInput, buildClientInput, buildClientUpdateInput, buildPeriodInput } from "@/lib/api-input";
 
 const baseInvoice = {
   date: "2026-01-15",
@@ -98,10 +98,89 @@ describe("lib/api-input", () => {
     expect(ok.ok).toBe(true);
     if (ok.ok) expect(ok.data.defaultIibbRate.toString()).toBe("3");
 
-    const ok2 = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "RI", defaultIibbRate: "3.5" });
+    const ok2 = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "Responsable Inscripto", defaultIibbRate: "3.5" });
     if (ok2.ok) expect(ok2.data.defaultIibbRate.toString()).toBe("3.5");
 
-    const bad = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "RI", defaultIibbRate: "101" });
+    const bad = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "Responsable Inscripto", defaultIibbRate: "101" });
     expect(bad.ok).toBe(false);
+  });
+});
+
+describe("buildClientInput / buildClientUpdateInput — condición fiscal", () => {
+  const base = { name: "X SA", cuit: "30-11111111-8" };
+
+  it.each([["Responsable Inscripto"], ["Monotributo"], ["Exento"], ["  Monotributo  "]])("%s -> admitida (se guarda sin espacios)", (condition) => {
+    const res = buildClientInput({ ...base, condition });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data.condition).toBe(condition.trim());
+    const upd = buildClientUpdateInput({ condition });
+    expect(upd.ok).toBe(true);
+    if (upd.ok) expect(upd.data.condition).toBe(condition.trim());
+  });
+
+  it.each([["RI"], ["responsable inscripto"], ["Monotributista"], ["Consumidor Final"], ["IVA No Alcanzado"]])("%s -> 422 condition", (condition) => {
+    for (const res of [buildClientInput({ ...base, condition }), buildClientUpdateInput({ condition })]) {
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.field).toBe("condition");
+        expect(res.error).toBe("condición fiscal inválida (Responsable Inscripto, Monotributo, Exento)");
+      }
+    }
+  });
+});
+
+describe("buildInvoiceInput — fecha estricta AAAA-MM-DD", () => {
+  const withDate = (date: unknown) => buildInvoiceInput({ ...baseInvoice, netAmount: "1000", vatRate: "21", date });
+
+  it.each([["2026-05-31"], ["1999-12-31"], ["2024-02-29"], ["2000-02-29"], ["0999-01-01"]])(
+    "%s válida -> medianoche UTC del MISMO día (modelo y columna heredada)",
+    (iso) => {
+      const res = withDate(iso);
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.data.model.voucherDate.toISOString()).toBe(`${iso}T00:00:00.000Z`);
+        expect(res.data.date.toISOString()).toBe(`${iso}T00:00:00.000Z`);
+      }
+    },
+  );
+
+  it.each([
+    ["2026-02-30", "día inexistente"],
+    ["2026-02-31", "día inexistente"],
+    ["2025-02-29", "29/02 de un año no bisiesto"],
+    ["2100-02-29", "2100 no es bisiesto"],
+    ["2026-04-31", "abril tiene 30 días"],
+    ["2026-13-01", "mes inexistente"],
+    ["2026-00-10", "mes cero"],
+    ["2026-05-00", "día cero"],
+    ["2026-05-31T23:30:00-03:00", "con hora y zona"],
+    ["2026-05-31T00:00:00Z", "con hora UTC"],
+    ["2026-05-31T00:00:00.000Z", "ISO completo"],
+    ["2026-5-3", "sin ceros a la izquierda"],
+    ["May 31 2026", "formato textual"],
+    ["31/12/1999", "formato DD/MM/AAAA"],
+    ["2026/05/31", "separador /"],
+    [" 2026-05-31", "espacio inicial"],
+    ["2026-05-31 ", "espacio final"],
+    ["+002026-05-31", "año extendido"],
+  ])("%s (%s) -> 422 date", (date) => {
+    const res = withDate(date);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.status).toBe(422);
+      expect(res.field).toBe("date");
+      expect(res.error).toBe("fecha inválida: debe ser AAAA-MM-DD y existir en el calendario");
+    }
+  });
+
+  it("fecha ausente, vacía o no-texto -> 422 date (fecha requerida)", () => {
+    for (const date of [undefined, "", "   ", 20260531, null]) {
+      const res = withDate(date);
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.field).toBe("date");
+        expect(res.error).toBe("fecha requerida");
+      }
+    }
   });
 });
