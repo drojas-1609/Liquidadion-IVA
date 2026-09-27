@@ -3,14 +3,13 @@ import { Prisma } from "@prisma/client";
 import {
   voucherSign,
   voucherType,
-  voucherTypeByLegacyLabel,
   voucherDisplayLabel,
   vatRateOf,
   vatRateCodeFor,
   computeLineVat,
   computeVoucherTotal,
   purchaseHasNoVatBreakdown,
-  modelFromLegacyInput,
+  modelFromVoucher,
   legacyColumnsFor,
   normalizeInvoiceRow,
   UnknownCatalogCodeError,
@@ -23,7 +22,7 @@ import {
   lidSectionError,
   isoDate,
   TURIVA_NOT_INCLUDED_MESSAGE,
-  type LegacyInvoiceInput,
+  type VoucherModelInput,
   type VoucherAmounts,
   type VatLineData,
 } from "@/lib/invoice-model";
@@ -46,18 +45,27 @@ const zeroAmounts = (): VoucherAmounts => ({
   otherTaxesAmount: D(0),
 });
 
-const legacyInput = (over: Partial<LegacyInvoiceInput> = {}): LegacyInvoiceInput => ({
+/** Alta manual por código oficial (documento ya validado y normalizado). */
+const voucherInput = (over: Partial<VoucherModelInput> = {}): VoucherModelInput => ({
   category: "SALES",
-  type: "FC A",
+  voucherCode: 1,
   date: new Date("2026-05-31T00:00:00.000Z"),
   pointOfSale: 1,
   number: 100,
-  entityName: "Contraparte SA",
-  entityCuit: "30-99999999-5",
+  counterpartyDocType: 80,
+  counterpartyDocNumber: "30999999995",
+  counterpartyName: "Contraparte SA",
   netAmount: D("1000"),
   vatRate: D("21"),
+  lidSection: "GENERAL",
   ...over,
 });
+/** Modelo válido o falla el test (con el error de la función). */
+const modelOf = (over: Partial<VoucherModelInput> = {}) => {
+  const r = modelFromVoucher(voucherInput(over));
+  if (!r.ok) throw new Error(`${r.field}: ${r.error}`);
+  return r.model;
+};
 
 describe("voucherSign — ÚNICA regla de signo contable", () => {
   it("−1 para notas de crédito, +1 para facturas y notas de débito (todo el catálogo)", () => {
@@ -74,17 +82,12 @@ describe("voucherSign — ÚNICA regla de signo contable", () => {
     }
   });
 
-  it("etiquetas heredadas -> entrada del catálogo; desconocida -> null", () => {
-    expect(voucherTypeByLegacyLabel("NC A")?.code).toBe(3);
-    expect(voucherTypeByLegacyLabel(" FC B ")?.code).toBe(6);
-    expect(voucherTypeByLegacyLabel("FACTURA X")).toBeNull();
+  it("entrada del catálogo por código", () => {
     expect(voucherType(11).letter).toBe("C");
+    expect(voucherType(3).kind).toBe("CREDIT_NOTE");
   });
 
-  it("019–021 y 051–053 no se alcanzan por etiqueta heredada (contrato anterior); rótulo = denominación oficial", () => {
-    for (const label of ["FC E", "ND E", "NC E", "FC M", "ND M", "NC M", "FACTURAS M", "FACTURAS DE EXPORTACION"]) {
-      expect(voucherTypeByLegacyLabel(label), label).toBeNull();
-    }
+  it("rótulo: etiqueta heredada si existe (columna type); si no, denominación oficial (019–021, 051–053)", () => {
     expect(voucherDisplayLabel(19)).toBe("FACTURAS DE EXPORTACION");
     expect(voucherDisplayLabel(53)).toBe("NOTAS DE CREDITO M");
     expect(voucherDisplayLabel(1)).toBe("FC A");
@@ -163,12 +166,9 @@ describe("purchaseHasNoVatBreakdown — regla oficial compras B/C", () => {
   });
 });
 
-describe("modelFromLegacyInput + legacyColumnsFor", () => {
-  it("venta FC A 21 %: modelo positivo, una línea código 5, base IIBB = neto", () => {
-    const r = modelFromLegacyInput(legacyInput());
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    const m = r.model;
+describe("modelFromVoucher + legacyColumnsFor", () => {
+  it("venta 001 (FC A) 21 %: modelo positivo, una línea código 5, base IIBB = neto", () => {
+    const m = modelOf();
     expect(m.voucherCode).toBe(1);
     expect(m.vatLines.map((l) => [l.vatRateCode, f2(l.netAmount), f2(l.vatAmount)])).toEqual([[5, "1000.00", "210.00"]]);
     expect(f2(m.voucherTotalAmount)).toBe("1210.00");
@@ -183,73 +183,79 @@ describe("modelFromLegacyInput + legacyColumnsFor", () => {
   });
 
   it("compra: línea DIRECT_COMPUTABLE, crédito directo = IVA liquidado; sin base IIBB", () => {
-    const r = modelFromLegacyInput(legacyInput({ category: "PURCHASES", vatRate: D("10.5") }));
-    if (!r.ok) throw new Error(r.error);
-    expect(f2(r.model.directComputableVatCreditAmount)).toBe(f2(r.model.totalVatAmount));
-    expect(r.model.vatLines[0].creditAllocation).toBe("DIRECT_COMPUTABLE");
-    expect(f2(r.model.vatLines[0].computableVatAmount!)).toBe(f2(r.model.vatLines[0].vatAmount));
-    expect(r.model.grossIncomeTaxBaseAmount).toBeNull();
+    const m = modelOf({ category: "PURCHASES", vatRate: D("10.5") });
+    expect(f2(m.directComputableVatCreditAmount)).toBe(f2(m.totalVatAmount));
+    expect(m.vatLines[0].creditAllocation).toBe("DIRECT_COMPUTABLE");
+    expect(f2(m.vatLines[0].computableVatAmount!)).toBe(f2(m.vatLines[0].vatAmount));
+    expect(m.grossIncomeTaxBaseAmount).toBeNull();
   });
 
-  it("NC con neto negativo o positivo: modelo idéntico y positivo", () => {
-    const a = modelFromLegacyInput(legacyInput({ type: "NC A", netAmount: D("-500") }));
-    const b = modelFromLegacyInput(legacyInput({ type: "NC A", netAmount: D("500") }));
-    if (!a.ok || !b.ok) throw new Error("debía aceptar");
-    expect(f2(a.model.taxedNetAmount)).toBe("500.00");
-    expect(f2(a.model.voucherTotalAmount)).toBe(f2(b.model.voucherTotalAmount));
+  it("IVA por línea HALF_UP: 1234,56 al 10,5 % -> 129,63; total 1364,19", () => {
+    const m = modelOf({ netAmount: D("1234.56"), vatRate: D("10.5") });
+    expect(f2(m.totalVatAmount)).toBe("129.63");
+    expect(f2(m.voucherTotalAmount)).toBe("1364.19");
   });
 
-  it("rechaza: factura negativa, tipo desconocido, alícuota no oficial, compra B/C con IVA", () => {
-    const cases: Array<[Partial<LegacyInvoiceInput>, string]> = [
+  it("NC (003) con neto negativo o positivo: modelo idéntico y positivo", () => {
+    const a = modelOf({ voucherCode: 3, netAmount: D("-500") });
+    const b = modelOf({ voucherCode: 3, netAmount: D("500") });
+    expect(f2(a.taxedNetAmount)).toBe("500.00");
+    expect(f2(a.voucherTotalAmount)).toBe(f2(b.voucherTotalAmount));
+  });
+
+  it("rechaza: factura negativa, código desconocido, alícuota no oficial, compra B/C con IVA", () => {
+    const cases: Array<[Partial<VoucherModelInput>, string]> = [
       [{ netAmount: D("-1") }, "netAmount"],
-      [{ type: "FACTURA X" }, "type"],
+      [{ voucherCode: 999 }, "voucherCode"],
       [{ vatRate: D("1") }, "vatRate"],
-      [{ category: "PURCHASES", type: "FC B", vatRate: D("21") }, "vatRate"],
-      [{ category: "PURCHASES", type: "FC C", vatRate: D("10.5") }, "vatRate"],
+      [{ category: "PURCHASES", voucherCode: 6, vatRate: D("21") }, "vatRate"],
+      [{ category: "PURCHASES", voucherCode: 11, vatRate: D("10.5") }, "vatRate"],
     ];
     for (const [over, field] of cases) {
-      const r = modelFromLegacyInput(legacyInput(over));
+      const r = modelFromVoucher(voucherInput(over));
       expect(r.ok, JSON.stringify(over)).toBe(false);
       if (!r.ok) expect(r.field).toBe(field);
     }
   });
 
-  it("compra C con alícuota 0: cero líneas, neto sin IVA discriminado, sin clasificar como exento/no gravado", () => {
-    const r = modelFromLegacyInput(legacyInput({ category: "PURCHASES", type: "FC C", vatRate: D("0") }));
-    if (!r.ok) throw new Error(r.error);
-    expect(r.model.vatLines).toEqual([]);
-    expect(f2(r.model.netWithoutVatBreakdownAmount)).toBe("1000.00");
-    expect(f2(r.model.exemptAmount)).toBe("0.00");
-    expect(f2(r.model.nonTaxedAmount)).toBe("0.00");
-    expect(f2(r.model.voucherTotalAmount)).toBe("1000.00");
+  it("compra C (011) con alícuota 0: cero líneas, neto sin IVA discriminado, sin clasificar como exento/no gravado", () => {
+    const m = modelOf({ category: "PURCHASES", voucherCode: 11, vatRate: D("0") });
+    expect(m.vatLines).toEqual([]);
+    expect(f2(m.netWithoutVatBreakdownAmount)).toBe("1000.00");
+    expect(f2(m.exemptAmount)).toBe("0.00");
+    expect(f2(m.nonTaxedAmount)).toBe("0.00");
+    expect(f2(m.voucherTotalAmount)).toBe("1000.00");
   });
 
   it("columnas heredadas: con signo, etiqueta y CUIT formateado; reproducen el cálculo anterior", () => {
-    const r = modelFromLegacyInput(legacyInput({ type: "NC A", netAmount: D("100") }));
-    if (!r.ok) throw new Error(r.error);
-    const l = legacyColumnsFor(r.model);
+    const l = legacyColumnsFor(modelOf({ voucherCode: 3, netAmount: D("100") }));
     expect(l.type).toBe("NC A");
     expect(l.entityCuit).toBe("30-99999999-5");
+    expect(l.entityName).toBe("Contraparte SA");
+    expect(l.date.toISOString()).toBe("2026-05-31T00:00:00.000Z");
     expect(l.vatRate?.toString()).toBe("21");
     expect([f2(l.netAmount), f2(l.vatAmount), f2(l.totalAmount)]).toEqual(["-100.00", "-21.00", "-121.00"]);
   });
 
   it("columnas heredadas en compras: vatAmount = crédito DIRECTO con signo", () => {
-    const r = modelFromLegacyInput(legacyInput({ category: "PURCHASES" }));
-    if (!r.ok) throw new Error(r.error);
-    const m = { ...r.model, directComputableVatCreditAmount: D("50") };
+    const m = { ...modelOf({ category: "PURCHASES" }), directComputableVatCreditAmount: D("50") };
     expect(f2(legacyColumnsFor(m).vatAmount)).toBe("50.00");
   });
 
+  it("columnas heredadas de 019–021 y 051–053: type = denominación oficial", () => {
+    expect(legacyColumnsFor(modelOf({ voucherCode: 51 })).type).toBe("FACTURAS M");
+    expect(legacyColumnsFor(modelOf({ voucherCode: 19, vatRate: D("0") })).type).toBe("FACTURAS DE EXPORTACION");
+  });
+
   it("documento no CUIT: entityCuit recibe el número (compatibilidad transitoria); varias líneas -> vatRate NULL", () => {
-    const r = modelFromLegacyInput(legacyInput());
-    if (!r.ok) throw new Error(r.error);
+    expect(legacyColumnsFor(modelOf({ voucherCode: 6, counterpartyDocType: 96, counterpartyDocNumber: "12345678" })).entityCuit).toBe("12345678");
+    const base = modelOf();
     const m = {
-      ...r.model,
+      ...base,
       counterpartyDocType: 96,
       counterpartyDocNumber: "12345678",
       vatLines: [
-        ...r.model.vatLines,
+        ...base.vatLines,
         {
           vatRateCode: 4,
           netAmount: D(1),
@@ -292,9 +298,8 @@ describe("normalizeInvoiceRow — lectura compatible", () => {
   });
 
   it("fila modelada: signo por código, crédito computable, base IIBB del campo", () => {
-    const r = modelFromLegacyInput(legacyInput({ category: "PURCHASES", type: "NC A", netAmount: D("200") }));
-    if (!r.ok) throw new Error(r.error);
-    const row = { ...legacyColumnsFor(r.model), ...r.model, directComputableVatCreditAmount: D("30") };
+    const model = modelOf({ category: "PURCHASES", voucherCode: 3, netAmount: D("200") });
+    const row = { ...legacyColumnsFor(model), ...model, directComputableVatCreditAmount: D("30") };
     const n = normalizeInvoiceRow(row);
     expect(n.mode).toBe("MODELED");
     expect(f2(n.vatDirectCredit)).toBe("-30.00"); // NC resta crédito, y usa el DIRECTO
@@ -305,38 +310,37 @@ describe("normalizeInvoiceRow — lectura compatible", () => {
   });
 
   it("modelada: fecha contable sin corrimiento por zona horaria", () => {
-    const r = modelFromLegacyInput(legacyInput());
-    if (!r.ok) throw new Error(r.error);
-    const n = normalizeInvoiceRow({ ...legacyColumnsFor(r.model), ...r.model });
+    const model = modelOf();
+    const n = normalizeInvoiceRow({ ...legacyColumnsFor(model), ...model });
     expect(n.voucherDate).toBe("2026-05-31");
   });
 
   it("modelada con código fuera del catálogo -> lanza (falla cerrado)", () => {
-    const r = modelFromLegacyInput(legacyInput());
-    if (!r.ok) throw new Error(r.error);
-    expect(() => normalizeInvoiceRow({ ...legacyColumnsFor(r.model), ...r.model, voucherCode: 201 })).toThrow(
+    const model = modelOf();
+    expect(() => normalizeInvoiceRow({ ...legacyColumnsFor(model), ...model, voucherCode: 201 })).toThrow(
       UnknownCatalogCodeError,
     );
   });
 
-  it("paridad: para toda entrada válida, modo nuevo y modo heredado liquidan igual", () => {
-    for (const [category, type, net, rate] of [
-      ["SALES", "FC A", "1000", "21"],
-      ["SALES", "NC A", "-250.55", "10.5"],
-      ["SALES", "FC C", "999.99", "0"],
-      ["PURCHASES", "FC A", "123.45", "27"],
-      ["PURCHASES", "NC A", "80", "5"],
-      ["PURCHASES", "FC B", "300", "0"],
+  it("paridad: para toda entrada válida, modo nuevo y modo heredado liquidan igual (IVA, crédito, IIBB, neto, total)", () => {
+    for (const [category, code, net, rate] of [
+      ["SALES", 1, "1000", "21"],
+      ["SALES", 3, "-250.55", "10.5"],
+      ["SALES", 11, "999.99", "0"],
+      ["SALES", 51, "100", "21"],
+      ["SALES", 19, "500", "0"],
+      ["PURCHASES", 1, "123.45", "27"],
+      ["PURCHASES", 3, "80", "5"],
+      ["PURCHASES", 6, "300", "0"],
     ] as const) {
-      const r = modelFromLegacyInput(legacyInput({ category, type, netAmount: D(net), vatRate: D(rate) }));
-      if (!r.ok) throw new Error(`${type}: ${r.error}`);
-      const legacy = legacyColumnsFor(r.model);
-      const modeled = normalizeInvoiceRow({ ...legacy, ...r.model });
+      const model = modelOf({ category, voucherCode: code, netAmount: D(net), vatRate: D(rate) });
+      const legacy = legacyColumnsFor(model);
+      const modeled = normalizeInvoiceRow({ ...legacy, ...model });
       const asLegacy = normalizeInvoiceRow({ ...legacy, category });
       expect(modeled.mode).toBe("MODELED");
       expect(asLegacy.mode).toBe("LEGACY");
       for (const k of ["vatDebit", "vatDirectCredit", "grossIncomeTaxBase", "signedNet", "signedTotal"] as const) {
-        expect(f2(modeled[k]), `${type}/${category}/${k}`).toBe(f2(asLegacy[k]));
+        expect(f2(modeled[k]), `${code}/${category}/${k}`).toBe(f2(asLegacy[k]));
       }
     }
   });
@@ -476,5 +480,84 @@ describe("isoDate — fecha @db.Date sin corrimiento por zona horaria", () => {
     expect(isoDate(new Date("2026-05-31T00:00:00.000Z"))).toBe("2026-05-31");
     expect(isoDate(new Date("2026-01-01T00:00:00.000Z"))).toBe("2026-01-01");
     expect(isoDate(null)).toBeNull();
+  });
+});
+
+describe("modelFromVoucher — núcleo del alta manual por código oficial", () => {
+  it("todo código A/B/C del catálogo, en ventas y compras, con varios netos y alícuotas: modelo positivo con signo por código", () => {
+    const ABC = VOUCHER_TYPES.filter((v) => ["A", "B", "C"].includes(v.letter));
+    for (const v of ABC) {
+      for (const category of ["SALES", "PURCHASES"] as const) {
+        const noVat = category === "PURCHASES" && (v.letter === "B" || v.letter === "C");
+        for (const [net, rate] of [["1000", "21"], ["1234.56", "10.5"], ["-500", "21"], ["800", "0"]] as const) {
+          if (noVat && rate !== "0") continue;
+          const r = modelFromVoucher(voucherInput({ category, voucherCode: v.code, netAmount: D(net), vatRate: D(rate) }));
+          const tag = `${category} ${v.code} ${net}/${rate}`;
+          if (net.startsWith("-") && v.kind !== "CREDIT_NOTE") {
+            expect(r, tag).toMatchObject({ ok: false, field: "netAmount" });
+            continue;
+          }
+          expect(r.ok, tag).toBe(true);
+          if (!r.ok) continue;
+          expect(r.model.taxedNetAmount.isNegative() || r.model.voucherTotalAmount.isNegative(), tag).toBe(false);
+          expect(f2(legacyColumnsFor(r.model).totalAmount), tag).toBe(f2(r.model.voucherTotalAmount.times(voucherSign(v.code))));
+        }
+      }
+    }
+  });
+
+  it("063 y códigos fuera del catálogo -> error voucherCode", () => {
+    for (const code of [63, 0, 4, 201, 999]) {
+      const r = modelFromVoucher(voucherInput({ voucherCode: code }));
+      expect(r, String(code)).toMatchObject({ ok: false, field: "voucherCode" });
+    }
+  });
+
+  it("019–021 y 051–053 se construyen por código (no tienen etiqueta heredada)", () => {
+    for (const code of [19, 20, 21, 51, 52, 53]) {
+      const r = modelFromVoucher(voucherInput({ voucherCode: code, netAmount: D(code === 21 || code === 53 ? "-100" : "100") }));
+      expect(r.ok, String(code)).toBe(true);
+      if (r.ok) {
+        expect(r.model.voucherCode).toBe(code);
+        expect(r.model.lidSection).toBe("GENERAL");
+      }
+    }
+  });
+
+  it("clase T exige TURIVA; los demás exigen GENERAL (error de campo lidSection)", () => {
+    for (const code of [195, 196, 197]) {
+      expect(modelFromVoucher(voucherInput({ voucherCode: code, lidSection: "GENERAL" })), String(code)).toMatchObject({
+        ok: false,
+        field: "lidSection",
+      });
+      const ok = modelFromVoucher(voucherInput({ voucherCode: code, lidSection: "TURIVA", counterpartyDocType: 94, counterpartyDocNumber: "AB123456" }));
+      expect(ok.ok, String(code)).toBe(true);
+      if (ok.ok) expect(ok.model.lidSection).toBe("TURIVA");
+    }
+    for (const code of [1, 6, 11, 19, 51]) {
+      expect(modelFromVoucher(voucherInput({ voucherCode: code, lidSection: "TURIVA" })), String(code)).toMatchObject({
+        ok: false,
+        field: "lidSection",
+      });
+    }
+  });
+
+  it("documento y nombre de la contraparte se toman del input (no se fuerza CUIT)", () => {
+    const r = modelFromVoucher(voucherInput({ voucherCode: 6, counterpartyDocType: 96, counterpartyDocNumber: "12345678", counterpartyName: "Consumidor" }));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.model.counterpartyDocType).toBe(96);
+      expect(r.model.counterpartyDocNumber).toBe("12345678");
+      expect(r.model.counterpartyName).toBe("Consumidor");
+    }
+  });
+
+  it("conserva las reglas existentes: neto negativo en factura, alícuota fuera de tabla y compras B/C con alícuota", () => {
+    expect(modelFromVoucher(voucherInput({ netAmount: D("-1") }))).toMatchObject({ ok: false, field: "netAmount" });
+    expect(modelFromVoucher(voucherInput({ vatRate: D("1") }))).toMatchObject({ ok: false, field: "vatRate" });
+    expect(modelFromVoucher(voucherInput({ category: "PURCHASES", voucherCode: 11, vatRate: D("21") }))).toMatchObject({
+      ok: false,
+      field: "vatRate",
+    });
   });
 });

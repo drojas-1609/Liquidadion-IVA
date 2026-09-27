@@ -109,6 +109,10 @@ export interface InvoiceDTO {
   voucherTotalAmount: string | null;
   turivaRefundAmount: string | null;
   lidSection: string | null;
+  // PR B (expand). NULL en filas heredadas o importadas.
+  counterpartyVatConditionCode: number | null;
+  turivaRelationCode: string | null;
+  voucherVariant: string | null;
 }
 
 type Dec = Prisma.Decimal;
@@ -141,6 +145,9 @@ export function serializeInvoice(i: {
   voucherTotalAmount?: Dec | null;
   turivaRefundAmount?: Dec | null;
   lidSection?: string | null;
+  counterpartyVatConditionCode?: number | null;
+  turivaRelationCode?: string | null;
+  voucherVariant?: string | null;
 }): InvoiceDTO {
   return {
     id: i.id,
@@ -169,6 +176,9 @@ export function serializeInvoice(i: {
     voucherTotalAmount: moneyOrNull(i.voucherTotalAmount),
     turivaRefundAmount: moneyOrNull(i.turivaRefundAmount),
     lidSection: i.lidSection ?? null,
+    counterpartyVatConditionCode: i.counterpartyVatConditionCode ?? null,
+    turivaRelationCode: i.turivaRelationCode ?? null,
+    voucherVariant: i.voucherVariant ?? null,
   };
 }
 

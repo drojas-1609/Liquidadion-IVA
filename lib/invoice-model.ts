@@ -73,15 +73,6 @@ export function voucherSign(code: number): 1 | -1 {
     return voucherType(code).kind === "CREDIT_NOTE" ? -1 : 1;
 }
 
-/**
- * Sólo encuentra códigos admitidos por el contrato anterior (con etiqueta
- * heredada); 019–021 y 051–053 no tienen etiqueta y quedan fuera de ese contrato.
- */
-export function voucherTypeByLegacyLabel(label: string): VoucherTypeEntry | null {
-    const wanted = label.trim();
-    return VOUCHER_TYPES.find((v) => v.legacyLabel !== null && v.legacyLabel === wanted) ?? null;
-}
-
 /** Rótulo corto para pantallas y columna heredada: la etiqueta heredada o, si no tiene, la denominación oficial. */
 export function voucherDisplayLabel(code: number): string {
     const vt = voucherType(code);
@@ -354,35 +345,53 @@ export function legacyColumnsFor(m: InvoiceModelData): LegacyColumns {
     };
 }
 
-// ── Alta con el contrato anterior de /api/invoices (una sola alícuota) ────
+// ── Núcleo: alta manual por código oficial (una sola alícuota) ────────────
 
-export interface LegacyInvoiceInput {
-    category: InvoiceCategory;
-    type: string;
-    date: Date;
-    pointOfSale: number;
-    number: number;
-    entityName: string;
-    /** CUIT canónico `NN-NNNNNNNN-N`. */
-    entityCuit: string;
-    /** Neto informado; una nota de crédito puede venir con signo negativo. */
-    netAmount: Prisma.Decimal;
-    vatRate: Prisma.Decimal;
-}
-
-export type LegacyInputResult =
+export type ManualModelResult =
     | { ok: true; model: InvoiceModelData }
     | { ok: false; field: string; error: string };
 
+export interface VoucherModelInput {
+    category: InvoiceCategory;
+    /** Código oficial de la Tabla 3 (catálogo VOUCHER_TYPES). */
+    voucherCode: number;
+    date: Date;
+    pointOfSale: number;
+    number: number;
+    /** Tipo de documento de la contraparte, ya validado (lib/arca/document-rules). */
+    counterpartyDocType: number;
+    /** Número de documento ya normalizado. */
+    counterpartyDocNumber: string;
+    counterpartyName: string;
+    /** Neto informado; una nota de crédito puede venir con signo negativo. */
+    netAmount: Prisma.Decimal;
+    vatRate: Prisma.Decimal;
+    /** TURIVA exactamente para 195–197; GENERAL para el resto. */
+    lidSection: LidSection;
+}
+
 /**
- * Traduce el cuerpo del formulario actual (una alícuota) al modelo contable.
- * Rechaza lo que no se puede representar sin falsear su naturaleza fiscal.
- * Compras: la línea queda DIRECT_COMPUTABLE (criterio anterior: todo el IVA
- * es crédito); ventas: NOT_APPLICABLE. Pestaña GENERAL.
+ * Construye el modelo contable de una carga manual a partir del código
+ * oficial. No evalúa la matriz normativa ni el documento (se validan antes);
+ * sí rechaza lo que no puede representarse sin falsear su naturaleza fiscal:
+ * códigos fuera del catálogo (incluido 063), pestaña incoherente con la clase
+ * T, facturas con neto negativo, alícuotas fuera de la tabla oficial y
+ * alícuota distinta de 0 en compras B/C. Compras: la línea queda
+ * DIRECT_COMPUTABLE; ventas: NOT_APPLICABLE.
  */
-export function modelFromLegacyInput(input: LegacyInvoiceInput): LegacyInputResult {
-    const vt = voucherTypeByLegacyLabel(input.type);
-    if (!vt) return { ok: false, field: "type", error: "tipo de comprobante no reconocido en el catálogo oficial" };
+export function modelFromVoucher(input: VoucherModelInput): ManualModelResult {
+    const vt = VOUCHER_TYPES.find((v) => v.code === input.voucherCode);
+    if (!vt) return { ok: false, field: "voucherCode", error: "tipo de comprobante fuera del catálogo oficial" };
+    const expectedSection: LidSection = vt.letter === "T" ? "TURIVA" : "GENERAL";
+    if (input.lidSection !== expectedSection) {
+        return {
+            ok: false,
+            field: "lidSection",
+            error: vt.letter === "T"
+                ? "los comprobantes clase T (195–197) se registran en la pestaña TURIVA"
+                : "sólo los comprobantes clase T (195–197) se registran en la pestaña TURIVA",
+        };
+    }
     const s = voucherSign(vt.code);
 
     if (s === 1 && input.netAmount.isNegative()) {
@@ -441,9 +450,9 @@ export function modelFromLegacyInput(input: LegacyInvoiceInput): LegacyInputResu
             pointOfSale: input.pointOfSale,
             number: input.number,
             voucherDate: input.date,
-            counterpartyDocType: DOC_TYPE_CUIT,
-            counterpartyDocNumber: input.entityCuit.replace(/\D/g, ""),
-            counterpartyName: input.entityName,
+            counterpartyDocType: input.counterpartyDocType,
+            counterpartyDocNumber: input.counterpartyDocNumber,
+            counterpartyName: input.counterpartyName,
             currencyCode: CURRENCY_PESOS,
             exchangeRate: D(1),
             directComputableVatCreditAmount: directComputableOf(vatLines),
@@ -453,7 +462,7 @@ export function modelFromLegacyInput(input: LegacyInvoiceInput): LegacyInputResu
                 input.category === "SALES" ? amounts.taxedNetAmount.plus(amounts.netWithoutVatBreakdownAmount) : null,
             voucherTotalAmount: computeVoucherTotal(amounts),
             turivaRefundAmount: ZERO,
-            lidSection: "GENERAL",
+            lidSection: input.lidSection,
             operationCode: null,
             vatLines,
         },

@@ -5,7 +5,8 @@ import { parseMoney, parseRate } from "./validation/decimal";
 import { normalizeCuit } from "./cuit";
 import { CLIENT_CONDITION_ERROR, isClientCondition } from "./client-condition";
 import { isValidPeriodMonth, isValidPeriodYear, periodYearRange } from "./period";
-import { modelFromLegacyInput, legacyColumnsFor, type InvoiceCategory, type InvoiceModelData } from "./invoice-model";
+import type { InvoiceCategory, InvoiceModelData } from "./invoice-model";
+import { VAT_CONDITIONS, VOUCHER_TYPES, type VoucherVariant } from "./arca/catalogs";
 
 /**
  * Construcción y validación de los `data` de creación para las rutas de API.
@@ -84,100 +85,154 @@ export function buildPeriodInput(body: unknown, now: Date = new Date()): InputRe
 
 // ── Invoice ────────────────────────────────────────────────────────────────
 
-export interface InvoiceCreateData {
-  // Columnas heredadas (semántica anterior, con signo), derivadas del modelo.
-  date: Date;
-  type: string;
-  pointOfSale: number;
-  number: number;
-  entityName: string;
-  entityCuit: string;
-  netAmount: Prisma.Decimal;
-  vatRate: Prisma.Decimal | null;
-  vatAmount: Prisma.Decimal;
-  totalAmount: Prisma.Decimal;
-  category: InvoiceCategory;
-  periodId: string;
-  /** Modelo contable (Fase A): importes positivos, signo por código oficial. */
-  model: InvoiceModelData;
+/**
+ * Un neto válido puede derivar en un IVA o total fuera de NUMERIC(18,2). Se
+ * corta con 422; nunca llega como 500 desde PostgreSQL.
+ */
+export function modelRangeError(model: InvoiceModelData): { field: string; error: string } | null {
+  const limit = `debe estar entre -${MONEY_MAX.toFixed(2)} y ${MONEY_MAX.toFixed(2)}`;
+  if (!moneyInRange(model.totalVatAmount)) {
+    return { field: "vatAmount", error: `el IVA calculado (${model.totalVatAmount.toFixed(2)}) queda fuera de rango: ${limit}` };
+  }
+  if (!moneyInRange(model.voucherTotalAmount)) {
+    return { field: "totalAmount", error: `el total calculado (${model.voucherTotalAmount.toFixed(2)}) queda fuera de rango: ${limit}` };
+  }
+  return null;
 }
 
+// ── Invoice: contrato v2 (matriz normativa) ────────────────────────────────
+
+export const INVOICE_CONTRACT_VERSION = 2;
+export const INVOICE_CONTRACT_OUTDATED_MESSAGE =
+  "contrato de comprobantes obsoleto: la solicitud debe usar contractVersion 2";
+
+const VOUCHER_VARIANT_CODES: readonly VoucherVariant[] = ["NONE", "PAGO_EN_CBU_INFORMADA"];
+
+export interface InvoiceV2Data {
+  category: InvoiceCategory;
+  periodId: string;
+  /** Medianoche UTC del día informado. */
+  date: Date;
+  /** El mismo día como `AAAA-MM-DD` (matriz y clase jurídica). */
+  dateIso: string;
+  voucherCode: number;
+  voucherVariant: VoucherVariant | null;
+  pointOfSale: number;
+  number: number;
+  counterparty: {
+    name: string;
+    docType: number;
+    /** Tal como llegó (sin espacios en los extremos); lo normaliza lib/arca/document-rules. */
+    docNumber: string;
+    vatConditionCode: number;
+  };
+  turivaRelationCode: string | null;
+  /** Neto informado; una nota de crédito puede venir con signo negativo. */
+  netAmount: Prisma.Decimal;
+  vatRate: Prisma.Decimal;
+}
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Máximo de `Invoice.pointOfSale` / `Invoice.number` (Int de Prisma = integer de PostgreSQL, 32 bits). */
+export const VOUCHER_INT_MAX = 2147483647;
+
+/** Entero JSON en 1..VOUCHER_INT_MAX (nunca llega a la base un valor que la columna rechace). */
+const positiveSafeInteger = (v: unknown): number | null =>
+  typeof v === "number" && Number.isSafeInteger(v) && v > 0 && v <= VOUCHER_INT_MAX ? v : null;
+
 /**
- * Contrato ACTUAL de /api/invoices (una alícuota). Fase A: además de validar,
- * construye el modelo contable (`modelFromLegacyInput`) y deriva de él las
- * columnas heredadas, para que ambas representaciones liquiden igual.
+ * Contrato v2 de POST /api/invoices: SÓLO la forma. La matriz normativa, el
+ * documento y el modelo se resuelven con datos de la base (lib/manual-invoice).
+ * Sin `contractVersion` exactamente igual al número 2 -> 422 contractVersion
+ * (incluido el contrato anterior completo, p. ej. `type: "FC T"`).
+ * Se ignoran clientId, organizationId, condición del cliente, lidSection,
+ * source, vatAmount, totalAmount, clase jurídica, leyendas y toda otra clave.
  */
-export function buildInvoiceInput(body: unknown): InputResult<InvoiceCreateData> {
-  if (typeof body !== "object" || body === null) return fail("body", "cuerpo inválido");
-  const b = body as Record<string, unknown>;
+export function buildInvoiceInputV2(body: unknown): InputResult<InvoiceV2Data> {
+  if (!isPlainObject(body)) return fail("body", "cuerpo inválido");
+  const b = body;
 
-  if (!nonEmptyString(b.date)) return fail("date", "fecha requerida");
-  const date = parseIsoDateOnly(b.date);
-  if (date === null) return fail("date", "fecha inválida: debe ser AAAA-MM-DD y existir en el calendario");
-
-  if (!nonEmptyString(b.type)) return fail("type", "tipo de comprobante requerido");
-  if (!nonEmptyString(b.entityName)) return fail("entityName", "razón social requerida");
-  const entityCuit = normalizeCuit(b.entityCuit);
-  if (!entityCuit.ok) return fail("entityCuit", entityCuit.error);
-  if (!nonEmptyString(b.periodId)) return fail("periodId", "periodId requerido");
+  if (b.contractVersion !== INVOICE_CONTRACT_VERSION) return fail("contractVersion", INVOICE_CONTRACT_OUTDATED_MESSAGE);
 
   const category = b.category;
   if (category !== "SALES" && category !== "PURCHASES") {
     return fail("category", "category debe ser SALES o PURCHASES");
   }
+  if (!nonEmptyString(b.periodId)) return fail("periodId", "periodId requerido");
 
-  const pointOfSale = parseIntStrict(b.pointOfSale);
-  if (pointOfSale === null || pointOfSale < 0) return fail("pointOfSale", "punto de venta inválido");
-  const number = parseIntStrict(b.number);
-  if (number === null || number < 0) return fail("number", "número de comprobante inválido");
+  if (!nonEmptyString(b.date)) return fail("date", "fecha requerida");
+  const date = parseIsoDateOnly(b.date);
+  if (date === null) return fail("date", "fecha inválida: debe ser AAAA-MM-DD y existir en el calendario");
+
+  if (typeof b.voucherCode !== "number" || !Number.isInteger(b.voucherCode)) {
+    return fail("voucherCode", "tipo de comprobante requerido (código oficial numérico)");
+  }
+  const voucherCode = b.voucherCode;
+  if (!VOUCHER_TYPES.some((v) => v.code === voucherCode)) {
+    return fail("voucherCode", "tipo de comprobante fuera del catálogo oficial");
+  }
+
+  let voucherVariant: VoucherVariant | null = null;
+  if (b.voucherVariant !== undefined && b.voucherVariant !== null) {
+    if (!(VOUCHER_VARIANT_CODES as readonly unknown[]).includes(b.voucherVariant)) {
+      return fail("voucherVariant", "variante inválida (NONE o PAGO_EN_CBU_INFORMADA)");
+    }
+    voucherVariant = b.voucherVariant as VoucherVariant;
+  }
+
+  // Entero JSON positivo dentro del rango de la columna: se rechazan 0,
+  // negativos, decimales, valores mayores a VOUCHER_INT_MAX y texto (incluido
+  // "1" o "1e3"). Mismo criterio que el formulario (lib/invoice-form-client).
+  const pointOfSale = positiveSafeInteger(b.pointOfSale);
+  if (pointOfSale === null) return fail("pointOfSale", `punto de venta inválido: debe ser un entero entre 1 y ${VOUCHER_INT_MAX}`);
+  const number = positiveSafeInteger(b.number);
+  if (number === null) return fail("number", `número de comprobante inválido: debe ser un entero entre 1 y ${VOUCHER_INT_MAX}`);
+
+  if (!isPlainObject(b.counterparty)) return fail("counterparty", "datos de la contraparte requeridos");
+  const cp = b.counterparty;
+  if (!nonEmptyString(cp.name)) return fail("counterpartyName", "razón social de la contraparte requerida");
+  if (typeof cp.docType !== "number" || !Number.isInteger(cp.docType)) {
+    return fail("counterpartyDocType", "tipo de documento requerido (código numérico)");
+  }
+  if (!nonEmptyString(cp.docNumber)) return fail("counterpartyDocNumber", "número de documento requerido");
+  const vatConditionCode = cp.vatConditionCode;
+  if (typeof vatConditionCode !== "number" || !VAT_CONDITIONS.some((c) => c.code === vatConditionCode)) {
+    return fail("counterpartyVatConditionCode", "condición fiscal de la contraparte inválida (tabla oficial de tipos de responsables)");
+  }
+
+  let turivaRelationCode: string | null = null;
+  if (b.turivaRelationCode !== undefined && b.turivaRelationCode !== null) {
+    if (typeof b.turivaRelationCode !== "string") return fail("turivaRelationCode", "relación TurIVA inválida (0001 a 0006)");
+    turivaRelationCode = b.turivaRelationCode;
+  }
 
   const net = parseMoney(b.netAmount, { allowNegative: true });
   if (!net.ok) return fail("netAmount", net.error);
   const rate = parseRate(b.vatRate);
   if (!rate.ok) return fail("vatRate", rate.error);
 
-  // Autoritativo: se ignoran b.vatAmount / b.totalAmount del cliente.
-  const built = modelFromLegacyInput({
-    category,
-    type: b.type,
-    date,
-    pointOfSale,
-    number,
-    entityName: b.entityName,
-    entityCuit: entityCuit.value,
-    netAmount: net.value,
-    vatRate: rate.value,
-  });
-  if (!built.ok) return fail(built.field, built.error);
-  const model = built.model;
-
-  // Un neto válido puede derivar en un IVA o total fuera de NUMERIC(18,2).
-  // Se corta acá con 422; nunca llega como 500 desde PostgreSQL.
-  const limit = `debe estar entre -${MONEY_MAX.toFixed(2)} y ${MONEY_MAX.toFixed(2)}`;
-  if (!moneyInRange(model.totalVatAmount)) {
-    return fail("vatAmount", `el IVA calculado (${model.totalVatAmount.toFixed(2)}) queda fuera de rango: ${limit}`);
-  }
-  if (!moneyInRange(model.voucherTotalAmount)) {
-    return fail("totalAmount", `el total calculado (${model.voucherTotalAmount.toFixed(2)}) queda fuera de rango: ${limit}`);
-  }
-
-  const legacy = legacyColumnsFor(model);
   return {
     ok: true,
     data: {
-      date: legacy.date,
-      type: legacy.type,
-      pointOfSale,
-      number,
-      entityName: legacy.entityName,
-      entityCuit: legacy.entityCuit,
-      netAmount: legacy.netAmount,
-      vatRate: legacy.vatRate,
-      vatAmount: legacy.vatAmount,
-      totalAmount: legacy.totalAmount,
       category,
       periodId: b.periodId,
-      model,
+      date,
+      dateIso: b.date,
+      voucherCode,
+      voucherVariant,
+      pointOfSale,
+      number,
+      counterparty: {
+        name: cp.name.trim(),
+        docType: cp.docType,
+        docNumber: cp.docNumber.trim(),
+        vatConditionCode,
+      },
+      turivaRelationCode,
+      netAmount: net.value,
+      vatRate: rate.value,
     },
   };
 }
@@ -310,4 +365,22 @@ export function buildClientUpdateInput(body: unknown): InputResult<ClientUpdateD
 
   if (Object.keys(data).length === 0) return fail("body", "no hay campos para actualizar");
   return { ok: true, data };
+}
+
+// ── PeriodVatSettings: inclusión en el Régimen TurIVA ────────────────────────
+
+export interface TurivaSettingData {
+  turivaIncluded: boolean;
+}
+
+/**
+ * `{ "turivaIncluded": true | false }`. Sólo se acepta un booleano JSON: los
+ * strings ("true"), números, null o la ausencia de la clave son 422. Otras
+ * claves se ignoran y no influyen en la operación.
+ */
+export function buildTurivaSettingInput(body: unknown): InputResult<TurivaSettingData> {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return fail("body", "cuerpo inválido");
+  const b = body as Record<string, unknown>;
+  if (typeof b.turivaIncluded !== "boolean") return fail("turivaIncluded", "turivaIncluded debe ser true o false");
+  return { ok: true, data: { turivaIncluded: b.turivaIncluded } };
 }

@@ -2,20 +2,32 @@ import { describe, it, expect } from "vitest";
 import { Prisma } from "@prisma/client";
 import { moneyInRange } from "@/lib/decimal";
 import { parseMoney } from "@/lib/validation/decimal";
-import { buildInvoiceInput, buildTaxInput } from "@/lib/api-input";
+import { buildInvoiceInputV2, buildTaxInput } from "@/lib/api-input";
+import { resolveManualInvoice } from "@/lib/manual-invoice";
 
 const MAX = "9999999999999999.99";
 const MIN = "-9999999999999999.99";
 
-const baseInvoice = {
-  date: "2026-01-15",
-  type: "FC A",
-  pointOfSale: "1",
-  number: "1001",
-  entityName: "X",
-  entityCuit: "30-99999999-5",
+/** Venta A de un RI a un RI (contrato v2), con neto y alícuota a elegir. */
+const v2Sale = (voucherCode: number, netAmount: string, vatRate: string) => ({
+  contractVersion: 2,
   category: "SALES",
   periodId: "p1",
+  date: "2026-01-15",
+  voucherCode,
+  voucherVariant: "NONE",
+  pointOfSale: 1,
+  number: 1001,
+  counterparty: { name: "X", docType: 80, docNumber: "30-99999999-5", vatConditionCode: 1 },
+  turivaRelationCode: null,
+  netAmount,
+  vatRate,
+});
+
+/** Flujo v2 del servidor: forma y luego modelo (con el control de rango de modelRangeError). */
+const v2Flow = (body: unknown) => {
+  const parsed = buildInvoiceInputV2(body);
+  return parsed.ok ? resolveManualInvoice(parsed.data, 1) : parsed;
 };
 
 describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
@@ -50,7 +62,7 @@ describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
     const under = "-10000000000000000.00";
     expect(moneyInRange(under)).toBe(false);
     expect(parseMoney(under).ok).toBe(false);
-    const r = buildInvoiceInput({ ...baseInvoice, type: "NC A", netAmount: under, vatRate: "0" });
+    const r = v2Flow(v2Sale(3, under, "0"));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.field).toBe("netAmount");
     expect(moneyInRange(new Prisma.Decimal(MIN).minus("0.01"))).toBe(false);
@@ -59,10 +71,9 @@ describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
   it("5: neto válido cuyo IVA/total provocan overflow -> 422 en vatAmount/totalAmount, no 500", () => {
     // neto dentro de rango (16 enteros), pero neto*21% desborda vatAmount.
     const net = "9999999999999999.99";
-    const r = buildInvoiceInput({ ...baseInvoice, netAmount: net, vatRate: "21" });
+    const r = v2Flow(v2Sale(1, net, "21"));
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.status).toBe(422);
       expect(["vatAmount", "totalAmount"]).toContain(r.field);
       expect(r.error).toMatch(/fuera de rango/i);
     }
@@ -70,7 +81,7 @@ describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
     // neto válido, IVA ok, pero net + vat desborda el TOTAL. (Fase A: sólo
     // alícuotas de la tabla oficial; se usa 27 % en lugar del 1 % anterior.)
     const net2 = "9999999999999999.00";
-    const r2 = buildInvoiceInput({ ...baseInvoice, netAmount: net2, vatRate: "27" });
+    const r2 = v2Flow(v2Sale(1, net2, "27"));
     // vat = 2699999999999999.73 (en rango) -> total = 12699999999999998.73 > MAX
     expect(r2.ok).toBe(false);
     if (!r2.ok) expect(r2.field).toBe("totalAmount");
@@ -78,7 +89,7 @@ describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
 
   it("6: valor negativo cuyo total excede el mínimo -> 422", () => {
     const net = "-9999999999999999.00";
-    const r = buildInvoiceInput({ ...baseInvoice, type: "NC A", netAmount: net, vatRate: "27" });
+    const r = v2Flow(v2Sale(3, net, "27"));
     // |total| = 12699999999999998.73 > MAX (heredado: total < MIN)
     expect(r.ok).toBe(false);
     if (!r.ok) {

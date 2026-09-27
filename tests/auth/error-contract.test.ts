@@ -108,6 +108,17 @@ describe("contrato de errores de authz (Tarea 3B)", () => {
     });
   });
 
+  it("ValidationError pendiente de confirmación normativa expone `pending: true`; si no, no agrega la clave", () => {
+    const pending = new ValidationError("pendiente", "voucherCode", { pending: true });
+    expect(authErrorBody(pending)).toEqual({
+      error: { code: "UNPROCESSABLE_ENTITY", message: "pendiente" },
+      field: "voucherCode",
+      pending: true,
+    });
+    expect(authErrorBody(new ValidationError("x", "voucherCode", { pending: false }))).not.toHaveProperty("pending");
+    expect(authErrorBody(new ValidationError("x", "voucherCode"))).not.toHaveProperty("pending");
+  });
+
   it("los errores sin `field` no agregan la clave al cuerpo", () => {
     expect(authErrorBody(new ConflictError("x"))).toEqual({
       error: { code: "CONFLICT", message: "x" },

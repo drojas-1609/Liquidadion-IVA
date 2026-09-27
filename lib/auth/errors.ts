@@ -110,11 +110,18 @@ export class BadRequestError extends AuthError {
   }
 }
 
-/** JSON válido pero semánticamente inválido. `field` identifica el campo. */
+/**
+ * JSON válido pero semánticamente inválido. `field` identifica el campo.
+ * `pending`: la combinación está pendiente de confirmación normativa (no es
+ * un error de carga, sino algo que todavía no se habilita).
+ */
 export class ValidationError extends AuthError {
-  constructor(message = "Datos inválidos.", field?: string) {
+  readonly pending?: true;
+
+  constructor(message = "Datos inválidos.", field?: string, options?: { pending?: boolean }) {
     super("UNPROCESSABLE_ENTITY", 422, message, field);
     this.name = "ValidationError";
+    if (options?.pending) this.pending = true;
   }
 }
 
@@ -136,11 +143,12 @@ export function isAuthError(value: unknown): value is AuthError {
 /** Cuerpo JSON estable para las respuestas de error de las rutas API. */
 export function authErrorBody(
   err: AuthError,
-): { error: { code: AuthErrorCode; message: string }; field?: string } {
-  const body: { error: { code: AuthErrorCode; message: string }; field?: string } = {
+): { error: { code: AuthErrorCode; message: string }; field?: string; pending?: true } {
+  const body: { error: { code: AuthErrorCode; message: string }; field?: string; pending?: true } = {
     error: { code: err.code, message: err.message },
   };
   if (err.field !== undefined) body.field = err.field;
+  if (err instanceof ValidationError && err.pending) body.pending = true;
   return body;
 }
 
