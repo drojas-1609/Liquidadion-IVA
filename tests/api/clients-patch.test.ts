@@ -220,6 +220,8 @@ describe("PATCH /api/clients/[id] — actualización", () => {
     ["CUIT corto", { cuit: "20-123-6" }, "cuit"],
     ["nombre vacío", { name: "   " }, "name"],
     ["condición vacía", { condition: "" }, "condition"],
+    ["condición fuera de las tres admitidas", { condition: "RI" }, "condition"],
+    ["condición oficial no admitida para clientes", { condition: "Consumidor Final" }, "condition"],
     ["alícuota inválida", { defaultIibbRate: "abc" }, "defaultIibbRate"],
     ["dirección no string", { address: 123 }, "address"],
     ["sin campos editables", { organizationId: ORG_B }, "body"],

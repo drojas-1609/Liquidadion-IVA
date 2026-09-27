@@ -61,3 +61,14 @@ export function formatPeriodKey(p: { year: number; month: number }): string {
 export function formatPeriodLabel(p: { year: number; month: number }): string {
     return `${pad2(p.month)}/${p.year}`;
 }
+
+/** Primer día del período como fecha ISO `YYYY-MM-DD` (sin zona horaria). */
+export function periodFirstDayIso(p: { year: number; month: number }): string {
+    return `${p.year}-${pad2(p.month)}-01`;
+}
+
+/** Último día del período como fecha ISO `YYYY-MM-DD` (contempla bisiestos). */
+export function periodLastDayIso(p: { year: number; month: number }): string {
+    const lastDay = new Date(Date.UTC(p.year, p.month, 0)).getUTCDate();
+    return `${p.year}-${pad2(p.month)}-${pad2(lastDay)}`;
+}

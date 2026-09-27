@@ -165,6 +165,14 @@ describe("POST /api/clients — rehabilitación segura", () => {
     expect(rec.audits).toHaveLength(0);
   });
 
+  it.each([["RI"], ["Monotributista"], ["Consumidor Final"], ["IVA No Alcanzado"]])("condición %s -> 422 condition, sin escritura ni AuditLog", async (condition) => {
+    const res = await post(jbody({ ...validBody, condition }));
+    expect(res.status).toBe(422);
+    expect((await res.json()).field).toBe("condition");
+    expect(db.client.create).not.toHaveBeenCalled();
+    expect(rec.audits).toHaveLength(0);
+  });
+
   it.each(["30111111118", "30 11111111 8", "30.11111111.8", " 30-11111111-8 "])(
     "CUIT equivalente %j al existente en la organización -> 409 CONFLICT (se normaliza antes de la unicidad)",
     async (cuit) => {

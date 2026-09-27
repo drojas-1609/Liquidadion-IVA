@@ -73,8 +73,19 @@ export function voucherSign(code: number): 1 | -1 {
     return voucherType(code).kind === "CREDIT_NOTE" ? -1 : 1;
 }
 
+/**
+ * Sólo encuentra códigos admitidos por el contrato anterior (con etiqueta
+ * heredada); 019–021 y 051–053 no tienen etiqueta y quedan fuera de ese contrato.
+ */
 export function voucherTypeByLegacyLabel(label: string): VoucherTypeEntry | null {
-    return VOUCHER_TYPES.find((v) => v.legacyLabel === label.trim()) ?? null;
+    const wanted = label.trim();
+    return VOUCHER_TYPES.find((v) => v.legacyLabel !== null && v.legacyLabel === wanted) ?? null;
+}
+
+/** Rótulo corto para pantallas y columna heredada: la etiqueta heredada o, si no tiene, la denominación oficial. */
+export function voucherDisplayLabel(code: number): string {
+    const vt = voucherType(code);
+    return vt.legacyLabel ?? vt.label;
 }
 
 /** Porcentaje de una alícuota oficial. Código desconocido -> lanza. */
@@ -330,7 +341,7 @@ export function legacyColumnsFor(m: InvoiceModelData): LegacyColumns {
     const vatRate = rates.size === 1 ? vatRateOf([...rates][0]) : rates.size === 0 ? ZERO : null;
     return {
         date: m.voucherDate,
-        type: voucherType(m.voucherCode).legacyLabel,
+        type: voucherDisplayLabel(m.voucherCode),
         entityName: m.counterpartyName,
         entityCuit:
             m.counterpartyDocType === DOC_TYPE_CUIT && /^\d{11}$/.test(m.counterpartyDocNumber)
@@ -549,7 +560,7 @@ export function normalizeInvoiceRow(r: InvoiceRowLike): NormalizedInvoice {
             mode: "MODELED",
             category: r.category,
             voucherCode: code,
-            voucherLabel: voucherType(code).legacyLabel,
+            voucherLabel: voucherDisplayLabel(code),
             voucherDate: isoDate(r.voucherDate ?? r.date),
             counterpartyName: r.counterpartyName ?? r.entityName ?? "",
             signedNet: (r.taxedNetAmount as Prisma.Decimal)

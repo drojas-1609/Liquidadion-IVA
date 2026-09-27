@@ -26,6 +26,8 @@ import {
   SUB_VIEWER_A,
   SUB_NO_PROFILE,
   ORG_A,
+  ORG_B,
+  periodRow,
 } from "./_harness";
 import { Prisma } from "@prisma/client";
 import { POST } from "@/app/api/invoices/route";
@@ -268,5 +270,233 @@ describe("POST /api/invoices — Fase A: modelo contable + columnas heredadas", 
     expect(res.status).toBe(409);
     expect((await res.json()).error.code).toBe("CONFLICT");
     expect(rec.audits).toHaveLength(0);
+  });
+});
+
+describe("POST /api/invoices — etapa 1: fecha frente al período", () => {
+  // Período p_a = 05/2026 (makeWorld).
+  it("venta dentro del período -> 201 con warnings vacío", async () => {
+    const res = await post(jbody({ ...valid, category: "SALES", date: "2026-05-31" }));
+    expect(res.status).toBe(201);
+    expect((await res.json()).warnings).toEqual([]);
+  });
+
+  it.each([["2026-04-30"], ["2026-06-01"]])("venta con fecha %s fuera del período -> 422 date, sin escritura", async (date) => {
+    const res = await post(jbody({ ...valid, category: "SALES", date }));
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.field).toBe("date");
+    expect(body.error.message).toBe("la fecha de una venta debe pertenecer al período 05/2026");
+    expect(rec.created.invoice).toBeUndefined();
+    expect(rec.audits).toHaveLength(0);
+  });
+
+  it("compra posterior al último día del período -> 422 date, sin escritura", async () => {
+    const res = await post(jbody({ ...valid, date: "2026-06-01" }));
+    expect(res.status).toBe(422);
+    expect((await res.json()).field).toBe("date");
+    expect(rec.created.invoice).toBeUndefined();
+  });
+
+  it("compra de un período anterior -> 201 con advertencia PURCHASE_PRIOR_PERIOD", async () => {
+    const res = await post(jbody({ ...valid, date: "2026-04-15" }));
+    expect(res.status).toBe(201);
+    const dto = await res.json();
+    expect(dto.warnings).toEqual([
+      {
+        code: "PURCHASE_PRIOR_PERIOD",
+        message: "El comprobante es de 04/2026, anterior al período 05/2026; se registra en 05/2026.",
+      },
+    ]);
+    expect(rec.created.invoice.periodId).toBe("p_a");
+  });
+
+  it("compra antigua (1999-12-31) -> 201 con PURCHASE_PRIOR_PERIOD: sin fecha mínima global", async () => {
+    const res = await post(jbody({ ...valid, date: "1999-12-31" }));
+    expect(res.status).toBe(201);
+    expect((await res.json()).warnings).toEqual([
+      {
+        code: "PURCHASE_PRIOR_PERIOD",
+        message: "El comprobante es de 12/1999, anterior al período 05/2026; se registra en 05/2026.",
+      },
+    ]);
+  });
+
+  it("venta con 1999-12-31 -> 422 por estar fuera del período (no por una fecha mínima)", async () => {
+    const res = await post(jbody({ ...valid, category: "SALES", date: "1999-12-31" }));
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.field).toBe("date");
+    expect(body.error.message).toBe("la fecha de una venta debe pertenecer al período 05/2026");
+    expect(rec.created.invoice).toBeUndefined();
+  });
+
+  it.each([
+    ["2026-02-30"],
+    ["2025-02-29"],
+    ["2026-05-31T23:30:00-03:00"],
+    ["2026-5-3"],
+    ["May 31 2026"],
+    ["31/12/1999"],
+  ])("fecha %s rechazada por el parser -> 422 date, sin comprobante ni AuditLog", async (date) => {
+    for (const category of ["SALES", "PURCHASES"]) {
+      const res = await post(jbody({ ...valid, category, date }));
+      expect(res.status).toBe(422);
+      const body = await res.json();
+      expect(body.field).toBe("date");
+      expect(body.error.message).toBe("fecha inválida: debe ser AAAA-MM-DD y existir en el calendario");
+    }
+    expect(db.invoice.create).not.toHaveBeenCalled();
+    expect(db.auditLog.create).not.toHaveBeenCalled();
+    expect(rec.created.invoice).toBeUndefined();
+    expect(rec.audits).toHaveLength(0);
+  });
+
+  it("29/02 de un año bisiesto: compra anterior aceptada y guardada en medianoche UTC del mismo día", async () => {
+    const res = await post(jbody({ ...valid, date: "2024-02-29" }));
+    expect(res.status).toBe(201);
+    expect((await res.json()).warnings[0].code).toBe("PURCHASE_PRIOR_PERIOD");
+    expect(rec.created.invoice.voucherDate.toISOString()).toBe("2024-02-29T00:00:00.000Z");
+  });
+
+  it("compra 1999-12-31: se persiste exactamente ese día (medianoche UTC)", async () => {
+    await post(jbody({ ...valid, date: "1999-12-31" }));
+    expect(rec.created.invoice.voucherDate.toISOString()).toBe("1999-12-31T00:00:00.000Z");
+    expect(rec.created.invoice.date.toISOString()).toBe("1999-12-31T00:00:00.000Z");
+  });
+
+  it("período de otra organización con fecha fuera de período -> 404 (no revela el período)", async () => {
+    const res = await post(jbody({ ...valid, periodId: "p_b", date: "1999-01-01" }));
+    expect(res.status).toBe(404);
+  });
+
+  it("la fecha se valida contra el período leído con organizationId", async () => {
+    await post(jbody(valid));
+    expect(db.period.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "p_a", organizationId: ORG_A } }),
+    );
+  });
+});
+
+describe("POST /api/invoices — etapa 1: duplicidad global del cliente", () => {
+  // p_a = 05/2026 (destino del alta); p_a_prev = 04/2026 del MISMO cliente.
+  const existingSale = {
+    id: "inv_prev",
+    organizationId: ORG_A,
+    clientId: "c_a",
+    periodId: "p_a_prev",
+    category: "SALES",
+    voucherCode: 1,
+    pointOfSale: 1,
+    number: 1001,
+    counterpartyDocType: 80,
+    counterpartyDocNumber: "30999999995",
+  };
+  const existingPurchase = { ...existingSale, id: "inv_prev_c", category: "PURCHASES" };
+  const withInvoices = (invoices: unknown[]) => {
+    const world = makeWorld();
+    world.periods.push(periodRow("p_a_prev", "c_a", ORG_A, { month: 4 }));
+    world.invoices = invoices;
+    wireDb(db, world, rec);
+  };
+
+  it("venta ya cargada en otro período del cliente -> 409 con el período, sin escritura ni AuditLog", async () => {
+    withInvoices([existingSale]);
+    const res = await post(jbody({ ...valid, category: "SALES" }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error.code).toBe("CONFLICT");
+    expect(body.error.message).toBe("El comprobante ya existe en el período 04/2026.");
+    // sólo el período: ni ids, ni contraparte, ni importes
+    expect(JSON.stringify(body)).not.toMatch(/inv_prev|p_a_prev|30999999995|Proveedor/);
+    expect(rec.created.invoice).toBeUndefined();
+    expect(rec.audits).toHaveLength(0);
+  });
+
+  it("venta duplicada en el MISMO período -> 409 con ese período", async () => {
+    withInvoices([{ ...existingSale, periodId: "p_a" }]);
+    const res = await post(jbody({ ...valid, category: "SALES" }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.message).toBe("El comprobante ya existe en el período 05/2026.");
+  });
+
+  it("ventas: la contraparte NO forma parte de la clave (otro receptor igual es duplicado)", async () => {
+    withInvoices([{ ...existingSale, counterpartyDocNumber: "20111111112" }]);
+    expect((await post(jbody({ ...valid, category: "SALES" }))).status).toBe(409);
+  });
+
+  it("ventas: otro punto de venta, número o tipo -> no es duplicado", async () => {
+    withInvoices([existingSale]);
+    expect((await post(jbody({ ...valid, category: "SALES", pointOfSale: "2" }))).status).toBe(201);
+    expect((await post(jbody({ ...valid, category: "SALES", number: "1002" }))).status).toBe(201);
+    expect((await post(jbody({ ...valid, category: "SALES", type: "FC B" }))).status).toBe(201);
+  });
+
+  it("compra del mismo emisor ya cargada en otro período -> 409 con el período", async () => {
+    withInvoices([existingPurchase]);
+    const res = await post(jbody(valid));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.message).toBe("El comprobante ya existe en el período 04/2026.");
+    expect(rec.created.invoice).toBeUndefined();
+  });
+
+  it("compras: mismo número de otro emisor -> no es duplicado", async () => {
+    withInvoices([{ ...existingPurchase, counterpartyDocNumber: "20111111112" }]);
+    expect((await post(jbody(valid))).status).toBe(201);
+  });
+
+  it("una venta no bloquea una compra con la misma numeración (y viceversa)", async () => {
+    withInvoices([existingSale]);
+    expect((await post(jbody(valid))).status).toBe(201);
+    withInvoices([existingPurchase]);
+    expect((await post(jbody({ ...valid, category: "SALES" }))).status).toBe(201);
+  });
+
+  it("mismo comprobante de OTRO cliente u OTRA organización -> no es duplicado", async () => {
+    withInvoices([
+      { ...existingSale, clientId: "c_other" },
+      { ...existingSale, id: "inv_b", organizationId: ORG_B, clientId: "c_b", periodId: "p_b" },
+    ]);
+    expect((await post(jbody({ ...valid, category: "SALES" }))).status).toBe(201);
+  });
+
+  it("la búsqueda usa organización + cliente del período autorizado, nunca el body", async () => {
+    withInvoices([]);
+    await post(jbody({ ...valid, category: "SALES", clientId: "c_b", organizationId: ORG_B }));
+    expect(db.invoice.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: ORG_A,
+          clientId: "c_a",
+          category: "SALES",
+          voucherCode: 1,
+          pointOfSale: 1,
+          number: 1001,
+        },
+      }),
+    );
+  });
+
+  it("carrera: P2002 al crear y el duplicado ya es visible -> 409 con el período", async () => {
+    withInvoices([]);
+    db.invoice.findFirst
+      .mockImplementationOnce(async () => null)
+      .mockImplementationOnce(async () => ({ period: { month: 4, year: 2026 } }));
+    db.invoice.create.mockImplementationOnce(async () => {
+      throw new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "6.19.3",
+        meta: { target: "Invoice_sales_voucher_key" },
+      });
+    });
+    const res = await post(jbody({ ...valid, category: "SALES" }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.message).toBe("El comprobante ya existe en el período 04/2026.");
+    expect(rec.audits).toHaveLength(0);
+  });
+
+  it("período de otra organización con comprobante duplicado -> 404, no 409", async () => {
+    withInvoices([{ ...existingSale, organizationId: ORG_B, clientId: "c_b", periodId: "p_b" }]);
+    expect((await post(jbody({ ...valid, category: "SALES", periodId: "p_b" }))).status).toBe(404);
   });
 });

@@ -137,7 +137,7 @@ export interface DbMock {
   membership: { findMany: Fn; findUnique: Fn };
   client: { findMany: Fn; findUnique: Fn; findFirst: Fn; create: Fn; update: Fn; delete: Fn };
   period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn; delete: Fn };
-  invoice: { findMany: Fn; create: Fn; count: Fn };
+  invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn };
   taxRecord: { findMany: Fn; create: Fn; count: Fn };
   auditLog: { create: Fn };
   $transaction: Fn;
@@ -156,7 +156,7 @@ export function freshDbMock(): DbMock {
       delete: vi.fn(),
     },
     period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), delete: vi.fn() },
-    invoice: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
+    invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn() },
     taxRecord: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
@@ -238,6 +238,19 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   });
 
   db.invoice.findMany.mockImplementation(async () => world.invoices ?? []);
+  // Búsqueda de duplicados: compara cada clave presente en `where` (igualdad
+  // simple), respeta `NOT: { id }` y adjunta { period: { month, year } }.
+  db.invoice.findFirst.mockImplementation(async ({ where }: AnyArgs) => {
+    const { NOT, ...eq } = where ?? {};
+    const hit = (world.invoices ?? []).find(
+      (i) =>
+        Object.entries(eq).every(([k, v]) => i[k] === v) &&
+        (NOT?.id === undefined || i.id !== NOT.id),
+    );
+    if (!hit) return null;
+    const p = world.periods.find((x) => x.id === hit.periodId);
+    return { ...hit, period: p ? { month: p.month, year: p.year } : null };
+  });
   db.taxRecord.findMany.mockImplementation(async () => world.taxRecords ?? []);
 
   const mkId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;

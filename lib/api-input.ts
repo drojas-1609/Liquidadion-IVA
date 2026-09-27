@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { D, moneyInRange, MONEY_MAX } from "./decimal";
 import { parseMoney, parseRate } from "./validation/decimal";
 import { normalizeCuit } from "./cuit";
+import { CLIENT_CONDITION_ERROR, isClientCondition } from "./client-condition";
 import { isValidPeriodMonth, isValidPeriodYear, periodYearRange } from "./period";
 import { modelFromLegacyInput, legacyColumnsFor, type InvoiceCategory, type InvoiceModelData } from "./invoice-model";
 
@@ -31,6 +32,17 @@ function fail(field: string, error: string): { ok: false; status: 422; field: st
 
 function nonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim() !== "";
+}
+
+/**
+ * Fecha calendario estricta `YYYY-MM-DD` -> medianoche UTC del mismo día; si
+ * no, null. Rechaza horas, zonas y formatos alternativos. Sin fecha mínima.
+ */
+function parseIsoDateOnly(v: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const d = new Date(`${v}T00:00:00.000Z`);
+  // Ida y vuelta UTC: descarta días inexistentes (2026-02-30 -> 2026-03-02).
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v ? d : null;
 }
 
 function parseIntStrict(v: unknown): number | null {
@@ -100,8 +112,8 @@ export function buildInvoiceInput(body: unknown): InputResult<InvoiceCreateData>
   const b = body as Record<string, unknown>;
 
   if (!nonEmptyString(b.date)) return fail("date", "fecha requerida");
-  const date = new Date(b.date);
-  if (Number.isNaN(date.getTime())) return fail("date", "fecha inválida");
+  const date = parseIsoDateOnly(b.date);
+  if (date === null) return fail("date", "fecha inválida: debe ser AAAA-MM-DD y existir en el calendario");
 
   if (!nonEmptyString(b.type)) return fail("type", "tipo de comprobante requerido");
   if (!nonEmptyString(b.entityName)) return fail("entityName", "razón social requerida");
@@ -227,6 +239,8 @@ export function buildClientInput(body: unknown): InputResult<ClientCreateData> {
   const cuit = normalizeCuit(b.cuit);
   if (!cuit.ok) return fail("cuit", cuit.error);
   if (!nonEmptyString(b.condition)) return fail("condition", "condición fiscal requerida");
+  const condition = b.condition.trim();
+  if (!isClientCondition(condition)) return fail("condition", CLIENT_CONDITION_ERROR);
 
   const address =
     b.address === undefined || b.address === null || b.address === ""
@@ -244,7 +258,7 @@ export function buildClientInput(body: unknown): InputResult<ClientCreateData> {
     defaultIibbRate = parsed.value;
   }
 
-  return { ok: true, data: { name: b.name, cuit: cuit.value, condition: b.condition, address, defaultIibbRate } };
+  return { ok: true, data: { name: b.name, cuit: cuit.value, condition, address, defaultIibbRate } };
 }
 
 // ── Client (edición parcial) ────────────────────────────────────────────────
@@ -279,7 +293,9 @@ export function buildClientUpdateInput(body: unknown): InputResult<ClientUpdateD
   }
   if (b.condition !== undefined) {
     if (!nonEmptyString(b.condition)) return fail("condition", "condición fiscal requerida");
-    data.condition = b.condition.trim();
+    const condition = b.condition.trim();
+    if (!isClientCondition(condition)) return fail("condition", CLIENT_CONDITION_ERROR);
+    data.condition = condition;
   }
   if (b.address !== undefined) {
     if (b.address === null || b.address === "") data.address = null;
