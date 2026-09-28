@@ -8,6 +8,7 @@ import { normalizeInvoiceRow } from "@/lib/invoice-model";
 import { invoiceRowActions } from "@/lib/invoice-edit";
 import { invoiceEditHref } from "@/lib/invoice-form-client";
 import { InvoiceRowActions } from "../_components/invoice-row-actions";
+import { DeletableInvoiceRow, DeletableInvoiceRows } from "../_components/invoice-deletable-row";
 
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,8 @@ export default async function PurchasesPage({ params }: { params: Promise<{ id: 
             </div>
 
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+                {/* Retira localmente las filas cuya baja ya confirmó el servidor (204). */}
+                <DeletableInvoiceRows label="Lista de compras">
                 <table className="table">
                     <thead>
                         <tr>
@@ -80,7 +83,7 @@ export default async function PurchasesPage({ params }: { params: Promise<{ id: 
                                     ? invoiceRowActions(role, { ...columns, vatRateCodes: vatLines.map((l) => l.vatRateCode) })
                                     : null;
                                 return (
-                                    <tr key={invoice.id}>
+                                    <DeletableInvoiceRow key={invoice.id} invoiceId={invoice.id}>
                                         <td>{formatIsoDate(view.voucherDate)}</td>
                                         <td>{view.voucherLabel}</td>
                                         <td>{number}</td>
@@ -102,12 +105,13 @@ export default async function PurchasesPage({ params }: { params: Promise<{ id: 
                                                 />}
                                             </td>
                                         )}
-                                    </tr>
+                                    </DeletableInvoiceRow>
                                 );
                             })
                         )}
                     </tbody>
                 </table>
+                </DeletableInvoiceRows>
             </div>
         </div>
     );

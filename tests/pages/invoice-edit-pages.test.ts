@@ -55,6 +55,12 @@ import {
   type InvoiceFormProps,
 } from "@/app/(app)/client/[id]/period/[periodId]/_components/invoice-form";
 import { InvoiceRowActions } from "@/app/(app)/client/[id]/period/[periodId]/_components/invoice-row-actions";
+import {
+  DeletableInvoiceRow,
+  DeletableInvoiceRows,
+  InvoiceRowDeletionContext,
+  withDeletedRow,
+} from "@/app/(app)/client/[id]/period/[periodId]/_components/invoice-deletable-row";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { buildInvoiceInputV2 } from "@/lib/api-input";
 import { resolveManualInvoice } from "@/lib/manual-invoice";
@@ -444,6 +450,78 @@ describe.each(LISTS)("lista de %s — acciones por rol", (_name, Page, direction
     expect(tds).toContain("$1.000,00");
     expect(tds).toContain("$210,00");
   });
+
+  it("cada comprobante es una DeletableInvoiceRow (key e id; sin otros datos) dentro de DeletableInvoiceRows con la tabla", async () => {
+    const pfx = rows();
+    const el = await call();
+    const wrappers = findAll(el, DeletableInvoiceRows);
+    expect(wrappers).toHaveLength(1);
+    expect(wrappers[0].props.label).toBe(direction === "SALES" ? "Lista de ventas" : "Lista de compras");
+    expect(findAll(wrappers[0].props.children, "table")).toHaveLength(1);
+    const rowEls = findAll(el, DeletableInvoiceRow);
+    expect(rowEls.map((r) => r.key)).toEqual([`${pfx}_ok`, `${pfx}_nodata`, `${pfx}_imp`]);
+    for (const r of rowEls) {
+      expect(Object.keys(r.props).sort()).toEqual(["children", "invoiceId"]);
+      expect(r.props.invoiceId).toBe(r.key);
+    }
+    // Las acciones siguen dentro de su fila.
+    expect(findAll(rowEls[0].props.children, InvoiceRowActions)).toHaveLength(1);
+  });
+
+  it("lista vacía: fila de aviso común (no deletable), dentro del contenedor", async () => {
+    setWorld([]);
+    const el = await call();
+    expect(findAll(el, DeletableInvoiceRow)).toHaveLength(0);
+    expect(findAll(findAll(el, DeletableInvoiceRows)[0].props.children, "tr").length).toBeGreaterThan(0);
+  });
+});
+
+describe("filas eliminables — retiro local tras el 204", () => {
+  // children como argumentos de createElement (react/no-children-prop), sin tocar los props del componente.
+  const h = (type: any, props: any, ...children: any[]) => createElement(type, props, ...children);
+  const cells = createElement("td", null, "FC A 0001-00001001");
+  const rowHtml = (deleted: boolean | null) => {
+    const row = h(DeletableInvoiceRow, { invoiceId: "inv_1" }, cells);
+    const tbody = createElement("tbody", null, row);
+    const table = createElement("table", null, tbody);
+    if (deleted === null) return renderToStaticMarkup(table);
+    const value = { isDeleted: (id: string) => deleted && id === "inv_1", markDeleted: () => {} };
+    return renderToStaticMarkup(createElement(InvoiceRowDeletionContext.Provider, { value }, table));
+  };
+
+  it("no eliminada -> <tr> con sus celdas (HTML de tabla válido)", () => {
+    expect(rowHtml(false)).toBe("<table><tbody><tr><td>FC A 0001-00001001</td></tr></tbody></table>");
+  });
+
+  it("marcada como eliminada -> no se renderiza", () => {
+    expect(rowHtml(true)).toBe("<table><tbody></tbody></table>");
+  });
+
+  it("sin contenedor -> se renderiza (no-op seguro)", () => {
+    expect(rowHtml(null)).toContain("<tr><td>");
+  });
+
+  it("sólo se retira el id marcado", () => {
+    const value = { isDeleted: (id: string) => id === "otro", markDeleted: () => {} };
+    const html = renderToStaticMarkup(
+      createElement(InvoiceRowDeletionContext.Provider, { value }, createElement("table", null, createElement("tbody", null, h(DeletableInvoiceRow, { invoiceId: "inv_1" }, cells)))),
+    );
+    expect(html).toContain("<tr>");
+  });
+
+  it("withDeletedRow agrega sin mutar e ignora duplicados", () => {
+    const empty: ReadonlySet<string> = new Set();
+    const one = withDeletedRow(empty, "a");
+    expect([...one]).toEqual(["a"]);
+    expect(empty.size).toBe(0);
+    expect(withDeletedRow(one, "a")).toBe(one);
+    expect([...withDeletedRow(one, "b")]).toEqual(["a", "b"]);
+  });
+
+  it("contenedor: región role=status vacía FUERA de la tabla y lista enfocable sin entrar al orden de tabulación", () => {
+    const html = renderToStaticMarkup(h(DeletableInvoiceRows, { label: "Lista de ventas" }, createElement("table", null, createElement("tbody", null))));
+    expect(html).toMatch(/^<div tabindex="-1" aria-label="Lista de ventas"[^>]*><table><tbody><\/tbody><\/table><\/div><p role="status" aria-live="polite"[^>]*><\/p>$/);
+  });
 });
 
 describe("acciones de fila — render inicial", () => {
@@ -471,15 +549,23 @@ describe("acciones de fila — render inicial", () => {
 describe("fuentes de UI de edición y baja", () => {
   const read = (p: string) => readFileSync(new URL(`../../app/(app)/client/[id]/period/[periodId]/${p}`, import.meta.url), "utf8");
   const actions = read("_components/invoice-row-actions.tsx");
+  const deletable = read("_components/invoice-deletable-row.tsx");
   const form = read("_components/invoice-form.tsx");
   const pages = [read("sales/[invoiceId]/edit/page.tsx"), read("purchases/[invoiceId]/edit/page.tsx")];
 
   it("sin confirm/alert/prompt en componentes cliente", () => {
-    for (const s of [actions, form]) expect(s).not.toMatch(/\b(window\.)?(confirm|alert|prompt)\s*\(/);
+    for (const s of [actions, deletable, form]) expect(s).not.toMatch(/\b(window\.)?(confirm|alert|prompt)\s*\(/);
+  });
+
+  it("retiro de la fila sin manipulación directa del DOM ni recarga completa", () => {
+    for (const s of [actions, deletable]) {
+      expect(s).not.toMatch(/\bdocument\.|window\.location|location\.(reload|href|assign|replace)|\.remove\(\)|removeChild|innerHTML|style\.display/);
+    }
+    expect(deletable.startsWith('"use client";')).toBe(true);
   });
 
   it("componentes cliente sin Prisma ni módulos server-only", () => {
-    for (const s of [actions, form]) {
+    for (const s of [actions, deletable, form]) {
       expect(s).not.toMatch(/@prisma\/client|["']server-only["']|@\/lib\/prisma\b|@\/lib\/(invoice-edit|invoice-form-context|invoice-write|invoice-lock|api-input)\b/);
     }
   });
@@ -493,8 +579,14 @@ describe("fuentes de UI de edición y baja", () => {
     expect(actions).toMatch(/disabled=\{busy\}/);
     // Doble clic: guardia compartido de lib (runExclusive) con la ref del componente.
     expect(actions).toMatch(/await runExclusive\(inFlight, async \(\) => \{/);
-    // Sin actualización optimista: tras el 204 se pide la lista al servidor.
-    expect(actions).toMatch(/dispatch\(\{ type: "done" \}\);\s*router\.refresh\(\);/);
+    // Sin borrado optimista: sólo tras el éxito, en orden: done -> markDeleted -> refresh.
+    expect(actions).toMatch(
+      /if \(!result\.ok\) \{\s*dispatch\(\{ type: "fail", feedback: result\.feedback \}\);\s*return;\s*\}\s*(\/\/[^\n]*\n\s*)?dispatch\(\{ type: "done" \}\);\s*markDeleted\(invoiceId, `Comprobante \$\{label\} eliminado\.`\);\s*router\.refresh\(\);/,
+    );
+    // markDeleted sólo aparece en el camino de éxito (ni en start, fail ni cancel).
+    expect(actions.match(/markDeleted\(/g)).toHaveLength(1);
+    expect(actions.indexOf('dispatch({ type: "start" })')).toBeLessThan(actions.indexOf("markDeleted("));
+    expect(actions).toMatch(/onClick=\{\(\) => dispatch\(\{ type: "cancel" \}\)\}/);
   });
 
   it("edición: token actualizado tras el PATCH y redirección a la lista", () => {

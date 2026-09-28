@@ -4,6 +4,7 @@ import { useEffect, useId, useReducer, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ROW_ACTION_INITIAL, deleteInvoice, rowActionReducer, runExclusive } from "@/lib/invoice-form-client";
+import { useMarkInvoiceDeleted } from "./invoice-deletable-row";
 
 /**
  * Acciones de una fila de ventas / compras. Recibe del servidor SÓLO lo
@@ -12,8 +13,10 @@ import { ROW_ACTION_INITIAL, deleteInvoice, rowActionReducer, runExclusive } fro
  * (rol + editabilidad / eliminabilidad, resueltos en el servidor).
  *
  * La baja pide confirmación dentro de la página (sin diálogos del navegador),
- * impide el doble envío y no actualiza la lista de forma optimista: tras el
- * 204 se pide al servidor la lista nueva.
+ * impide el doble envío y no actualiza la lista de forma optimista: la fila
+ * sigue visible mientras el DELETE está pendiente o si falla. Sólo tras el
+ * 204: estado `done`, la fila se deja de renderizar (DeletableInvoiceRow) y se
+ * pide al servidor la lista nueva.
  */
 export interface InvoiceRowActionsProps {
     invoiceId: string;
@@ -26,6 +29,7 @@ export interface InvoiceRowActionsProps {
 
 export function InvoiceRowActions({ invoiceId, updatedAt, label, editHref, canDelete }: InvoiceRowActionsProps) {
     const router = useRouter();
+    const markDeleted = useMarkInvoiceDeleted();
     const [state, dispatch] = useReducer(rowActionReducer, ROW_ACTION_INITIAL);
     // Evita dobles envíos aun antes de que React re-renderice los botones deshabilitados.
     const inFlight = useRef(false);
@@ -54,7 +58,9 @@ export function InvoiceRowActions({ invoiceId, updatedAt, label, editHref, canDe
                 dispatch({ type: "fail", feedback: result.feedback });
                 return;
             }
+            // Sólo tras el éxito: estado, retiro local de la fila y sincronización con el servidor.
             dispatch({ type: "done" });
+            markDeleted(invoiceId, `Comprobante ${label} eliminado.`);
             router.refresh();
         });
     }
