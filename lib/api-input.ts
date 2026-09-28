@@ -237,6 +237,41 @@ export function buildInvoiceInputV2(body: unknown): InputResult<InvoiceV2Data> {
   };
 }
 
+// ── Invoice: edición y baja (concurrencia optimista) ────────────────────────
+
+export const EXPECTED_UPDATED_AT_ERROR =
+  "expectedUpdatedAt inválido: debe ser la fecha ISO exacta del comprobante (AAAA-MM-DDTHH:mm:ss.sssZ)";
+
+/**
+ * `updatedAt` que vio el usuario: ISO estricto con milisegundos y `Z`, que
+ * además debe existir y volver al MISMO texto con `toISOString()` (así la
+ * comparación contra la fila bloqueada es exacta, en milisegundos).
+ */
+export function parseExpectedUpdatedAt(v: unknown): InputResult<Date> {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v)) {
+    return fail("expectedUpdatedAt", EXPECTED_UPDATED_AT_ERROR);
+  }
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime()) || d.toISOString() !== v) return fail("expectedUpdatedAt", EXPECTED_UPDATED_AT_ERROR);
+  return { ok: true, data: d };
+}
+
+export interface InvoiceUpdateData extends InvoiceV2Data {
+  expectedUpdatedAt: Date;
+}
+
+/**
+ * PATCH /api/invoices/[id]: el contrato v2 COMPLETO (mismas reglas y mensajes
+ * que el alta) más `expectedUpdatedAt`. Cualquier otra clave se ignora.
+ */
+export function buildInvoiceUpdateInput(body: unknown): InputResult<InvoiceUpdateData> {
+  const v2 = buildInvoiceInputV2(body);
+  if (!v2.ok) return v2;
+  const expected = parseExpectedUpdatedAt((body as Record<string, unknown>).expectedUpdatedAt);
+  if (!expected.ok) return expected;
+  return { ok: true, data: { ...v2.data, expectedUpdatedAt: expected.data } };
+}
+
 // ── TaxRecord ──────────────────────────────────────────────────────────────
 
 export interface TaxCreateData {

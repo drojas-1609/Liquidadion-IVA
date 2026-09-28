@@ -29,6 +29,8 @@ const EXPECTED = {
   // PATCH devuelve el Client actualizado serializado; DELETE responde 204 sin cuerpo.
   "app/api/clients/[id]/route.ts": { models: ["Client"], serializer: "serializeClient" },
   "app/api/invoices/route.ts": { models: ["Invoice"], serializer: "serializeInvoice" },
+  // PATCH devuelve el Invoice corregido serializado; DELETE responde 204 sin cuerpo.
+  "app/api/invoices/[id]/route.ts": { models: ["Invoice"], serializer: "serializeInvoice" },
   "app/api/taxes/route.ts": { models: ["TaxRecord"], serializer: "serializeTaxRecord" },
   // Period no tiene campos Decimal, pero igual se serializa (serializePeriod)
   // para NO exponer organizationId/createdById/updatedById.

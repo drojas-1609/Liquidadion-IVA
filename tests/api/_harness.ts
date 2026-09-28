@@ -107,6 +107,8 @@ export interface World {
   clients: ClientRow[];
   periods: PeriodRow[];
   invoices?: any[];
+  /** Filas de InvoiceVatLine (invoiceId, organizationId, vatRateCode, …). */
+  invoiceVatLines?: any[];
   taxRecords?: any[];
   /** Filas de PeriodVatSettings (periodId, organizationId, turivaIncluded, …). */
   vatSettings?: any[];
@@ -139,12 +141,13 @@ export interface DbMock {
   membership: { findMany: Fn; findUnique: Fn };
   client: { findMany: Fn; findUnique: Fn; findFirst: Fn; create: Fn; update: Fn; delete: Fn };
   period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn; delete: Fn };
-  invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn };
+  invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; delete: Fn };
+  invoiceVatLine: { findMany: Fn; deleteMany: Fn };
   taxRecord: { findMany: Fn; create: Fn; count: Fn };
   auditLog: { create: Fn };
   periodVatSettings: { findUnique: Fn; create: Fn; update: Fn };
   $transaction: Fn;
-  /** Sólo simula el bloqueo de Period (SELECT … FOR UPDATE); no hay locks reales. */
+  /** Sólo simula los bloqueos de Period e Invoice (SELECT … FOR UPDATE); no hay locks reales. */
   $queryRaw: Fn;
 }
 
@@ -161,7 +164,8 @@ export function freshDbMock(): DbMock {
       delete: vi.fn(),
     },
     period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), delete: vi.fn() },
-    invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn() },
+    invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    invoiceVatLine: { findMany: vi.fn(), deleteMany: vi.fn() },
     taxRecord: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
     auditLog: { create: vi.fn() },
     periodVatSettings: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
@@ -175,7 +179,7 @@ export interface Recorder {
   audits: any[];
   created: Record<string, any>;
   failAudit: boolean;
-  /** Bloqueos de Period solicitados vía $queryRaw: { sql, values }. */
+  /** Bloqueos (Period / Invoice) solicitados vía $queryRaw: { sql, values }. */
   locks: Array<{ sql: string; values: unknown[] }>;
 }
 export function freshRecorder(): Recorder {
@@ -247,9 +251,12 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   });
 
   db.invoice.findMany.mockImplementation(async () => world.invoices ?? []);
+  const linesOf = (invoiceId: string, organizationId: string) =>
+    (world.invoiceVatLines ?? []).filter((l) => l.invoiceId === invoiceId && l.organizationId === organizationId);
   // Búsqueda de duplicados: compara cada clave presente en `where` (igualdad
-  // simple), respeta `NOT: { id }` y adjunta { period: { month, year } }.
-  db.invoice.findFirst.mockImplementation(async ({ where }: AnyArgs) => {
+  // simple), respeta `NOT: { id }` y adjunta { period: { month, year } }. Si
+  // `select.vatLines` está pedido, adjunta sus líneas ({ vatRateCode }).
+  db.invoice.findFirst.mockImplementation(async ({ where, select }: AnyArgs) => {
     const { NOT, ...eq } = where ?? {};
     const hit = (world.invoices ?? []).find(
       (i) =>
@@ -258,7 +265,9 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     );
     if (!hit) return null;
     const p = world.periods.find((x) => x.id === hit.periodId);
-    return { ...hit, period: p ? { month: p.month, year: p.year } : null };
+    const withPeriod = { ...hit, period: p ? { month: p.month, year: p.year } : null };
+    if (!select?.vatLines) return withPeriod;
+    return { ...withPeriod, vatLines: linesOf(hit.id, hit.organizationId).map((l) => ({ vatRateCode: l.vatRateCode })) };
   });
   db.taxRecord.findMany.mockImplementation(async () => world.taxRecords ?? []);
 
@@ -408,6 +417,58 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     };
   });
 
+  // Edición / baja de comprobantes sobre @@unique([id, organizationId]); P2025
+  // si no existe. `vatLines: { deleteMany: {}, create }` reemplaza las líneas.
+  // Cada update avanza updatedAt 1 s (simula @updatedAt).
+  const invoiceIdx = (where: any) => {
+    const { id, organizationId } = where.id_organizationId;
+    return (world.invoices ?? []).findIndex((i) => i.id === id && i.organizationId === organizationId);
+  };
+  db.invoice.update.mockImplementation(async ({ where, data }: AnyArgs) => {
+    const idx = invoiceIdx(where);
+    if (idx === -1) throw knownError("P2025", "Record to update not found");
+    const invoices = world.invoices as any[];
+    const current = invoices[idx];
+    const { vatLines, ...columns } = data;
+    if (vatLines?.deleteMany) {
+      world.invoiceVatLines = (world.invoiceVatLines ?? []).filter(
+        (l) => !(l.invoiceId === current.id && l.organizationId === current.organizationId),
+      );
+    }
+    if (vatLines?.create) {
+      world.invoiceVatLines = [
+        ...(world.invoiceVatLines ?? []),
+        ...vatLines.create.map((l: any) => ({ id: mkId("vl"), ...l, invoiceId: current.id, organizationId: current.organizationId })),
+      ];
+    }
+    const next = { ...current, ...columns, updatedAt: new Date(current.updatedAt.getTime() + 1000) };
+    invoices[idx] = next;
+    rec.created.invoiceUpdate = data;
+    return next;
+  });
+  db.invoice.delete.mockImplementation(async ({ where }: AnyArgs) => {
+    const idx = invoiceIdx(where);
+    if (idx === -1) throw knownError("P2025", "Record to delete does not exist");
+    const [removed] = (world.invoices as any[]).splice(idx, 1);
+    // onDelete: Cascade desde InvoiceVatLine.
+    world.invoiceVatLines = (world.invoiceVatLines ?? []).filter(
+      (l) => !(l.invoiceId === removed.id && l.organizationId === removed.organizationId),
+    );
+    rec.created.invoiceDelete = where.id_organizationId;
+    return removed;
+  });
+  db.invoiceVatLine.findMany.mockImplementation(async ({ where, select }: AnyArgs) => {
+    const rows = linesOf(where.invoiceId, where.organizationId);
+    if (!select) return rows;
+    return rows.map((r) => Object.fromEntries(Object.keys(select).map((k) => [k, r[k]])));
+  });
+  db.invoiceVatLine.deleteMany.mockImplementation(async ({ where }: AnyArgs) => {
+    const before = world.invoiceVatLines ?? [];
+    const kept = before.filter((l) => !(l.invoiceId === where.invoiceId && l.organizationId === where.organizationId));
+    world.invoiceVatLines = kept;
+    return { count: before.length - kept.length };
+  });
+
   db.taxRecord.create.mockImplementation(async ({ data }: AnyArgs) => {
     rec.created.taxRecord = data;
     return {
@@ -462,14 +523,18 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     return row;
   });
 
-  // $queryRaw como tagged template: sólo se admite el bloqueo de Period.
-  // Registra la consulta y sus parámetros; devuelve la fila si existe para
-  // (id, organizationId). No existe un lock real en memoria.
+  // $queryRaw como tagged template: sólo se admiten los bloqueos de Period e
+  // Invoice. Registra la consulta y sus parámetros; devuelve la fila si existe
+  // para (id, organizationId). No existe un lock real en memoria.
   db.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const sql = strings.join("?");
     rec.locks.push({ sql, values });
-    if (!/FOR UPDATE/.test(sql) || !/FROM "Period"/.test(sql)) throw new Error(`consulta raw inesperada: ${sql}`);
     const [id, organizationId] = values;
+    if (/FOR UPDATE/.test(sql) && /FROM "Invoice"/.test(sql)) {
+      const row = (world.invoices ?? []).find((i) => i.id === id && i.organizationId === organizationId);
+      return row ? [{ ...row }] : [];
+    }
+    if (!/FOR UPDATE/.test(sql) || !/FROM "Period"/.test(sql)) throw new Error(`consulta raw inesperada: ${sql}`);
     return world.periods.some((p) => p.id === id && p.organizationId === organizationId) ? [{ id }] : [];
   });
 
@@ -481,6 +546,8 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     const clientsBefore = world.clients.slice();
     const periodsBefore = world.periods.slice();
     const vatSettingsBefore = world.vatSettings?.map((s) => ({ ...s }));
+    const invoicesBefore = world.invoices?.slice();
+    const invoiceVatLinesBefore = world.invoiceVatLines?.slice();
     try {
       return await fn(db);
     } catch (err) {
@@ -489,6 +556,8 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       world.clients.splice(0, world.clients.length, ...clientsBefore);
       world.periods.splice(0, world.periods.length, ...periodsBefore);
       world.vatSettings = vatSettingsBefore;
+      world.invoices = invoicesBefore;
+      world.invoiceVatLines = invoiceVatLinesBefore;
       throw err;
     }
   });

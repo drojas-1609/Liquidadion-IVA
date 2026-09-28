@@ -8,14 +8,21 @@ import { TURIVA_SECTION_ID } from "@/lib/turiva-setting";
 import { resolveInvoiceFormOptions, type InvoiceFormContext, type Option } from "@/lib/invoice-form-options";
 import {
     INITIAL_FORM_STATE,
+    INVOICE_EDIT_TEXT,
     INVOICE_FORM_TEXT,
     applyFieldChange,
     applySelectionChange,
+    buildInvoiceUpdateBody,
     buildInvoiceV2Body,
     docNumberLabel,
+    editPendingNotices,
+    initialEditState,
     invoiceListHref,
+    nextUpdateToken,
     submitInvoice,
+    submitInvoiceUpdate,
     type FieldKey,
+    type InvoiceEditFormProps,
     type InvoiceErrorFeedback,
     type InvoiceFormControl,
     type SelectionKey,
@@ -32,6 +39,8 @@ export interface InvoiceFormProps {
     /** Código oficial de la condición del cliente (null = no admitida). */
     clientConditionCode: number | null;
     turivaIncluded: boolean;
+    /** Presente sólo en la edición (PATCH); ausente = alta (POST). */
+    edit?: InvoiceEditFormProps;
 }
 
 const LABEL_STYLE = { display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 } as const;
@@ -62,9 +71,9 @@ const ID: Record<SelectionKey | FieldKey, string> = {
 };
 
 export function InvoiceForm(props: InvoiceFormProps) {
-    const { direction, clientId, periodId, clientName, period, clientConditionCode, turivaIncluded } = props;
+    const { direction, clientId, periodId, clientName, period, clientConditionCode, turivaIncluded, edit } = props;
     const router = useRouter();
-    const text = INVOICE_FORM_TEXT[direction];
+    const text = edit ? { ...INVOICE_FORM_TEXT[direction], ...INVOICE_EDIT_TEXT[direction] } : INVOICE_FORM_TEXT[direction];
     const listHref = invoiceListHref(direction, clientId, periodId);
     const periodHref = `/client/${clientId}/period/${periodId}`;
 
@@ -72,16 +81,20 @@ export function InvoiceForm(props: InvoiceFormProps) {
         () => ({ direction, clientConditionCode, turivaIncluded, period: { month: period.month, year: period.year } }),
         [direction, clientConditionCode, turivaIncluded, period.month, period.year],
     );
-    const [state, setState] = useState(INITIAL_FORM_STATE);
+    const [state, setState] = useState(() => (edit ? initialEditState(ctx, edit.initial) : INITIAL_FORM_STATE));
     const options = useMemo(() => resolveInvoiceFormOptions(ctx, state.selection), [ctx, state.selection]);
     const [loading, setLoading] = useState(false);
     const [feedback, setFeedback] = useState<InvoiceErrorFeedback | null>(null);
     // Evita dobles envíos aun antes de que React re-renderice el botón deshabilitado.
     const inFlight = useRef(false);
+    // Edición: token de concurrencia vigente; se reemplaza por el updatedAt de cada PATCH exitoso.
+    const token = useRef(edit?.updatedAt ?? "");
 
     const clientBlocked = clientConditionCode === null;
     const hasBlocking = options.notices.some((n) => n.level === "blocking");
-    const canSubmit = !loading && !clientBlocked && !hasBlocking && options.derived !== null;
+    // Excepciones antiguas (condición / variante nulas) sin completar: envío bloqueado.
+    const editPending = edit ? editPendingNotices(edit, options) : [];
+    const canSubmit = !loading && !clientBlocked && !hasBlocking && options.derived !== null && editPending.length === 0;
     const sel = options.selection;
 
     function onSelect(key: SelectionKey, raw: string) {
@@ -96,6 +109,10 @@ export function InvoiceForm(props: InvoiceFormProps) {
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
         if (inFlight.current) return;
+        if (editPending.length > 0) {
+            setFeedback({ control: "form", message: editPending[0], pending: false });
+            return;
+        }
         const built = buildInvoiceV2Body({ ctx, periodId, state });
         if (!built.ok) {
             setFeedback({ control: built.control, message: built.message, pending: false });
@@ -105,10 +122,20 @@ export function InvoiceForm(props: InvoiceFormProps) {
         setLoading(true);
         setFeedback(null);
         try {
-            const result = await submitInvoice(built.body);
-            if (!result.ok) {
-                setFeedback(result.feedback);
-                return;
+            if (edit) {
+                // Edición: cuerpo v2 COMPLETO + token vigente. Sin actualización optimista.
+                const result = await submitInvoiceUpdate(edit.invoiceId, buildInvoiceUpdateBody(built.body, token.current));
+                if (!result.ok) {
+                    setFeedback(result.feedback);
+                    return;
+                }
+                token.current = nextUpdateToken(token.current, result);
+            } else {
+                const result = await submitInvoice(built.body);
+                if (!result.ok) {
+                    setFeedback(result.feedback);
+                    return;
+                }
             }
             router.push(listHref);
             router.refresh();
@@ -229,9 +256,24 @@ export function InvoiceForm(props: InvoiceFormProps) {
                         </div>
                     ))}
 
+                {editPending.map((message) => (
+                    <div key={message} role="alert" style={ALERT_STYLE}>
+                        {message}
+                    </div>
+                ))}
+
                 {formError && (
                     <div role="alert" style={ALERT_STYLE}>
                         {feedbackText(formError)}
+                        {formError.stale && (
+                            <>
+                                {" "}
+                                {/* La página remonta el formulario con el updatedAt nuevo (key). */}
+                                <button type="button" className="btn btn-secondary" onClick={() => router.refresh()}>
+                                    Recargar datos
+                                </button>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -307,6 +349,40 @@ export function InvoiceForm(props: InvoiceFormProps) {
                     </button>
                 </div>
             </form>
+        </div>
+    );
+}
+
+/**
+ * Comprobante propio que no se puede corregir desde el formulario: aviso
+ * estable (mensaje de la razón, resuelto en el servidor) y vuelta a la lista.
+ * Sin formulario.
+ */
+export function InvoiceEditUnavailable(props: {
+    direction: "SALES" | "PURCHASES";
+    clientId: string;
+    periodId: string;
+    clientName: string;
+    period: { month: number; year: number };
+    message: string;
+}) {
+    const { direction, clientId, periodId, clientName, period, message } = props;
+    const listHref = invoiceListHref(direction, clientId, periodId);
+    return (
+        <div className="container" style={{ maxWidth: "800px" }}>
+            <Link href={listHref} style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
+                &larr; Volver
+            </Link>
+            <h1 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "var(--spacing-xs)" }}>{INVOICE_EDIT_TEXT[direction].title}</h1>
+            <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-lg)" }}>
+                {clientName} · Período {formatPeriodLabel(period)}
+            </p>
+            <div className="card">
+                <p role="status">{message}</p>
+                <Link href={listHref} className="btn btn-secondary">
+                    Volver a la lista
+                </Link>
+            </div>
         </div>
     );
 }

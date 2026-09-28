@@ -28,6 +28,9 @@ const SERVER_ONLY_LIBS = [
   "lib/auth/authz.ts",
   "lib/auth/audit.ts",
   "lib/invoice-form-context.ts",
+  "lib/invoice-write.ts",
+  "lib/invoice-edit.ts",
+  "lib/invoice-lock.ts",
 ];
 
 describe("límite de responsabilidades server-only (punto 3)", () => {
@@ -46,7 +49,7 @@ describe("límite de responsabilidades server-only (punto 3)", () => {
     });
     expect(clientFiles.length).toBeGreaterThan(0); // hay formularios cliente
 
-    const forbidden = /@\/lib\/(decimal|liquidation-calc|api-input|serializers|excel|invoice-form-context)\b|@\/lib\/validation\/decimal\b/;
+    const forbidden = /@\/lib\/(decimal|liquidation-calc|api-input|serializers|excel|invoice-form-context|invoice-write|invoice-edit|invoice-lock)\b|@\/lib\/validation\/decimal\b/;
     for (const f of clientFiles) {
       const s = readFileSync(f, "utf8");
       expect(forbidden.test(s), `${f.slice(repo.length)} importa una utilidad server-only`).toBe(false);
@@ -96,6 +99,23 @@ describe("límite de responsabilidades server-only (punto 3)", () => {
     for (const key of ["vatAmount", "totalAmount", "legalClass", "mandatoryLegend", "lidSection", "source", "organizationId", "clientId", "clientCondition", "partialValidation"]) {
       expect(literal, key).not.toMatch(new RegExp(`\\b${key}\\s*[:,]`));
     }
+  });
+
+  it("edición y baja: sólo vía helpers de lib (PATCH con cuerpo v2 + token; DELETE con token en la URL)", () => {
+    const form = readFileSync(join(repo, INVOICE_FORM), "utf8");
+    expect(form).toMatch(/submitInvoiceUpdate\(edit\.invoiceId, buildInvoiceUpdateBody\(built\.body, token\.current\)\)/);
+
+    const actions = readFileSync(join(repo, "app/(app)/client/[id]/period/[periodId]/_components/invoice-row-actions.tsx"), "utf8");
+    expect(actions.startsWith('"use client";')).toBe(true);
+    expect(actions).not.toMatch(/fetch\(|JSON\.stringify\(/);
+    expect(actions).toMatch(/deleteInvoice\(invoiceId, updatedAt\)/);
+    expect(actions).not.toMatch(/@prisma\/client|server-only|@\/lib\/prisma/);
+    expect(actions).not.toMatch(/\b(window\.)?(confirm|alert|prompt)\s*\(/);
+
+    // El cuerpo del PATCH es el v2 más el token: nada más.
+    const lib = readFileSync(join(repo, INVOICE_FORM_CLIENT), "utf8");
+    const fn = lib.slice(lib.indexOf("export function buildInvoiceUpdateBody"));
+    expect(fn.slice(0, fn.indexOf("\n}\n"))).toMatch(/return \{ \.\.\.body, expectedUpdatedAt \};/);
   });
 
   it("lib/format.ts (permitido en cliente) NO importa Prisma", () => {
