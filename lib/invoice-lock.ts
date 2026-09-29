@@ -6,7 +6,7 @@ import type { Prisma } from "@prisma/client";
  * de una edición o baja. Sólo las columnas que usan la reevaluación de
  * editabilidad/eliminabilidad, `changedFields` y la auditoría.
  *
- * Orden de bloqueo obligatorio: SIEMPRE `lockPeriodForUpdate` (lib/period-lock)
+ * Orden de bloqueo obligatorio: SIEMPRE `lockPeriodForWrite` (lib/period-lock)
  * ANTES que este helper. No abre transacciones: recibe el `tx` de la ruta.
  */
 export interface LockedInvoiceRow {

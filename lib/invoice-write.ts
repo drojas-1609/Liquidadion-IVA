@@ -5,7 +5,6 @@ import type { InvoiceV2Data } from "./api-input";
 import { resolveManualInvoice, type ManualInvoiceData } from "./manual-invoice";
 import { clientConditionCode } from "./client-condition";
 import { TURIVA_NOT_INCLUDED_MESSAGE, type InvoiceModelData } from "./invoice-model";
-import { lockPeriodForUpdate } from "./period-lock";
 import {
     checkVoucherDate,
     duplicateVoucherMessage,
@@ -21,7 +20,7 @@ import { ConflictError, NotFoundError, ValidationError } from "./auth/errors";
  *  - la preparación autorizada: mes/año del período, fecha frente al período,
  *    condición fiscal del cliente leída de la base, matriz normativa,
  *    documento, modelo contable y clave de duplicidad;
- *  - la verificación TurIVA bajo el bloqueo del Period;
+ *  - la verificación TurIVA bajo el bloqueo del Period (tomado por la ruta);
  *  - los datos que se escriben en Invoice y sus líneas de IVA.
  *
  * Las funciones lanzan los mismos errores que la ruta (404 / 422 / 409).
@@ -109,16 +108,19 @@ export async function assertNoDuplicateVoucher(where: DuplicateVoucherWhere): Pr
 }
 
 /**
- * Comprobantes 195–197: bloquea la fila Period (mismo helper que PATCH
- * /api/periods/[id]/vat-settings) y relee la inclusión en el Régimen TurIVA
- * dentro de la transacción. Sin inclusión -> 422.
+ * Comprobantes 195–197: relee la inclusión en el Régimen TurIVA dentro de la
+ * transacción. Sin inclusión -> 422.
+ *
+ * PRECONDICIÓN: el llamador YA bloqueó el período con `lockPeriodForWrite`
+ * (lib/period-lock) en esta misma transacción, como primera operación. Este
+ * helper NO bloquea: así se respeta el orden único Period -> Invoice y no hay
+ * un segundo bloqueo del período.
  */
 export async function assertTurivaIncludedUnderLock(
     tx: Prisma.TransactionClient,
     periodId: string,
     organizationId: string,
 ): Promise<void> {
-    await lockPeriodForUpdate(tx, periodId, organizationId);
     const settings = await tx.periodVatSettings.findUnique({
         where: { periodId_organizationId: { periodId, organizationId } },
         select: { turivaIncluded: true },

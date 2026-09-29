@@ -17,7 +17,7 @@ import {
     invoiceEditability,
     type EditableInvoiceRow,
 } from "@/lib/invoice-edit";
-import { lockPeriodForUpdate } from "@/lib/period-lock";
+import { lockPeriodForWrite } from "@/lib/period-lock";
 import { lockInvoiceForUpdate, type LockedInvoiceRow } from "@/lib/invoice-lock";
 import { duplicateVoucherMessage } from "@/lib/invoice-rules";
 import { serializeInvoice } from "@/lib/serializers";
@@ -95,10 +95,11 @@ const notEditable = (reason: keyof typeof INVOICE_NOT_EDITABLE_MESSAGES) =>
 // al período de la organización activa (404) -> editabilidad (422) ->
 // inmutables (422) -> MISMA preparación que el alta (lib/invoice-write) ->
 // duplicidad excluyendo el propio comprobante (409) -> transacción:
-//   lock Period -> lock Invoice (fila bloqueada) -> updatedAt exacto (409) ->
-//   editabilidad e inmutables sobre la fila bloqueada (422) -> TurIVA releído
-//   bajo el lock del Period (422) -> changedFields desde la fila bloqueada
-//   (vacío: 200 sin escritura ni AuditLog) -> update + líneas + AuditLog.
+//   lock Period (lockPeriodForWrite) -> lock Invoice (fila bloqueada) ->
+//   updatedAt exacto (409) -> editabilidad e inmutables sobre la fila
+//   bloqueada (422) -> TurIVA releído bajo el lock del Period, sin volver a
+//   bloquearlo (422) -> changedFields desde la fila bloqueada (vacío: 200 sin
+//   escritura ni AuditLog) -> update + líneas + AuditLog.
 // P2002 (carrera con otra alta/edición) -> 409 con el período.
 export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const { id } = await ctx.params;
@@ -129,7 +130,7 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
     await assertNoDuplicateVoucher(plan.duplicateWhere);
 
     const saved = await prisma.$transaction(async (tx) => {
-        await lockPeriodForUpdate(tx, periodId, organizationId);
+        await lockPeriodForWrite(tx, periodId, organizationId);
         const lockedRow = await lockedRowWithLines(tx, id, organizationId);
         if (!lockedRow) throw new NotFoundError();
         const { locked, row } = lockedRow;
@@ -144,8 +145,8 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
         }
 
         if (resolved.requiresTurivaSection) {
-            // Relectura bajo el lock del Period (el helper vuelve a pedir el
-            // mismo FOR UPDATE, que dentro de la transacción ya está tomado).
+            // Relectura bajo el bloqueo del Period ya tomado al inicio de la
+            // transacción (el helper no vuelve a bloquear).
             await assertTurivaIncludedUnderLock(tx, periodId, organizationId);
         }
 
@@ -216,9 +217,10 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
 //
 // Orden: auth -> organización -> rol -> expectedUpdatedAt (422) -> comprobante
 // por id + organización (404) -> acceso al período (404) -> eliminabilidad
-// (422) -> transacción: lock Period -> lock Invoice -> updatedAt exacto (409) ->
-// eliminabilidad sobre la fila bloqueada (422) -> borrado de líneas y
-// comprobante + AuditLog invoice.delete. Si falla el AuditLog, rollback total.
+// (422) -> transacción: lock Period (lockPeriodForWrite) -> lock Invoice ->
+// updatedAt exacto (409) -> eliminabilidad sobre la fila bloqueada (422) ->
+// borrado de líneas y comprobante + AuditLog invoice.delete. Si falla el
+// AuditLog, rollback total.
 export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const { id } = await ctx.params;
     const { profileId } = await requireAuthenticatedProfile();
@@ -246,7 +248,7 @@ export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
     if (!pre.ok) throw notEditable(pre.reason);
 
     await prisma.$transaction(async (tx) => {
-        await lockPeriodForUpdate(tx, periodId, organizationId);
+        await lockPeriodForWrite(tx, periodId, organizationId);
         const lockedRow = await lockedRowWithLines(tx, id, organizationId);
         if (!lockedRow) throw new NotFoundError();
         const { locked, row } = lockedRow;
