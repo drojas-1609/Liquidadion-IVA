@@ -202,6 +202,77 @@ describe("DELETE /api/periods/[id] — autorización y aislamiento", () => {
   });
 });
 
+describe("DELETE /api/periods/[id] — bloqueo del período (lockPeriodForWrite)", () => {
+  /** Ejecuta `fn` justo cuando la ruta bloquea el Period (simula una escritura concurrente ya confirmada). */
+  const onPeriodLock = (fn: () => void) => {
+    const base = db.$queryRaw.getMockImplementation()!;
+    let done = false;
+    db.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (!done && /FROM "Period"/.test(strings.join("?"))) {
+        done = true;
+        fn();
+      }
+      return base(strings, ...values);
+    });
+  };
+  const order = (fn: { mock: { invocationCallOrder: number[] } }) => fn.mock.invocationCallOrder[0];
+
+  it("204: un único bloqueo de Period (id, organización activa) como primera operación; relectura y conteos DESPUÉS", async () => {
+    expect((await del("p_empty")).status).toBe(204);
+    expect(rec.locks).toHaveLength(1);
+    expect(rec.locks[0].sql).toMatch(/FROM "Period"/);
+    expect(rec.locks[0].sql).toMatch(/FOR UPDATE/);
+    expect(rec.locks[0].values).toEqual(["p_empty", ORG_A]);
+    const lockAt = order(db.$queryRaw);
+    expect(lockAt).toBeGreaterThan(order(db.$transaction));
+    expect(lockAt).toBeLessThan(order(db.period.findFirst));
+    expect(lockAt).toBeLessThan(order(db.invoice.count));
+    expect(lockAt).toBeLessThan(order(db.taxRecord.count));
+    expect(order(db.period.findFirst)).toBeLessThan(order(db.period.delete));
+  });
+
+  it.each([
+    ["Invoice", () => world.invoices!.push({ id: "i_race", periodId: "p_empty", organizationId: ORG_A })],
+    ["TaxRecord", () => world.taxRecords!.push({ id: "t_race", periodId: "p_empty", organizationId: ORG_A })],
+  ])("%s confirmado justo antes del bloqueo: los conteos releídos bajo el bloqueo lo ven -> 409, sin borrar ni AuditLog", async (_k, add) => {
+    onPeriodLock(add);
+    const res = await del("p_empty");
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("CONFLICT");
+    expect(db.period.delete).not.toHaveBeenCalled();
+    expect(exists("p_empty")).toBe(true);
+    expect(rec.audits).toHaveLength(0);
+  });
+
+  it("período eliminado en paralelo: el bloqueo no lo encuentra -> 404, sin conteos, borrado ni AuditLog", async () => {
+    onPeriodLock(() => world.periods.splice(world.periods.findIndex((p) => p.id === "p_empty"), 1));
+    const res = await del("p_empty");
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe("NOT_FOUND");
+    expect(db.period.findFirst).not.toHaveBeenCalled();
+    expect(db.invoice.count).not.toHaveBeenCalled();
+    expect(db.period.delete).not.toHaveBeenCalled();
+    expect(rec.audits).toHaveLength(0);
+  });
+
+  it("período de OTRA organización: el bloqueo (acotado a la organización activa) no lo encuentra -> 404, sin leerlo ni contar", async () => {
+    const res = await del("p_b");
+    expect(res.status).toBe(404);
+    expect(rec.locks).toHaveLength(1);
+    expect(rec.locks[0].values).toEqual(["p_b", ORG_A]);
+    expect(db.period.findFirst).not.toHaveBeenCalled();
+    expect(db.invoice.count).not.toHaveBeenCalled();
+    expect(exists("p_b")).toBe(true);
+  });
+
+  it("rol insuficiente (403) -> sin transacción ni bloqueo", async () => {
+    H.claims.value = claimsFor(SUB_VIEWER_A);
+    expect((await del("p_empty")).status).toBe(403);
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(db.$queryRaw).not.toHaveBeenCalled();
+  });
+});
+
 describe("DELETE /api/periods/[id] — atomicidad", () => {
   it("falla el AuditLog -> 500 y rollback completo (el período sigue existiendo)", async () => {
     rec.failAudit = true;

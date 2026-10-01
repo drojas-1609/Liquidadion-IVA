@@ -646,11 +646,14 @@ describe("PATCH /api/invoices/[id] — duplicidad", () => {
 describe("PATCH /api/invoices/[id] — TurIVA (195–197)", () => {
   const withT = (included: boolean) => withInvoice(saleT, {}, (w) => turivaIncluded(w, included));
 
-  it("T con inclusión vigente -> 200; locks Period -> Invoice -> Period (relectura bajo el mismo lock)", async () => {
+  it("T con inclusión vigente -> 200; locks Period -> Invoice, sin volver a bloquear el Period (relectura bajo el mismo lock)", async () => {
     withT(true);
     const res = await edit({ number: 1002 }, saleT);
     expect(res.status).toBe(200);
-    expect(lockTargets()).toEqual(["Period:p_a", "Invoice:inv_1", "Period:p_a"]);
+    expect(lockTargets()).toEqual(["Period:p_a", "Invoice:inv_1"]);
+    // La relectura TurIVA ocurre DESPUÉS de ambos locks.
+    const lastLock = Math.max(...db.$queryRaw.mock.invocationCallOrder);
+    expect(lastLock).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
     expect(rec.audits[0].metadata.changedFields).toBe("number");
   });
 
@@ -690,6 +693,57 @@ describe("PATCH /api/invoices/[id] — atomicidad", () => {
     expect(linesOf().map((l) => l.id)).toEqual(linesBefore);
     expect(rec.audits).toHaveLength(0);
     expect(rec.created.invoiceUpdate).toBeUndefined();
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════
+// Orden único de locks (lockPeriodForWrite): Period -> Invoice
+// ═════════════════════════════════════════════════════════════════════════
+
+describe("PATCH / DELETE /api/invoices/[id] — orden único de locks", () => {
+  /**
+   * Invariante: si hubo locks, el primero es Period; hay a lo sumo UN lock de
+   * Period y a lo sumo uno de Invoice; nunca Period después de Invoice.
+   */
+  const expectLockOrder = () => {
+    const t = lockTargets();
+    expect(t.length).toBeGreaterThan(0);
+    expect(t[0]).toBe("Period:p_a");
+    expect(t.filter((x) => x.startsWith("Period:"))).toHaveLength(1);
+    expect(t.filter((x) => x.startsWith("Invoice:")).length).toBeLessThanOrEqual(1);
+    const inv = t.findIndex((x) => x.startsWith("Invoice:"));
+    if (inv >= 0) expect(t.slice(inv + 1).some((x) => x.startsWith("Period:"))).toBe(false);
+  };
+
+  it.each([
+    ["PATCH no T (200)", () => edit({ number: 1002 }), 200],
+    ["PATCH no-op (200)", () => edit(), 200],
+    ["PATCH T con inclusión (200)", () => (withInvoice(saleT, {}, (w) => turivaIncluded(w, true)), edit({ number: 1002 }, saleT)), 200],
+    ["PATCH A -> T sin inclusión (422)", () => (withInvoice(sale, {}, (w) => turivaIncluded(w, false)), edit({}, saleT)), 422],
+    [
+      "PATCH T con inclusión desactivada bajo el lock (422)",
+      () => {
+        withInvoice(saleT, {}, (w) => turivaIncluded(w, true));
+        onPeriodLock(() => turivaIncluded(world, false));
+        return edit({ number: 1002 }, saleT);
+      },
+      422,
+    ],
+    ["PATCH con updatedAt viejo (409)", () => edit({ number: 1002, expectedUpdatedAt: "2020-01-01T00:00:00.000Z" }), 409],
+    ["DELETE (204)", () => del(), 204],
+    ["DELETE con updatedAt viejo (409)", () => del("2020-01-01T00:00:00.000Z"), 409],
+  ])("%s -> Period primero, un solo lock de Period, nunca Invoice -> Period", async (_l, run, status) => {
+    const res = await (run as () => Promise<Response>)();
+    expect(res.status).toBe(status);
+    expectLockOrder();
+  });
+
+  it("período eliminado en paralelo: el lock de Period no lo encuentra -> 404 sin bloquear Invoice ni escribir", async () => {
+    onPeriodLock(() => world.periods.splice(world.periods.findIndex((p) => p.id === "p_a"), 1));
+    const res = await edit({ number: 1002 });
+    expect(res.status).toBe(404);
+    expect(lockTargets()).toEqual(["Period:p_a"]);
+    expectNoUpdate();
   });
 });
 

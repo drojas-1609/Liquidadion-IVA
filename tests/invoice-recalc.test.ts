@@ -363,10 +363,10 @@ describe("secuencias con TurIVA", () => {
     expect(rec.audits).toHaveLength(0);
   });
 
-  it("editar T -> T con TurIVA incluido: locks Period -> Invoice -> Period (relectura bajo el mismo lock)", async () => {
+  it("editar T -> T con TurIVA incluido: locks Period -> Invoice, sin volver a bloquear el Period (relectura bajo el mismo lock)", async () => {
     setWorld([stored("inv_t", saleT)], { turivaIncluded: true });
     expect((await patchInvoice("inv_t", { ...saleT, netAmount: "1500" })).status).toBe(200);
-    expect(lockTargets()).toEqual(["Period:p_a", "Invoice:inv_t", "Period:p_a"]);
+    expect(lockTargets()).toEqual(["Period:p_a", "Invoice:inv_t"]);
     expectParity();
   });
 });

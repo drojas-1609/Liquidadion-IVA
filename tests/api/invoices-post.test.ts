@@ -678,11 +678,96 @@ describe("POST /api/invoices — TurIVA (195–197)", () => {
     expect((await res.json()).requiresTurivaSection).toBe(true);
   });
 
-  it("códigos no T: sin bloqueo ni lectura de TurIVA aunque el período no esté incluido", async () => {
+  it("códigos no T: bloquean el período pero no leen TurIVA aunque el período no esté incluido", async () => {
     expect((await post(jbody(sale))).status).toBe(201);
-    expect(db.$queryRaw).not.toHaveBeenCalled();
+    expect(rec.locks).toHaveLength(1);
     expect(db.periodVatSettings.findUnique).not.toHaveBeenCalled();
     expect(rec.created.invoice.lidSection).toBe("GENERAL");
+  });
+});
+
+describe("POST /api/invoices — bloqueo del período (lockPeriodForWrite)", () => {
+  /** Ejecuta `fn` justo cuando la ruta bloquea el Period (simula una escritura concurrente ya confirmada). */
+  const onPeriodLock = (fn: () => void) => {
+    const base = db.$queryRaw.getMockImplementation()!;
+    let done = false;
+    db.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (!done && /FROM "Period"/.test(strings.join("?"))) {
+        done = true;
+        fn();
+      }
+      return base(strings, ...values);
+    });
+  };
+  const periodLocks = () => rec.locks.filter((l) => /FROM "Period"/.test(l.sql));
+
+  it.each([
+    ["venta A", sale],
+    ["compra A", valid],
+    ["venta B", saleB],
+  ])("%s (no T) -> un único bloqueo de Period, primera operación de la transacción, antes del comprobante y del AuditLog", async (_l, body) => {
+    expect((await post(jbody(body))).status).toBe(201);
+    expect(rec.locks).toHaveLength(1);
+    expect(rec.locks[0].sql).toMatch(/FOR UPDATE/);
+    expect(rec.locks[0].sql).toMatch(/FROM "Period"/);
+    expect(rec.locks[0].values).toEqual(["p_a", ORG_A]);
+    const lockAt = db.$queryRaw.mock.invocationCallOrder[0];
+    expect(lockAt).toBeGreaterThan(db.$transaction.mock.invocationCallOrder[0]);
+    expect(lockAt).toBeLessThan(db.invoice.create.mock.invocationCallOrder[0]);
+    expect(rec.audits).toHaveLength(1);
+  });
+
+  it("T -> un único bloqueo de Period (el helper TurIVA no vuelve a bloquear), antes de la lectura TurIVA", async () => {
+    turivaIncluded(true);
+    expect((await post(jbody(saleT))).status).toBe(201);
+    expect(periodLocks()).toHaveLength(1);
+    expect(rec.locks).toHaveLength(1);
+    expect(db.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
+  });
+
+  it("nunca bloquea Invoice en un alta", async () => {
+    turivaIncluded(true);
+    await post(jbody(sale));
+    await post(jbody({ ...saleT, number: 2001 }));
+    expect(rec.locks.some((l) => /FROM "Invoice"/.test(l.sql))).toBe(false);
+  });
+
+  it.each([
+    ["no T", () => sale],
+    ["T", () => (turivaIncluded(true), saleT)],
+  ])("período eliminado en paralelo (%s): el bloqueo no lo encuentra -> 404 NOT_FOUND, sin comprobante ni AuditLog", async (_l, bodyOf) => {
+    const body = bodyOf();
+    onPeriodLock(() => world.periods.splice(world.periods.findIndex((p) => p.id === "p_a"), 1));
+    const res = await post(jbody(body));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe("NOT_FOUND");
+    expect(periodLocks()).toHaveLength(1);
+    expect(db.periodVatSettings.findUnique).not.toHaveBeenCalled();
+    expectNoWrite();
+  });
+
+  it("rechazos previos a la transacción (422 fecha, 409 duplicado) no bloquean", async () => {
+    expect((await post(jbody({ ...sale, date: "2026-06-01" }))).status).toBe(422);
+    setWorld((w) => {
+      w.invoices = [
+        {
+          id: "inv_dup",
+          organizationId: ORG_A,
+          clientId: "c_a",
+          periodId: "p_a",
+          category: "SALES",
+          voucherCode: 1,
+          pointOfSale: 1,
+          number: 1001,
+          counterpartyDocType: 80,
+          counterpartyDocNumber: "30999999995",
+        },
+      ];
+    });
+    const dup = await post(jbody(sale));
+    expect(dup.status).toBe(409);
+    expect(db.$queryRaw).not.toHaveBeenCalled();
+    expect(db.$transaction).not.toHaveBeenCalled();
   });
 });
 

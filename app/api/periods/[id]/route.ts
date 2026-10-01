@@ -10,6 +10,7 @@ import {
 import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_DELETE } from "@/lib/auth/roles";
 import { ConflictError, NotFoundError } from "@/lib/auth/errors";
+import { lockPeriodForWrite } from "@/lib/period-lock";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -24,10 +25,14 @@ function isPrismaError(err: unknown, code: string): boolean {
 //
 // Orden (brief §7.1): auth -> organización -> rol -> período acotado a la
 // organización activa (otra org o inexistente: MISMO 404) -> en una única
-// transacción: conteo de Invoice/TaxRecord (409 si hay alguno, sin borrar ni
+// transacción: bloqueo de la fila Period (lockPeriodForWrite, primera
+// operación; otra org o inexistente: 404) -> relectura del período y conteo de
+// Invoice/TaxRecord BAJO el bloqueo (409 si hay alguno, sin borrar ni
 // auditar) -> borrado + AuditLog period.delete. Si falla el AuditLog, rollback.
 //
-// Un movimiento creado en paralelo hace fallar la FK Restrict (P2003) -> 409.
+// Las altas de comprobantes y retenciones toman el mismo bloqueo: esperan a
+// esta baja y, si se confirma, responden 404. Defensa en profundidad: si un
+// movimiento igual llegara a crearse, la FK Restrict falla (P2003) -> 409.
 export const DELETE = withApiAuthz(async (_request: Request, ctx: Ctx) => {
     const { id } = await ctx.params;
     const { profileId } = await requireAuthenticatedProfile();
@@ -36,6 +41,7 @@ export const DELETE = withApiAuthz(async (_request: Request, ctx: Ctx) => {
 
     try {
         await prisma.$transaction(async (tx) => {
+            await lockPeriodForWrite(tx, id, organizationId);
             const period = await tx.period.findFirst({ where: { id, organizationId } });
             if (!period) throw new NotFoundError();
 

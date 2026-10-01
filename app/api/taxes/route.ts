@@ -12,10 +12,18 @@ import {
 } from "@/lib/auth/authz";
 import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_CREATE } from "@/lib/auth/roles";
-import { ValidationError } from "@/lib/auth/errors";
+import { NotFoundError, ValidationError } from "@/lib/auth/errors";
+import { lockPeriodForWrite } from "@/lib/period-lock";
 
 // POST /api/taxes — alta de retención/percepción en un período de la
 // organización activa. Mismo orden y garantías que /api/invoices.
+//
+// Orden: auth -> organización -> rol -> parseo -> acceso al Period (404 si es
+// de otra org o no existe) -> aislamiento: el período debe ser de la
+// organización ACTIVA (si no, el MISMO 404, antes de abrir la transacción y
+// sin bloquear nada) -> transacción: bloqueo de la fila Period
+// (lockPeriodForWrite, primera operación; período desaparecido -> 404) ->
+// TaxRecord + AuditLog.
 export const POST = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
@@ -25,9 +33,13 @@ export const POST = withApiAuthz(async (request: Request) => {
     const parsed = buildTaxInput(body);
     if (!parsed.ok) throw new ValidationError(parsed.error, parsed.field);
 
-    await requirePeriodAccess(profileId, parsed.data.periodId, ROLES_CREATE);
+    const access = await requirePeriodAccess(profileId, parsed.data.periodId, ROLES_CREATE);
+    // Aislamiento: un período de OTRA organización del mismo usuario responde
+    // igual que uno inexistente (sin revelar su existencia).
+    if (access.organizationId !== organizationId) throw new NotFoundError();
 
     const created = await prisma.$transaction(async (tx) => {
+        await lockPeriodForWrite(tx, parsed.data.periodId, organizationId);
         const taxRecord = await tx.taxRecord.create({
             data: {
                 ...parsed.data,

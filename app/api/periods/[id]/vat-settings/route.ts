@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { buildTurivaSettingInput } from "@/lib/api-input";
-import { lockPeriodForUpdate } from "@/lib/period-lock";
+import { lockPeriodForWrite } from "@/lib/period-lock";
 import {
     requireAuthenticatedProfile,
     resolveActiveOrganization,
@@ -26,10 +26,12 @@ const TURIVA_HAS_VOUCHERS_MESSAGE =
 //
 // Orden: auth -> organización -> rol -> parseo -> acceso al período (otra org o
 // inexistente: MISMO 404) -> en una única transacción: bloqueo de la fila Period
-// (mismo helper que usará el alta de comprobantes 195–197) -> lectura de la
-// configuración -> sin cambio: 200 sin escritura ni AuditLog -> desactivar con
-// comprobantes 195–197: 409 sin escritura ni AuditLog -> creación o
-// actualización de SÓLO turivaIncluded + AuditLog period.vat_settings_change.
+// con lockPeriodForWrite (el bloqueo uniforme que usan todas las escrituras del
+// contenido del período, incluidas las altas y ediciones de comprobantes
+// 195–197) -> lectura de la configuración -> sin cambio: 200 sin escritura ni
+// AuditLog -> desactivar con comprobantes 195–197: 409 sin escritura ni
+// AuditLog -> creación o actualización de SÓLO turivaIncluded + AuditLog
+// period.vat_settings_change.
 // No modifica creditProrationMode ni el coeficiente global.
 export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const { id } = await ctx.params;
@@ -49,7 +51,7 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const where = { periodId_organizationId: { periodId: id, organizationId } };
 
     await prisma.$transaction(async (tx) => {
-        await lockPeriodForUpdate(tx, id, organizationId);
+        await lockPeriodForWrite(tx, id, organizationId);
 
         const current = await tx.periodVatSettings.findUnique({ where, select: { turivaIncluded: true } });
         const before = current?.turivaIncluded ?? false;

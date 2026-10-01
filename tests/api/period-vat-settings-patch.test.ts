@@ -317,7 +317,7 @@ describe("PATCH /api/periods/[id]/vat-settings — organización y bloqueo", () 
   });
 });
 
-describe("helper lockPeriodForUpdate — estructura", () => {
+describe("helper lockPeriodForWrite — estructura", () => {
   const helper = readFileSync(repo + "lib/period-lock.ts", "utf8");
   const route = readFileSync(repo + "app/api/periods/[id]/vat-settings/route.ts", "utf8");
 
@@ -332,10 +332,17 @@ describe("helper lockPeriodForUpdate — estructura", () => {
     expect(helper).not.toMatch(/\+\s*periodId|\+\s*organizationId/);
   });
 
+  it("lockPeriodForWrite es el único bloqueo exportado; lockPeriodForUpdate es interno", () => {
+    expect(helper).toMatch(/export async function lockPeriodForWrite\(/);
+    expect(helper).not.toMatch(/export\s+(async\s+)?function\s+lockPeriodForUpdate/);
+    expect(helper).not.toMatch(/export\s*\{[^}]*lockPeriodForUpdate/);
+  });
+
   it("la ruta vat-settings importa el helper y lo invoca dentro de prisma.$transaction", () => {
-    expect(route).toMatch(/import \{ lockPeriodForUpdate \} from "@\/lib\/period-lock";/);
+    expect(route).toMatch(/import \{ lockPeriodForWrite \} from "@\/lib\/period-lock";/);
+    expect(route).not.toContain("lockPeriodForUpdate");
     const tx = route.indexOf("prisma.$transaction(");
-    const lock = route.indexOf("lockPeriodForUpdate(tx, id, organizationId)");
+    const lock = route.indexOf("lockPeriodForWrite(tx, id, organizationId)");
     expect(tx).toBeGreaterThan(-1);
     expect(lock).toBeGreaterThan(tx);
     expect(lock).toBeLessThan(route.indexOf("periodVatSettings.findUnique"));

@@ -10,6 +10,7 @@ import {
     manualInvoiceVatLines,
     prepareManualInvoice,
 } from "@/lib/invoice-write";
+import { lockPeriodForWrite } from "@/lib/period-lock";
 import { duplicateVoucherMessage } from "@/lib/invoice-rules";
 import { serializeInvoice } from "@/lib/serializers";
 import {
@@ -32,10 +33,10 @@ import { ConflictError, NotFoundError, ValidationError } from "@/lib/auth/errors
 // si es de otra org o no existe) -> fecha frente al período (422) -> condición
 // fiscal del cliente leída de la base -> matriz normativa -> documento de la
 // contraparte -> modelo contable -> duplicidad global del cliente (409 con el
-// período donde ya existe) -> escritura + AuditLog en una transacción.
-// Comprobantes 195–197: dentro de esa MISMA transacción se bloquea la fila
-// Period (mismo helper que PATCH /api/periods/[id]/vat-settings) y se relee
-// la inclusión en el Régimen TurIVA antes de escribir.
+// período donde ya existe) -> transacción: bloqueo de la fila Period
+// (lockPeriodForWrite, primera operación, TODOS los códigos; período
+// desaparecido -> 404) -> comprobantes 195–197: relectura de la inclusión en
+// el Régimen TurIVA bajo ese bloqueo -> escritura + AuditLog.
 // La preparación y los datos escritos viven en lib/invoice-write.ts.
 export const POST = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
@@ -58,6 +59,7 @@ export const POST = withApiAuthz(async (request: Request) => {
     await assertNoDuplicateVoucher(plan.duplicateWhere);
 
     const created = await prisma.$transaction(async (tx) => {
+        await lockPeriodForWrite(tx, periodId, organizationId);
         if (resolved.requiresTurivaSection) {
             await assertTurivaIncludedUnderLock(tx, periodId, organizationId);
         }
