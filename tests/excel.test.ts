@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
+import { Prisma } from "@prisma/client";
 import { generateLiquidationExcel, toXlsxNumber } from "@/lib/excel";
+import { roundMoney } from "@/lib/decimal";
 
 const sampleData = {
   period: "01/2026",
@@ -18,7 +20,9 @@ const sampleData = {
     retentions: "1234.56",
     payable: "8215.44",
   },
-  iibb: { rate: "3.523456", base: "150000.00", tax: "5285.18", retentions: "750.00", payable: "4535.18" },
+  // Base IIBB DISTINTA de las ventas netas: el test no puede pasar por igualdad
+  // accidental. tax = HALF_UP(120000 × 3.523456 / 100) = 4228.15.
+  iibb: { rate: "3.523456", base: "120000.00", tax: "4228.15", retentions: "750.00", payable: "3478.15" },
 };
 
 describe("lib/excel", () => {
@@ -32,10 +36,34 @@ describe("lib/excel", () => {
     expect(b8.t).toBe("n"); // numérica, no string
     expect(b8.v).toBe(26250);
 
-    // "Base Imponible (Ventas Netas)" -> B16
+    // "Base Imponible IIBB" -> B16
     const b16 = ws["B16"];
     expect(b16.t).toBe("n");
-    expect(b16.v).toBe(150000);
+    expect(b16.v).toBe(120000);
+  });
+
+  it("bloque IIBB: B16 es la base imponible IIBB (no las ventas netas) y B17–B19 conservan posición y valor", () => {
+    // Guardas del fixture: base ≠ ventas netas, e impuesto y saldo consistentes con la base.
+    expect(sampleData.iibb.base).not.toBe(sampleData.sales.net);
+    const base = new Prisma.Decimal(sampleData.iibb.base);
+    expect(roundMoney(base.times(sampleData.iibb.rate).div(100)).toFixed(2)).toBe(sampleData.iibb.tax);
+    expect(new Prisma.Decimal(sampleData.iibb.tax).minus(sampleData.iibb.retentions).toFixed(2)).toBe(sampleData.iibb.payable);
+
+    const ws = XLSX.read(generateLiquidationExcel(sampleData), { type: "buffer" }).Sheets["Liquidacion"];
+    const row = (r: number) => [ws[`A${r}`]?.v, ws[`B${r}`]?.v, ws[`B${r}`]?.t];
+
+    expect(ws["!ref"]).toBe("A1:B19");
+    expect(ws["A14"].v).toBe("RESUMEN IIBB");
+    expect(row(15)).toEqual(["Concepto", "Importe", "s"]);
+    expect(row(16)).toEqual(["Base Imponible IIBB", 120000, "n"]);
+    expect(row(17)).toEqual(["Impuesto Determinado (3.523456%)", 4228.15, "n"]);
+    expect(row(18)).toEqual(["Retenciones/Percepciones IIBB", 750, "n"]);
+    expect(row(19)).toEqual(["Saldo a Pagar / (A Favor) IIBB", 3478.15, "n"]);
+
+    // Las ventas netas no se exportan en ninguna celda, ni el rótulo anterior.
+    const cells = Object.keys(ws).filter((k) => !k.startsWith("!")).map((k) => ws[k]);
+    expect(cells.map((c) => c.v)).not.toContain(150000);
+    expect(cells.map((c) => String(c.v))).not.toContain("Base Imponible (Ventas Netas)");
   });
 
   it("caso 16: conversión XLSX fuera del rango seguro FALLA explícitamente (no trunca)", () => {
