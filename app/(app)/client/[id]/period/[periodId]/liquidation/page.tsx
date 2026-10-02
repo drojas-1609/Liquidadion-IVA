@@ -112,7 +112,7 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
                 </h2>
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-sm)" }}>
-                    <span>Ventas Netas</span>
+                    <span>Base Imponible IIBB</span>
                     <span style={{ fontWeight: 500 }}>${m(r.iibb.base)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>

@@ -59,7 +59,7 @@ export const generateLiquidationExcel = (data: LiquidationData) => {
         [],
         ["RESUMEN IIBB"],
         ["Concepto", "Importe"],
-        ["Base Imponible (Ventas Netas)", n(data.sales.net)],
+        ["Base Imponible IIBB", n(data.iibb.base)],
         [`Impuesto Determinado (${data.iibb.rate}%)`, n(data.iibb.tax)],
         ["Retenciones/Percepciones IIBB", n(data.iibb.retentions)],
         ["Saldo a Pagar / (A Favor) IIBB", n(data.iibb.payable)],
