@@ -16,6 +16,9 @@ import { NextResponse } from "next/server";
  *  - 400 BAD_REQUEST                      (JSON ausente/malformado)
  *  - 422 UNPROCESSABLE_ENTITY             (JSON válido, datos inválidos)
  *
+ * Bloqueo del período agrega:
+ *  - 409 PERIOD_BUSY                      (el período está bloqueado por otra escritura)
+ *
  * Toda respuesta de error lleva `Cache-Control: no-store, max-age=0`.
  */
 export type AuthErrorCode =
@@ -26,6 +29,7 @@ export type AuthErrorCode =
   | "NOT_FOUND"
   | "ORGANIZATION_SELECTION_REQUIRED"
   | "CONFLICT"
+  | "PERIOD_BUSY"
   | "BAD_REQUEST"
   | "UNPROCESSABLE_ENTITY"
   | "MISCONFIGURED"
@@ -99,6 +103,22 @@ export class ConflictError extends AuthError {
   constructor(message = "Ya existe un registro con esos datos.") {
     super("CONFLICT", 409, message);
     this.name = "ConflictError";
+  }
+}
+
+export const PERIOD_BUSY_MESSAGE =
+  "El período está siendo modificado por otra operación. Esperá unos segundos y volvé a intentarlo.";
+
+/**
+ * El bloqueo del período no se obtuvo dentro de su `lock_timeout` porque otra
+ * escritura lo tiene tomado. Sólo lo lanza `lockPeriodForWrite`
+ * (lib/period-lock); ningún otro error de Prisma o de la base se traduce a
+ * este código. Sin field, metadata ni detalle de la base.
+ */
+export class PeriodBusyError extends AuthError {
+  constructor() {
+    super("PERIOD_BUSY", 409, PERIOD_BUSY_MESSAGE);
+    this.name = "PeriodBusyError";
   }
 }
 

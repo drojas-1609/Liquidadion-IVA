@@ -33,6 +33,12 @@ import {
   ORG_A,
   ORG_B,
   type World,
+  periodLockSteps,
+  periodLockOrder,
+  timeoutRestoreOrder,
+  expectPeriodBusyResponse,
+  expectBusyRollback,
+  loggedUnclassified,
 } from "./_harness";
 import { PATCH } from "@/app/api/periods/[id]/vat-settings/route";
 
@@ -305,10 +311,32 @@ describe("PATCH /api/periods/[id]/vat-settings — organización y bloqueo", () 
     expect(db.invoice.count).toHaveBeenCalledWith({
       where: { periodId: "p_on", organizationId: ORG_A, voucherCode: { in: [195, 196, 197] } },
     });
-    const lockOrder = db.$queryRaw.mock.invocationCallOrder[0];
+    const lockOrder = periodLockOrder(db);
     expect(lockOrder).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
     expect(lockOrder).toBeLessThan(db.invoice.count.mock.invocationCallOrder[0]);
     expect(lockOrder).toBeLessThan(db.periodVatSettings.update.mock.invocationCallOrder[0]);
+  });
+
+  it("secuencia: leer timeout -> set 3000ms -> lock Period -> restaurar; recién después lectura de la configuración, conteo y escritura", async () => {
+    expect((await patch("p_on", { turivaIncluded: false })).status).toBe(200);
+    expect(rec.rawSteps).toEqual(periodLockSteps("0"));
+    const restoreAt = timeoutRestoreOrder(db);
+    expect(restoreAt).toBeGreaterThan(periodLockOrder(db));
+    expect(restoreAt).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
+    expect(restoreAt).toBeLessThan(db.invoice.count.mock.invocationCallOrder[0]);
+    expect(restoreAt).toBeLessThan(db.periodVatSettings.update.mock.invocationCallOrder[0]);
+  });
+
+  it("período ocupado (55P03 en el lock de Period) -> 409 PERIOD_BUSY exacto, no-store, sin leer configuración, contar, escribir ni AuditLog; rollback", async () => {
+    rec.periodLockBusy = true;
+    const { result: res, unclassified } = await loggedUnclassified(() => patch("p_on", { turivaIncluded: false }));
+    await expectPeriodBusyResponse(res);
+    expect(unclassified).toBe(false);
+    expectBusyRollback(rec);
+    expect(db.periodVatSettings.findUnique).not.toHaveBeenCalled();
+    expect(db.invoice.count).not.toHaveBeenCalled();
+    noWrites();
+    expect(vatRow("p_on")?.turivaIncluded).toBe(true);
   });
 
   it("un comprobante T de OTRA organización con el mismo periodId no impide desactivar", async () => {
