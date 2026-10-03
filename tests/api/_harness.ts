@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 import type { Role } from "@prisma/client";
 import { cuitCheckDigit } from "@/lib/cuit";
@@ -147,7 +147,7 @@ export interface DbMock {
   auditLog: { create: Fn };
   periodVatSettings: { findUnique: Fn; create: Fn; update: Fn };
   $transaction: Fn;
-  /** Sólo simula los bloqueos de Period e Invoice (SELECT … FOR UPDATE); no hay locks reales. */
+  /** Simula lockPeriodForWrite (lock_timeout + FOR UPDATE de Period) y el FOR UPDATE de Invoice; no hay locks reales. */
   $queryRaw: Fn;
 }
 
@@ -179,11 +179,46 @@ export interface Recorder {
   audits: any[];
   created: Record<string, any>;
   failAudit: boolean;
-  /** Bloqueos (Period / Invoice) solicitados vía $queryRaw: { sql, values }. */
+  /** Bloqueos (Period / Invoice) solicitados vía $queryRaw: { sql, values }. Sólo locks reales. */
   locks: Array<{ sql: string; values: unknown[] }>;
+  /** Pasos de `lock_timeout` de lockPeriodForWrite (lectura, set 3000ms, restauración), en orden. */
+  lockTimeouts: Array<{ step: "read" | "set" | "restore"; value: string }>;
+  /**
+   * Secuencia de TODAS las consultas raw aceptadas, en orden, con el
+   * `lock_timeout` vigente al ejecutarse: "timeout:read@0", "timeout:set@3000ms",
+   * "lock:Period@3000ms", "timeout:restore@0", "lock:Invoice@0".
+   */
+  rawSteps: string[];
+  /** `lock_timeout` con el que arranca cada transacción del harness (default "0"). */
+  initialLockTimeout: string;
+  /** `lock_timeout` de la transacción en curso; null fuera de una transacción. */
+  lockTimeout: string | null;
+  /** true: el FOR UPDATE real de Period falla con P2010 / meta.code 55P03 (lock ocupado). */
+  periodLockBusy: boolean;
+  /** La transacción quedó abortada (tras un error de la base): toda raw posterior falla. */
+  txAborted: boolean;
 }
 export function freshRecorder(): Recorder {
-  return { audits: [], created: {}, failAudit: false, locks: [] };
+  return {
+    audits: [],
+    created: {},
+    failAudit: false,
+    locks: [],
+    lockTimeouts: [],
+    rawSteps: [],
+    initialLockTimeout: "0",
+    lockTimeout: null,
+    periodLockBusy: false,
+    txAborted: false,
+  };
+}
+
+/** Error que Prisma 6.19.3 produce cuando un `$queryRaw` vence `lock_timeout`. */
+export function lockNotAvailableError(): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError(
+    "Raw query failed. Code: `55P03`. Message: `canceling statement due to lock timeout`",
+    { code: "P2010", clientVersion: "6.19.3", meta: { code: "55P03", message: "canceling statement due to lock timeout" } },
+  );
 }
 
 export function wireDb(db: DbMock, world: World, rec: Recorder): void {
@@ -523,24 +558,75 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     return row;
   });
 
-  // $queryRaw como tagged template: sólo se admiten los bloqueos de Period e
-  // Invoice. Registra la consulta y sus parámetros; devuelve la fila si existe
-  // para (id, organizationId). No existe un lock real en memoria.
+  // $queryRaw como tagged template: sólo se admiten EXACTAMENTE las consultas
+  // de lockPeriodForWrite (lectura / set / restauración de lock_timeout y el
+  // FOR UPDATE de Period) y el FOR UPDATE de Invoice. Cualquier otra falla.
+  // Los locks se registran en rec.locks; los pasos de lock_timeout, aparte, en
+  // rec.lockTimeouts. No existe un lock real en memoria.
+  const READ_TIMEOUT = `SELECT current_setting('lock_timeout') AS "lockTimeout"`;
+  const SET_TIMEOUT = "SELECT set_config('lock_timeout', '3000ms', true)";
+  const RESTORE_TIMEOUT = "SELECT set_config('lock_timeout', ?, true)";
+  const PERIOD_LOCK = /^SELECT "id" FROM "Period" WHERE "id" = \? AND "organizationId" = \? FOR UPDATE$/;
+  const INVOICE_LOCK = /^SELECT .+ FROM "Invoice" WHERE "id" = \? AND "organizationId" = \? FOR UPDATE$/;
   db.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
-    const sql = strings.join("?");
-    rec.locks.push({ sql, values });
+    const raw = strings.join("?");
+    const sql = raw.replace(/\s+/g, " ").trim();
+    if (rec.lockTimeout === null) throw new Error(`consulta raw fuera de una transacción: ${sql}`);
+    if (rec.txAborted) throw new Error("current transaction is aborted, commands ignored until end of transaction block");
+    const current = rec.lockTimeout;
+
+    if (sql === READ_TIMEOUT && values.length === 0) {
+      rec.lockTimeouts.push({ step: "read", value: current });
+      rec.rawSteps.push(`timeout:read@${current}`);
+      return [{ lockTimeout: current }];
+    }
+    if (sql === SET_TIMEOUT && values.length === 0) {
+      rec.lockTimeout = "3000ms";
+      rec.lockTimeouts.push({ step: "set", value: "3000ms" });
+      rec.rawSteps.push(`timeout:set@3000ms`);
+      return [{ set_config: "3000ms" }];
+    }
+    if (sql === RESTORE_TIMEOUT && values.length === 1 && typeof values[0] === "string") {
+      rec.lockTimeout = values[0];
+      rec.lockTimeouts.push({ step: "restore", value: values[0] });
+      rec.rawSteps.push(`timeout:restore@${values[0]}`);
+      return [{ set_config: values[0] }];
+    }
+
     const [id, organizationId] = values;
-    if (/FOR UPDATE/.test(sql) && /FROM "Invoice"/.test(sql)) {
+    if (INVOICE_LOCK.test(sql) && values.length === 2) {
+      rec.locks.push({ sql: raw, values });
+      rec.rawSteps.push(`lock:Invoice@${current}`);
       const row = (world.invoices ?? []).find((i) => i.id === id && i.organizationId === organizationId);
       return row ? [{ ...row }] : [];
     }
-    if (!/FOR UPDATE/.test(sql) || !/FROM "Period"/.test(sql)) throw new Error(`consulta raw inesperada: ${sql}`);
-    return world.periods.some((p) => p.id === id && p.organizationId === organizationId) ? [{ id }] : [];
+    if (PERIOD_LOCK.test(sql) && values.length === 2) {
+      rec.locks.push({ sql: raw, values });
+      rec.rawSteps.push(`lock:Period@${current}`);
+      if (rec.periodLockBusy) {
+        rec.txAborted = true;
+        throw lockNotAvailableError();
+      }
+      return world.periods.some((p) => p.id === id && p.organizationId === organizationId) ? [{ id }] : [];
+    }
+    throw new Error(`consulta raw inesperada: ${sql}`);
   });
 
   // $transaction(fn) -> corre fn con el propio db. Atomicidad simulada: si fn
-  // lanza, se revierte lo que `rec` registró durante la transacción.
+  // lanza, se revierte lo que `rec` registró durante la transacción. El
+  // lock_timeout es local a la transacción: arranca en rec.initialLockTimeout y
+  // se descarta al terminar (commit o rollback).
   db.$transaction.mockImplementation(async (fn: (tx: DbMock) => Promise<unknown>) => {
+    rec.lockTimeout = rec.initialLockTimeout;
+    rec.txAborted = false;
+    try {
+      return await runInTransaction(fn);
+    } finally {
+      rec.lockTimeout = null;
+      rec.txAborted = false;
+    }
+  });
+  const runInTransaction = async (fn: (tx: DbMock) => Promise<unknown>) => {
     const auditsBefore = rec.audits.length;
     const createdBefore = { ...rec.created };
     const clientsBefore = world.clients.slice();
@@ -560,6 +646,73 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       world.invoiceVatLines = invoiceVatLinesBefore;
       throw err;
     }
-  });
+  };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+// ── Bloqueo del período: secuencia esperada, orden y caso ocupado ─────────
+
+/** Secuencia raw de lockPeriodForWrite con el lock adquirido (rec.rawSteps). */
+export const periodLockSteps = (previous = "0") => [
+  `timeout:read@${previous}`,
+  "timeout:set@3000ms",
+  "lock:Period@3000ms",
+  `timeout:restore@${previous}`,
+];
+
+/** Secuencia raw con el Period ocupado (55P03): sin restauración (la transacción hace rollback). */
+export const periodBusySteps = (previous = "0") => [`timeout:read@${previous}`, "timeout:set@3000ms", "lock:Period@3000ms"];
+
+/** invocationCallOrder de la (única) llamada a $queryRaw cuyo SQL coincide con `re`. */
+export function rawCallOrder(db: DbMock, re: RegExp): number {
+  const matches = db.$queryRaw.mock.calls.map((c) => (c[0] as TemplateStringsArray).join("?")).filter((sql) => re.test(sql));
+  if (matches.length !== 1) throw new Error(`se esperaba UNA consulta raw ${re}, hubo ${matches.length}`);
+  const i = db.$queryRaw.mock.calls.findIndex((c) => re.test((c[0] as TemplateStringsArray).join("?")));
+  return db.$queryRaw.mock.invocationCallOrder[i];
+}
+/** Orden del FOR UPDATE real de Period (no de la lectura/set/restauración de lock_timeout). */
+export const periodLockOrder = (db: DbMock) => rawCallOrder(db, /FROM "Period"[\s\S]*FOR UPDATE/);
+/** Orden de la restauración del lock_timeout previo. */
+export const timeoutRestoreOrder = (db: DbMock) => rawCallOrder(db, /set_config\('lock_timeout', \?, true\)/);
+
+/** Contrato EXACTO del 409 por período ocupado (independiente de la constante productiva). */
+export const PERIOD_BUSY_BODY = {
+  error: {
+    code: "PERIOD_BUSY",
+    message: "El período está siendo modificado por otra operación. Esperá unos segundos y volvé a intentarlo.",
+  },
+};
+
+/** 409 PERIOD_BUSY con cuerpo exacto y no-store. */
+export async function expectPeriodBusyResponse(res: Response): Promise<void> {
+  expect(res.status).toBe(409);
+  expect(res.headers.get("cache-control")).toBe("no-store, max-age=0");
+  expect(await res.json()).toEqual(PERIOD_BUSY_BODY);
+}
+
+/**
+ * Espía console.error durante `fn` y devuelve si withApiAuthz registró un
+ * "error no clasificado". Restaura el espía siempre.
+ */
+export async function loggedUnclassified<T>(fn: () => Promise<T>): Promise<{ result: T; unclassified: boolean }> {
+  const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const result = await fn();
+    const unclassified = spy.mock.calls.some((c) => typeof c[0] === "string" && c[0].includes("no clasificado"));
+    return { result, unclassified };
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+/** Estado del harness tras la transacción ocupada: rollback y lock_timeout local descartado. */
+export function expectBusyRollback(rec: Recorder, previous = "0"): void {
+  expect(rec.rawSteps).toEqual(periodBusySteps(previous));
+  expect(rec.lockTimeouts.some((t) => t.step === "restore")).toBe(false);
+  expect(rec.locks).toHaveLength(1);
+  expect(rec.locks[0].sql).toMatch(/FROM "Period"/);
+  expect(rec.audits).toHaveLength(0);
+  expect(rec.created).toEqual({});
+  expect(rec.lockTimeout).toBeNull();
+  expect(rec.txAborted).toBe(false);
+}

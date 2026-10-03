@@ -34,6 +34,12 @@ import {
   ORG_A,
   ORG_B,
   type World,
+  periodLockSteps,
+  periodLockOrder,
+  timeoutRestoreOrder,
+  expectPeriodBusyResponse,
+  expectBusyRollback,
+  loggedUnclassified,
 } from "./_harness";
 import { DELETE } from "@/app/api/periods/[id]/route";
 
@@ -223,12 +229,35 @@ describe("DELETE /api/periods/[id] — bloqueo del período (lockPeriodForWrite)
     expect(rec.locks[0].sql).toMatch(/FROM "Period"/);
     expect(rec.locks[0].sql).toMatch(/FOR UPDATE/);
     expect(rec.locks[0].values).toEqual(["p_empty", ORG_A]);
-    const lockAt = order(db.$queryRaw);
+    const lockAt = periodLockOrder(db);
     expect(lockAt).toBeGreaterThan(order(db.$transaction));
     expect(lockAt).toBeLessThan(order(db.period.findFirst));
     expect(lockAt).toBeLessThan(order(db.invoice.count));
     expect(lockAt).toBeLessThan(order(db.taxRecord.count));
     expect(order(db.period.findFirst)).toBeLessThan(order(db.period.delete));
+  });
+
+  it("secuencia: leer timeout -> set 3000ms -> lock Period -> restaurar; recién después relectura, conteos y borrado", async () => {
+    expect((await del("p_empty")).status).toBe(204);
+    expect(rec.rawSteps).toEqual(periodLockSteps("0"));
+    const restoreAt = timeoutRestoreOrder(db);
+    expect(restoreAt).toBeGreaterThan(periodLockOrder(db));
+    expect(restoreAt).toBeLessThan(order(db.period.findFirst));
+    expect(restoreAt).toBeLessThan(order(db.invoice.count));
+    expect(restoreAt).toBeLessThan(order(db.period.delete));
+  });
+
+  it("período ocupado (55P03 en el lock de Period) -> 409 PERIOD_BUSY exacto, no-store, sin relectura, conteos, borrado ni AuditLog; rollback", async () => {
+    rec.periodLockBusy = true;
+    const { result: res, unclassified } = await loggedUnclassified(() => del("p_empty"));
+    await expectPeriodBusyResponse(res);
+    expect(unclassified).toBe(false);
+    expectBusyRollback(rec);
+    expect(db.period.findFirst).not.toHaveBeenCalled();
+    expect(db.invoice.count).not.toHaveBeenCalled();
+    expect(db.taxRecord.count).not.toHaveBeenCalled();
+    expect(db.period.delete).not.toHaveBeenCalled();
+    expect(exists("p_empty")).toBe(true);
   });
 
   it.each([

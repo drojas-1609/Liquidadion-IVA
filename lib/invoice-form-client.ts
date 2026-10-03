@@ -346,7 +346,8 @@ export function buildInvoiceUpdateBody(body: InvoiceV2Body, expectedUpdatedAt: s
 /**
  * Mensaje EXACTO del 409 por concurrencia de PATCH / DELETE
  * /api/invoices/[id] (verificado por test contra la ruta). Cualquier otro 409
- * es de duplicidad y se muestra el mensaje del servidor.
+ * (duplicidad, o PERIOD_BUSY: el período está siendo modificado por otra
+ * operación) muestra el mensaje del servidor, sin marcarlo como stale.
  */
 export const INVOICE_STALE_SERVER_MESSAGE =
     "El comprobante fue modificado por otra persona. Volvé a abrirlo para ver los datos actuales.";

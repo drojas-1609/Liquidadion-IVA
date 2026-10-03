@@ -31,6 +31,12 @@ import {
   ORG_B,
   periodRow,
   type World,
+  periodLockSteps,
+  periodLockOrder,
+  timeoutRestoreOrder,
+  expectPeriodBusyResponse,
+  expectBusyRollback,
+  loggedUnclassified,
 } from "./_harness";
 import { Prisma } from "@prisma/client";
 import { POST } from "@/app/api/invoices/route";
@@ -606,7 +612,7 @@ describe("POST /api/invoices — TurIVA (195–197)", () => {
     expect(rec.locks).toHaveLength(1);
     expect(rec.locks[0].values).toEqual(["p_a", ORG_A]);
     expect(rec.locks[0].sql).toMatch(/FOR UPDATE/);
-    const lockAt = db.$queryRaw.mock.invocationCallOrder[0];
+    const lockAt = periodLockOrder(db);
     expect(lockAt).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
     expect(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]).toBeLessThan(db.invoice.create.mock.invocationCallOrder[0]);
     expect(db.periodVatSettings.findUnique).toHaveBeenCalledWith(
@@ -711,7 +717,7 @@ describe("POST /api/invoices — bloqueo del período (lockPeriodForWrite)", () 
     expect(rec.locks[0].sql).toMatch(/FOR UPDATE/);
     expect(rec.locks[0].sql).toMatch(/FROM "Period"/);
     expect(rec.locks[0].values).toEqual(["p_a", ORG_A]);
-    const lockAt = db.$queryRaw.mock.invocationCallOrder[0];
+    const lockAt = periodLockOrder(db);
     expect(lockAt).toBeGreaterThan(db.$transaction.mock.invocationCallOrder[0]);
     expect(lockAt).toBeLessThan(db.invoice.create.mock.invocationCallOrder[0]);
     expect(rec.audits).toHaveLength(1);
@@ -722,7 +728,33 @@ describe("POST /api/invoices — bloqueo del período (lockPeriodForWrite)", () 
     expect((await post(jbody(saleT))).status).toBe(201);
     expect(periodLocks()).toHaveLength(1);
     expect(rec.locks).toHaveLength(1);
-    expect(db.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
+    expect(periodLockOrder(db)).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
+  });
+
+  it("T: leer timeout -> set 3000ms -> lock Period -> restaurar; recién después lectura TurIVA, comprobante y AuditLog", async () => {
+    turivaIncluded(true);
+    expect((await post(jbody(saleT))).status).toBe(201);
+    expect(rec.rawSteps).toEqual(periodLockSteps("0"));
+    const restoreAt = timeoutRestoreOrder(db);
+    expect(restoreAt).toBeGreaterThan(periodLockOrder(db));
+    expect(restoreAt).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
+    expect(restoreAt).toBeLessThan(db.invoice.create.mock.invocationCallOrder[0]);
+    expect(restoreAt).toBeLessThan(db.auditLog.create.mock.invocationCallOrder[0]);
+  });
+
+  it.each([
+    ["no T", () => sale],
+    ["T", () => (turivaIncluded(true), saleT)],
+  ])("período ocupado (%s, 55P03 en el lock de Period) -> 409 PERIOD_BUSY exacto, no-store, sin lectura TurIVA, comprobante ni AuditLog; rollback", async (_l, bodyOf) => {
+    const body = bodyOf();
+    rec.periodLockBusy = true;
+    const { result: res, unclassified } = await loggedUnclassified(() => post(jbody(body)));
+    await expectPeriodBusyResponse(res);
+    expect(unclassified).toBe(false);
+    expectBusyRollback(rec);
+    expect(db.periodVatSettings.findUnique).not.toHaveBeenCalled();
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expectNoWrite();
   });
 
   it("nunca bloquea Invoice en un alta", async () => {

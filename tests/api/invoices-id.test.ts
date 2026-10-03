@@ -31,6 +31,13 @@ import {
   ORG_B,
   periodRow,
   type World,
+  periodLockSteps,
+  periodLockOrder,
+  rawCallOrder,
+  timeoutRestoreOrder,
+  expectPeriodBusyResponse,
+  expectBusyRollback,
+  loggedUnclassified,
 } from "./_harness";
 import { Prisma } from "@prisma/client";
 import { PATCH, DELETE } from "@/app/api/invoices/[id]/route";
@@ -652,8 +659,9 @@ describe("PATCH /api/invoices/[id] — TurIVA (195–197)", () => {
     expect(res.status).toBe(200);
     expect(lockTargets()).toEqual(["Period:p_a", "Invoice:inv_1"]);
     // La relectura TurIVA ocurre DESPUÉS de ambos locks.
-    const lastLock = Math.max(...db.$queryRaw.mock.invocationCallOrder);
-    expect(lastLock).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
+    const invoiceLockAt = rawCallOrder(db, /FROM "Invoice"[\s\S]*FOR UPDATE/);
+    expect(periodLockOrder(db)).toBeLessThan(invoiceLockAt);
+    expect(invoiceLockAt).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
     expect(rec.audits[0].metadata.changedFields).toBe("number");
   });
 
@@ -744,6 +752,56 @@ describe("PATCH / DELETE /api/invoices/[id] — orden único de locks", () => {
     expect(res.status).toBe(404);
     expect(lockTargets()).toEqual(["Period:p_a"]);
     expectNoUpdate();
+  });
+
+  it("PATCH con lock_timeout previo 1500ms: leer -> set 3000ms -> lock Period -> restaurar 1500ms EXACTO; el lock de Invoice ya corre con 1500ms", async () => {
+    rec.initialLockTimeout = "1500ms";
+    expect((await edit({ number: 1002 })).status).toBe(200);
+    expect(rec.rawSteps).toEqual([...periodLockSteps("1500ms"), "lock:Invoice@1500ms"]);
+    expect(rec.lockTimeouts.at(-1)).toEqual({ step: "restore", value: "1500ms" });
+    const restoreAt = timeoutRestoreOrder(db);
+    expect(restoreAt).toBeGreaterThan(periodLockOrder(db));
+    expect(restoreAt).toBeLessThan(rawCallOrder(db, /FROM "Invoice"[\s\S]*FOR UPDATE/));
+    expect(restoreAt).toBeLessThan(db.invoiceVatLine.findMany.mock.invocationCallOrder[0]);
+    expect(restoreAt).toBeLessThan(db.invoice.update.mock.invocationCallOrder[0]);
+    expect(restoreAt).toBeLessThan(db.auditLog.create.mock.invocationCallOrder[0]);
+  });
+
+  it("DELETE: leer -> set 3000ms -> lock Period -> restaurar; recién después lock de Invoice, borrado y AuditLog", async () => {
+    expect((await del()).status).toBe(204);
+    expect(rec.rawSteps).toEqual([...periodLockSteps("0"), "lock:Invoice@0"]);
+    const restoreAt = timeoutRestoreOrder(db);
+    expect(restoreAt).toBeGreaterThan(periodLockOrder(db));
+    expect(restoreAt).toBeLessThan(rawCallOrder(db, /FROM "Invoice"[\s\S]*FOR UPDATE/));
+    expect(restoreAt).toBeLessThan(db.invoiceVatLine.deleteMany.mock.invocationCallOrder[0]);
+    expect(restoreAt).toBeLessThan(db.invoice.delete.mock.invocationCallOrder[0]);
+    expect(restoreAt).toBeLessThan(db.auditLog.create.mock.invocationCallOrder[0]);
+  });
+
+  it("PATCH con el período ocupado (55P03 en el lock de Period) -> 409 PERIOD_BUSY exacto, no-store; sin lock de Invoice, líneas, TurIVA, escritura ni AuditLog; rollback", async () => {
+    withInvoice(saleT, {}, (w) => turivaIncluded(w, true));
+    rec.periodLockBusy = true;
+    const { result: res, unclassified } = await loggedUnclassified(() => edit({ number: 1002 }, saleT));
+    await expectPeriodBusyResponse(res);
+    expect(unclassified).toBe(false);
+    expectBusyRollback(rec);
+    expect(lockTargets()).toEqual(["Period:p_a"]);
+    expect(db.invoiceVatLine.findMany).not.toHaveBeenCalled();
+    expect(db.periodVatSettings.findUnique).not.toHaveBeenCalled();
+    expectNoUpdate();
+    expect(current()?.number).toBe(1001);
+  });
+
+  it("DELETE con el período ocupado (55P03 en el lock de Period) -> 409 PERIOD_BUSY exacto, no-store; sin lock de Invoice, borrado de líneas, baja ni AuditLog; rollback", async () => {
+    rec.periodLockBusy = true;
+    const { result: res, unclassified } = await loggedUnclassified(() => del());
+    await expectPeriodBusyResponse(res);
+    expect(unclassified).toBe(false);
+    expectBusyRollback(rec);
+    expect(lockTargets()).toEqual(["Period:p_a"]);
+    expect(db.invoiceVatLine.findMany).not.toHaveBeenCalled();
+    expect(db.invoiceVatLine.deleteMany).not.toHaveBeenCalled();
+    expectNotDeleted();
   });
 });
 
@@ -838,6 +896,57 @@ describe("DELETE /api/invoices/[id]", () => {
     onPeriodLock(() => (world.invoices![0] = { ...world.invoices![0], updatedAt: new Date("2026-05-11T10:00:01.000Z") }));
     expect((await del()).status).toBe(409);
     expect(db.invoice.delete).not.toHaveBeenCalled();
+  });
+
+  describe("fila bloqueada fuera del período / cliente autorizados (mismo updatedAt) -> el MISMO 409 stale", () => {
+    const STALE_BODY = {
+      error: {
+        code: "CONFLICT",
+        message: "El comprobante fue modificado por otra persona. Volvé a abrirlo para ver los datos actuales.",
+      },
+    };
+
+    it("referencia: el 409 stale por updatedAt viejo tiene exactamente ese cuerpo", async () => {
+      const res = await del("2026-05-11T09:59:59.999Z");
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual(STALE_BODY);
+    });
+
+    it.each([
+      ["periodId", { periodId: "p_ajeno" }],
+      ["clientId", { clientId: "c_ajeno" }],
+      ["periodId y clientId", { periodId: "p_ajeno", clientId: "c_ajeno" }],
+    ])("%s cambiado bajo lock -> 409 stale idéntico, sin leer líneas, evaluar eliminabilidad, borrar ni AuditLog", async (_l, over) => {
+      // Además la fila deja de ser eliminable (MULTI_RATE): si la eliminabilidad
+      // se evaluara antes, respondería 422. El 409 prueba el orden.
+      onPeriodLock(() => {
+        world.invoices![0] = { ...world.invoices![0], ...over };
+        world.invoiceVatLines!.push({ ...world.invoiceVatLines![0], id: "vl_x", vatRateCode: 4 });
+      });
+      const res = await del();
+      expect(res.status).toBe(409);
+      expect(res.headers.get("cache-control")).toBe("no-store, max-age=0");
+      const body = await res.json();
+      expect(body).toEqual(STALE_BODY);
+      expect(JSON.stringify(body)).not.toMatch(/p_ajeno|c_ajeno|p_a|c_a|org_|inv_1/);
+
+      expect(lockTargets()).toEqual(["Period:p_a", "Invoice:inv_1"]);
+      expect(db.invoiceVatLine.findMany).not.toHaveBeenCalled();
+      expect(db.invoiceVatLine.deleteMany).not.toHaveBeenCalled();
+      expect(db.invoice.delete).not.toHaveBeenCalled();
+      expect(rec.audits).toHaveLength(0);
+      expect(rec.created).toEqual({});
+      // Fila y líneas intactas. (El rollback del harness restaura el mundo al
+      // inicio de la transacción, incluida la modificación simulada bajo lock.)
+      expectNotDeleted();
+    });
+  });
+
+  it("caso normal: la relectura de líneas ocurre DESPUÉS del lock de Invoice y de las comprobaciones", async () => {
+    expect((await del()).status).toBe(204);
+    const invoiceLockAt = rawCallOrder(db, /FROM "Invoice"[\s\S]*FOR UPDATE/);
+    expect(db.invoiceVatLine.findMany.mock.invocationCallOrder[0]).toBeGreaterThan(invoiceLockAt);
+    expect(db.invoiceVatLine.findMany).toHaveBeenCalledWith({ where: { invoiceId: INV, organizationId: ORG_A }, select: { vatRateCode: true } });
   });
 
   it("baja concurrente antes del lock -> 404", async () => {

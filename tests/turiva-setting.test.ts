@@ -127,3 +127,16 @@ describe("runTurivaToggle — sin optimismo y sin doble envío", () => {
     expect(await runTurivaToggle({ ...d, submit: vi.fn(async () => ({ ok: true, turivaIncluded: false }) as TurivaSettingResult) })).toBe("saved");
   });
 });
+
+describe("409 PERIOD_BUSY", () => {
+  const BUSY_MESSAGE = "El período está siendo modificado por otra operación. Esperá unos segundos y volvé a intentarlo.";
+
+  it("submitTurivaSetting -> mensaje EXACTO del servidor", async () => {
+    const fetchImpl = vi.fn(async () => json(409, { error: { code: "PERIOD_BUSY", message: BUSY_MESSAGE } }));
+    expect(await submitTurivaSetting("p", false, fetchImpl as unknown as typeof fetch)).toEqual({ ok: false, message: BUSY_MESSAGE });
+  });
+
+  it("turivaSettingErrorMessage(409, PERIOD_BUSY) -> mensaje EXACTO", () => {
+    expect(turivaSettingErrorMessage(409, { error: { code: "PERIOD_BUSY", message: BUSY_MESSAGE } })).toBe(BUSY_MESSAGE);
+  });
+});
