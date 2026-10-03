@@ -218,7 +218,9 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
 // Orden: auth -> organización -> rol -> expectedUpdatedAt (422) -> comprobante
 // por id + organización (404) -> acceso al período (404) -> eliminabilidad
 // (422) -> transacción: lock Period (lockPeriodForWrite) -> lock Invoice ->
-// updatedAt exacto (409) -> eliminabilidad sobre la fila bloqueada (422) ->
+// updatedAt exacto (409) -> fila bloqueada del mismo período y cliente
+// autorizados (si no, el mismo 409) -> líneas y eliminabilidad sobre la fila
+// bloqueada (422) ->
 // borrado de líneas y comprobante + AuditLog invoice.delete. Si falla el
 // AuditLog, rollback total.
 export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
@@ -239,6 +241,7 @@ export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const access = await requirePeriodAccess(profileId, current.periodId, ROLES_DELETE);
     if (access.organizationId !== organizationId) throw new NotFoundError();
     const periodId = access.period.id;
+    const clientId = access.period.clientId;
 
     const pre = invoiceDeletability({
         source: current.source,
@@ -249,11 +252,20 @@ export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
 
     await prisma.$transaction(async (tx) => {
         await lockPeriodForWrite(tx, periodId, organizationId);
-        const lockedRow = await lockedRowWithLines(tx, id, organizationId);
-        if (!lockedRow) throw new NotFoundError();
-        const { locked, row } = lockedRow;
+        const locked = await lockInvoiceForUpdate(tx, id, organizationId);
+        if (!locked) throw new NotFoundError();
 
         if (locked.updatedAt.getTime() !== expected.data.getTime()) throw new ConflictError(STALE_MESSAGE);
+        // Defensa en profundidad: la fila bloqueada debe seguir siendo del
+        // período y cliente autorizados antes de la transacción. Si no, el
+        // mismo 409 stale (sin ids ni organización), antes de leer líneas.
+        if (locked.periodId !== periodId || locked.clientId !== clientId) throw new ConflictError(STALE_MESSAGE);
+
+        const lockedLines = await tx.invoiceVatLine.findMany({
+            where: { invoiceId: id, organizationId },
+            select: { vatRateCode: true },
+        });
+        const row = editableRowOf(locked, lockedLines.map((l) => l.vatRateCode));
         const deletability = invoiceDeletability(row);
         if (!deletability.ok) throw notEditable(deletability.reason);
 

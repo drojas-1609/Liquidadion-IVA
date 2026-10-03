@@ -28,6 +28,12 @@ import {
   ORG_A,
   ORG_B,
   type World,
+  periodLockSteps,
+  periodLockOrder,
+  timeoutRestoreOrder,
+  expectPeriodBusyResponse,
+  expectBusyRollback,
+  loggedUnclassified,
 } from "./_harness";
 import { POST } from "@/app/api/taxes/route";
 
@@ -131,10 +137,36 @@ describe("POST /api/taxes — bloqueo del período (lockPeriodForWrite)", () => 
     expect(rec.locks[0].sql).toMatch(/FROM "Period"/);
     expect(rec.locks[0].sql).toMatch(/FOR UPDATE/);
     expect(rec.locks[0].values).toEqual(["p_a", ORG_A]);
-    const lockAt = db.$queryRaw.mock.invocationCallOrder[0];
+    const lockAt = periodLockOrder(db);
     expect(lockAt).toBeGreaterThan(db.$transaction.mock.invocationCallOrder[0]);
     expect(lockAt).toBeLessThan(db.taxRecord.create.mock.invocationCallOrder[0]);
     expect(rec.audits).toHaveLength(1);
+  });
+
+  it.each([["0"], ["1500ms"]])(
+    "lock_timeout previo %s: leer -> set 3000ms -> lock Period -> restaurar EXACTAMENTE el previo; recién después TaxRecord y AuditLog",
+    async (previous) => {
+      rec.initialLockTimeout = previous;
+      expect((await post(jbody(valid))).status).toBe(201);
+      expect(rec.rawSteps).toEqual(periodLockSteps(previous));
+      expect(rec.lockTimeouts).toEqual([
+        { step: "read", value: previous },
+        { step: "set", value: "3000ms" },
+        { step: "restore", value: previous },
+      ]);
+      expect(timeoutRestoreOrder(db)).toBeGreaterThan(periodLockOrder(db));
+      expect(timeoutRestoreOrder(db)).toBeLessThan(db.taxRecord.create.mock.invocationCallOrder[0]);
+      expect(timeoutRestoreOrder(db)).toBeLessThan(db.auditLog.create.mock.invocationCallOrder[0]);
+    },
+  );
+
+  it("período ocupado (55P03 en el lock de Period) -> 409 PERIOD_BUSY exacto, no-store, sin TaxRecord ni AuditLog, sin restaurar y rollback", async () => {
+    rec.periodLockBusy = true;
+    const { result: res, unclassified } = await loggedUnclassified(() => post(jbody(valid)));
+    await expectPeriodBusyResponse(res);
+    expect(unclassified).toBe(false);
+    expectBusyRollback(rec);
+    expectNoTaxWrite();
   });
 
   it("período eliminado en paralelo: el bloqueo no lo encuentra -> 404 NOT_FOUND, sin TaxRecord ni AuditLog", async () => {

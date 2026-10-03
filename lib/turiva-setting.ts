@@ -20,7 +20,8 @@ export const TURIVA_SETTING_FORBIDDEN_ERROR = "No tenés permisos para modificar
 
 export function turivaSettingErrorMessage(status: number, body: unknown): string {
     const apiError = readApiError(body);
-    // 409: el período tiene comprobantes 195–197; se muestra el mensaje exacto de la API.
+    // 409: el período tiene comprobantes 195–197, o está siendo modificado por
+    // otra operación (PERIOD_BUSY); se muestra el mensaje exacto de la API.
     if (status === 409) return apiError?.message ?? TURIVA_SETTING_GENERIC_ERROR;
     if (status === 400 || status === 422) return TURIVA_SETTING_BAD_REQUEST_ERROR;
     if (status === 403) return TURIVA_SETTING_FORBIDDEN_ERROR;

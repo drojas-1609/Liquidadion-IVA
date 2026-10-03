@@ -714,3 +714,30 @@ describe("runExclusive — guardia compartido de la baja (mismo helper que invoi
     expect(src).not.toMatch(/if \(inFlight\.current/);
   });
 });
+
+describe("409 PERIOD_BUSY — el mensaje del servidor llega tal cual (alta, edición y baja)", () => {
+  const BUSY_MESSAGE = "El período está siendo modificado por otra operación. Esperá unos segundos y volvé a intentarlo.";
+  const busy = () => jsonRes(409, { error: { code: "PERIOD_BUSY", message: BUSY_MESSAGE } });
+  const v2 = () => {
+    const b = buildInvoiceV2Body({ ctx: ctx(), periodId: "p_a", state: initialEditState(ctx(), stored()) });
+    if (!b.ok) throw new Error(b.message);
+    return b.body;
+  };
+
+  it("alta: submitInvoice -> feedback de formulario con el mensaje EXACTO, no pendiente", async () => {
+    expect(await submitInvoice(v2(), fetchOnce(busy()))).toEqual({
+      ok: false,
+      feedback: { control: "form", message: BUSY_MESSAGE, pending: false },
+    });
+  });
+
+  it("edición: submitInvoiceUpdate -> mensaje EXACTO, SIN marcar stale (no hay que recargar los datos)", async () => {
+    const result = await submitInvoiceUpdate("i", buildInvoiceUpdateBody(v2(), T0), fetchOnce(busy()));
+    expect(result).toEqual({ ok: false, feedback: { control: "form", message: BUSY_MESSAGE, pending: false } });
+    expect(result.ok === false && result.feedback.stale).toBeFalsy();
+  });
+
+  it("baja: deleteInvoice -> mensaje EXACTO, stale false", async () => {
+    expect(await deleteInvoice("i", T0, fetchOnce(busy()))).toEqual({ ok: false, feedback: { message: BUSY_MESSAGE, stale: false } });
+  });
+});

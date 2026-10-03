@@ -2,6 +2,7 @@
 
 import { useState, use } from "react";
 import { useRouter } from "next/navigation";
+import { taxErrorMessage } from "@/lib/tax-form-client";
 
 export default function NewTaxPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
     const { id, periodId } = use(params);
@@ -28,8 +29,8 @@ export default function NewTaxPage({ params }: { params: Promise<{ id: string; p
             });
 
             if (!res.ok) {
-                const j = await res.json().catch(() => null);
-                throw new Error(j?.field ? `${j.field}: ${j.error}` : j?.error || "Error al crear el registro");
+                const j: unknown = await res.json().catch(() => null);
+                throw new Error(taxErrorMessage(j));
             }
 
             router.push(`/client/${id}/period/${periodId}/taxes`);

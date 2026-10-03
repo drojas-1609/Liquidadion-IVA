@@ -11,6 +11,8 @@ import {
   BadRequestError,
   ValidationError,
   MisconfiguredError,
+  PeriodBusyError,
+  PERIOD_BUSY_MESSAGE,
   isAuthError,
   authErrorBody,
   authErrorResponse,
@@ -152,5 +154,29 @@ describe("contrato de errores de authz (Tarea 3B)", () => {
     ]) {
       expect(e.message).not.toMatch(/prisma|P20\d\d|constraint|postgres|token|eyJ/i);
     }
+  });
+});
+
+describe("contrato de errores — período bloqueado (PERIOD_BUSY)", () => {
+  const MESSAGE =
+    "El período está siendo modificado por otra operación. Esperá unos segundos y volvé a intentarlo.";
+
+  it("PeriodBusyError -> 409 PERIOD_BUSY con el mensaje constante", () => {
+    const err = new PeriodBusyError();
+    expect(err).toBeInstanceOf(AuthError);
+    expect(isAuthError(err)).toBe(true);
+    expect(err).toMatchObject({ code: "PERIOD_BUSY", status: 409, name: "PeriodBusyError", message: MESSAGE });
+    expect(PERIOD_BUSY_MESSAGE).toBe(MESSAGE);
+    expect(err.field).toBeUndefined();
+  });
+
+  it("authErrorResponse: 409, no-store y cuerpo EXACTO (sin field, pending, SQLSTATE ni metadata)", async () => {
+    const res = authErrorResponse(new PeriodBusyError());
+    expect(res.status).toBe(409);
+    expect(res.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expect(res.headers.get("retry-after")).toBeNull();
+    const body = await res.json();
+    expect(body).toEqual({ error: { code: "PERIOD_BUSY", message: MESSAGE } });
+    expect(JSON.stringify(body)).not.toMatch(/55P03|P2010|lock_timeout|prisma|postgres/i);
   });
 });

@@ -42,6 +42,8 @@ import {
   NotFoundError,
   MisconfiguredError,
   BadRequestError,
+  PeriodBusyError,
+  PERIOD_BUSY_MESSAGE,
 } from "@/lib/auth/errors";
 import { ROLES_READ, ROLES_CREATE } from "@/lib/auth/roles";
 
@@ -377,6 +379,40 @@ describe("withApiAuthz", () => {
     const res = await wrapped(new Request("http://x/api"));
     expect(res.status).toBe(500);
     expect((await res.json()).error.code).toBe("INTERNAL");
+  });
+
+  it("PeriodBusyError -> 409 PERIOD_BUSY con no-store (no se loguea como no clasificado)", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const wrapped = withApiAuthz(async () => {
+      throw new PeriodBusyError();
+    });
+    const res = await wrapped(new Request("http://x/api"));
+    expect(res.status).toBe(409);
+    expect(res.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expect(await res.json()).toEqual({ error: { code: "PERIOD_BUSY", message: PERIOD_BUSY_MESSAGE } });
+    expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  // Sin mapeo global: sólo lockPeriodForWrite traduce 55P03 a PERIOD_BUSY.
+  it.each([
+    ["P2028 (timeout de la transacción)", "P2028", undefined],
+    ["P2028 (no se pudo iniciar la transacción)", "P2028", { error: "Unable to start a transaction in the given time." }],
+    ["P2034 (conflicto de escritura / deadlock)", "P2034", undefined],
+    ["P2010 55P03 fuera del helper", "P2010", { code: "55P03", message: "canceling statement due to lock timeout" }],
+    ["P2010 40P01 (deadlock)", "P2010", { code: "40P01", message: "deadlock detected" }],
+    ["P2010 57014 (statement_timeout)", "P2010", { code: "57014", message: "canceling statement due to statement timeout" }],
+  ])("%s -> 500 INTERNAL genérico, NO 409 PERIOD_BUSY", async (_l, code, meta) => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const wrapped = withApiAuthz(async () => {
+      throw new Prisma.PrismaClientKnownRequestError("detalle interno", { code, clientVersion: "6.19.3", meta });
+    });
+    const res = await wrapped(new Request("http://x/api"));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toEqual({ error: { code: "INTERNAL", message: "Error interno." } });
+    expect(JSON.stringify(body)).not.toMatch(/55P03|40P01|57014|P20\d\d|lock|detalle interno/i);
+    log.mockRestore();
   });
 
   it("pasa el segundo argumento (ctx con params) al handler", async () => {
