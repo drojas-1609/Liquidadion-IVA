@@ -15,9 +15,15 @@ import { NotFoundError, PeriodBusyError } from "./auth/errors";
  * Sin fila para (id, organización) -> el mismo 404 que los controles de acceso.
  *
  * Espera acotada: `lock_timeout` de 3000 ms, local a la transacción
- * (`set_config(..., true)`), activo SÓLO durante el FOR UPDATE del Period. Es
- * menor que el timeout de la transacción interactiva de Prisma (5000 ms), así
- * la contención se informa antes de que venza la transacción. Antes se lee el
+ * (`set_config(..., true)`), activo SÓLO durante el FOR UPDATE del Period.
+ *
+ * Presupuesto de la transacción: cada writer inventariado declara
+ * LITERALMENTE `{ maxWait: 5000, timeout: 10000 }` en su transacción interactiva
+ * (lo exige tests/_period-lock-structure.ts): hasta 5000 ms para obtener la
+ * transacción y 10000 ms en total. Así, aun esperando los 3000 ms del bloqueo,
+ * quedan unos 7000 ms para el resto de la operación, y la contención se
+ * informa (PERIOD_BUSY) antes de que venza la transacción. Vencido el timeout
+ * de Prisma (P2028) sigue siendo un 500 genérico. Antes se lee el
  * valor vigente y, adquirido el bloqueo, se restaura exactamente ese valor: el
  * límite no alcanza al bloqueo de Invoice, a los índices únicos ni a las
  * escrituras posteriores.

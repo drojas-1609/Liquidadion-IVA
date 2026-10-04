@@ -26,3 +26,17 @@ export function formatIsoDate(value: string | null): string {
   const m = value ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
   return m ? `${m[3]}/${m[2]}/${m[1]}` : "—";
 }
+
+/**
+ * Día UTC de un instante como `AAAA-MM-DD` (las fechas de TaxRecord se guardan
+ * a medianoche UTC). No depende de la zona horaria del servidor ni del
+ * navegador. Fecha inválida -> null.
+ */
+export function utcDateIso(value: Date): string | null {
+  return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+}
+
+/** Día UTC de un instante como `DD/MM/AAAA` (sin `toLocaleDateString`). Fecha inválida -> "—". */
+export function formatUtcDate(value: Date): string {
+  return formatIsoDate(utcDateIso(value));
+}

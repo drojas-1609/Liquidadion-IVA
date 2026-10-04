@@ -29,6 +29,7 @@ import {
   ORG_B,
   type World,
   periodLockSteps,
+  PERIOD_WRITE_TX_OPTIONS,
   periodLockOrder,
   timeoutRestoreOrder,
   expectPeriodBusyResponse,
@@ -143,6 +144,11 @@ describe("POST /api/taxes — bloqueo del período (lockPeriodForWrite)", () => 
     expect(rec.audits).toHaveLength(1);
   });
 
+  it("201: una única la transacción recibe exactamente { maxWait: 5000, timeout: 10000 }", async () => {
+    expect((await post(jbody(valid))).status).toBe(201);
+    expect(rec.txOptions).toEqual([PERIOD_WRITE_TX_OPTIONS]);
+  });
+
   it.each([["0"], ["1500ms"]])(
     "lock_timeout previo %s: leer -> set 3000ms -> lock Period -> restaurar EXACTAMENTE el previo; recién después TaxRecord y AuditLog",
     async (previous) => {
@@ -188,6 +194,89 @@ describe("POST /api/taxes — bloqueo del período (lockPeriodForWrite)", () => 
     expect(db.$transaction).not.toHaveBeenCalled();
     expect(db.$queryRaw).not.toHaveBeenCalled();
     expectNoTaxWrite();
+  });
+});
+
+describe("POST /api/taxes — catálogo, importe y fecha dentro del período", () => {
+  it.each([["RETENCION IVA"], ["PERCEPCION IVA"], ["RETENCION IIBB"], ["PERCEPCION IIBB"], ["SIRCREB"], ["SIRTAC"]])(
+    "tipo %s -> 201 con el valor exacto",
+    async (type) => {
+      const res = await post(jbody({ ...valid, type }));
+      expect(res.status).toBe(201);
+      expect((await res.json()).type).toBe(type);
+      expect(rec.created.taxRecord.type).toBe(type);
+      expect(rec.audits[0].metadata).toEqual({ periodId: "p_a", type });
+    },
+  );
+
+  it.each([
+    ["type", { type: "RETENCION GANANCIAS" }],
+    ["type", { type: "retencion iva" }],
+    ["amount", { amount: "0" }],
+    ["amount", { amount: "0.00" }],
+    ["amount", { amount: "-1" }],
+    ["date", { date: "2026-05-10T00:00:00.000Z" }],
+    ["description", { description: 1 }],
+  ])("%s inválido -> 422 sin transacción", async (field, over) => {
+    const res = await post(jbody({ ...valid, ...over }));
+    expect(res.status).toBe(422);
+    expect((await res.json()).field).toBe(field);
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(rec.created.taxRecord).toBeUndefined();
+  });
+
+  it.each([["2026-04-30"], ["2026-06-01"], ["2025-05-10"]])(
+    "fecha %s fuera del período 05/2026 -> 422 date bajo el lock, sin TaxRecord ni AuditLog",
+    async (date) => {
+      const res = await post(jbody({ ...valid, date }));
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual({
+        error: { code: "UNPROCESSABLE_ENTITY", message: "la fecha debe pertenecer al período 05/2026" },
+        field: "date",
+      });
+      expect(rec.rawSteps).toEqual(periodLockSteps("0"));
+      expect(db.taxRecord.create).not.toHaveBeenCalled();
+      expect(rec.audits).toHaveLength(0);
+    },
+  );
+
+  it("201: cuerpo exacto del DTO, con updatedAt ISO", async () => {
+    const res = await post(jbody({ ...valid, description: "  Banco X  " }));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(Object.keys(body).sort()).toEqual(["amount", "date", "description", "id", "periodId", "type", "updatedAt"]);
+    expect(body).toMatchObject({
+      date: "2026-05-10T00:00:00.000Z",
+      type: "RETENCION IVA",
+      amount: "2500.00",
+      description: "Banco X",
+      periodId: "p_a",
+      updatedAt: "1970-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("primer y último día del período -> 201", async () => {
+    expect((await post(jbody({ ...valid, date: "2026-05-01" }))).status).toBe(201);
+    expect((await post(jbody({ ...valid, date: "2026-05-31" }))).status).toBe(201);
+  });
+
+  it("la relectura del período bajo el lock no lo encuentra -> 404 sin TaxRecord ni AuditLog", async () => {
+    db.period.findFirst.mockResolvedValueOnce(null);
+    const res = await post(jbody(valid));
+    expect(res.status).toBe(404);
+    expect(db.taxRecord.create).not.toHaveBeenCalled();
+    expect(rec.audits).toHaveLength(0);
+  });
+
+  it("orden: lock Period -> relectura (id + organización activa) -> create -> AuditLog, con opciones exactas", async () => {
+    expect((await post(jbody(valid))).status).toBe(201);
+    const order = (fn: { mock: { invocationCallOrder: number[] } }) => fn.mock.invocationCallOrder[0];
+    expect(db.period.findFirst).toHaveBeenCalledWith({ where: { id: "p_a", organizationId: ORG_A }, select: { month: true, year: true } });
+    expect(periodLockOrder(db)).toBeLessThan(order(db.period.findFirst));
+    expect(timeoutRestoreOrder(db)).toBeLessThan(order(db.period.findFirst));
+    expect(order(db.period.findFirst)).toBeLessThan(order(db.taxRecord.create));
+    expect(order(db.taxRecord.create)).toBeLessThan(order(db.auditLog.create));
+    expect(rec.txOptions).toEqual([PERIOD_WRITE_TX_OPTIONS]);
   });
 });
 

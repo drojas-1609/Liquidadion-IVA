@@ -32,6 +32,7 @@ import {
   periodRow,
   type World,
   periodLockSteps,
+  PERIOD_WRITE_TX_OPTIONS,
   periodLockOrder,
   timeoutRestoreOrder,
   expectPeriodBusyResponse,
@@ -721,6 +722,16 @@ describe("POST /api/invoices — bloqueo del período (lockPeriodForWrite)", () 
     expect(lockAt).toBeGreaterThan(db.$transaction.mock.invocationCallOrder[0]);
     expect(lockAt).toBeLessThan(db.invoice.create.mock.invocationCallOrder[0]);
     expect(rec.audits).toHaveLength(1);
+  });
+
+  it.each([
+    ["venta A", sale, false],
+    ["compra A", valid, false],
+    ["venta T", saleT, true],
+  ])("%s (201): una única la transacción recibe exactamente { maxWait: 5000, timeout: 10000 }", async (_l, body, included) => {
+    if (included) turivaIncluded(true);
+    expect((await post(jbody(body))).status).toBe(201);
+    expect(rec.txOptions).toEqual([PERIOD_WRITE_TX_OPTIONS]);
   });
 
   it("T -> un único bloqueo de Period (el helper TurIVA no vuelve a bloquear), antes de la lectura TurIVA", async () => {

@@ -35,6 +35,7 @@ import {
   ORG_B,
   type World,
   periodLockSteps,
+  PERIOD_WRITE_TX_OPTIONS,
   periodLockOrder,
   timeoutRestoreOrder,
   expectPeriodBusyResponse,
@@ -235,6 +236,11 @@ describe("DELETE /api/periods/[id] — bloqueo del período (lockPeriodForWrite)
     expect(lockAt).toBeLessThan(order(db.invoice.count));
     expect(lockAt).toBeLessThan(order(db.taxRecord.count));
     expect(order(db.period.findFirst)).toBeLessThan(order(db.period.delete));
+  });
+
+  it("204: una única la transacción recibe exactamente { maxWait: 5000, timeout: 10000 }", async () => {
+    expect((await del("p_empty")).status).toBe(204);
+    expect(rec.txOptions).toEqual([PERIOD_WRITE_TX_OPTIONS]);
   });
 
   it("secuencia: leer timeout -> set 3000ms -> lock Period -> restaurar; recién después relectura, conteos y borrado", async () => {

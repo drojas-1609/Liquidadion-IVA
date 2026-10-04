@@ -95,8 +95,12 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "changedFields",
   ],
   "invoice.delete": ["periodId", "category", "voucherCode", "pointOfSale", "number"],
-  "taxrecord.update": [],
-  "taxrecord.delete": [],
+  // Corrección de retenciones/percepciones. `typeBefore` sale de la fila
+  // BLOQUEADA (puede ser un tipo histórico fuera del catálogo: se conserva
+  // saneado); `typeAfter`, de lo validado por el servidor. changedFields: ver
+  // TAXRECORD_CHANGED_FIELDS. NUNCA importe, descripción ni fecha.
+  "taxrecord.update": ["periodId", "typeBefore", "typeAfter", "changedFields"],
+  "taxrecord.delete": ["periodId", "type"],
   "member.add": [],
   "member.remove": [],
   "member.role_change": [],
@@ -123,17 +127,44 @@ function sanitizeScalar(value: unknown): Scalar | undefined {
   return undefined;
 }
 
+/** Campos de un TaxRecord que puede nombrar `changedFields`, en su orden canónico. */
+const TAXRECORD_CHANGED_FIELDS = ["date", "type", "amount", "description"] as const;
+
+/**
+ * `changedFields` de `taxrecord.update`: SÓLO un array de nombres de
+ * TAXRECORD_CHANGED_FIELDS. Se descartan los elementos ajenos (otros nombres,
+ * vacíos, no-string) y los duplicados; el resultado sale en el orden canónico
+ * y separado por comas, como el `changedFields` de las demás acciones. Si no
+ * es un array o no queda ningún nombre válido, la clave se omite. Ningún texto
+ * del llamador llega a la salida: sólo los nombres fijos de la lista.
+ */
+function taxRecordChangedFields(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const names = TAXRECORD_CHANGED_FIELDS.filter((f) => value.includes(f));
+  return names.length > 0 ? names.join(",") : undefined;
+}
+
+/**
+ * Normalizadores por acción y clave que reemplazan a `sanitizeScalar`. Sólo
+ * para las claves listadas; el resto de las acciones no cambia.
+ */
+const METADATA_NORMALIZERS: Partial<Record<AuditAction, Readonly<Record<string, (value: unknown) => Scalar | undefined>>>> = {
+  "taxrecord.update": { changedFields: taxRecordChangedFields },
+};
+
 /**
  * Devuelve un objeto plano y seguro con SÓLO las claves de la allow-list de
  * `action` cuyos valores sean escalares no sensibles. Salida mínima: `{}`.
  */
 export function sanitizeAuditMetadata(action: string, input: unknown): Prisma.InputJsonObject {
   const allow = (METADATA_ALLOW as Record<string, readonly string[] | undefined>)[action] ?? [];
+  const normalizers = (METADATA_NORMALIZERS as Record<string, Readonly<Record<string, (value: unknown) => Scalar | undefined>> | undefined>)[action];
   const out: Record<string, Scalar> = {};
   if (allow.length > 0 && input !== null && typeof input === "object" && !Array.isArray(input)) {
     const src = input as Record<string, unknown>;
     for (const key of allow) {
-      const v = sanitizeScalar(src[key]);
+      const normalize = normalizers && Object.hasOwn(normalizers, key) ? normalizers[key] : sanitizeScalar;
+      const v = normalize(src[key]);
       if (v !== undefined) out[key] = v;
     }
   }

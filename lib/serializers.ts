@@ -189,6 +189,8 @@ export interface TaxRecordDTO {
   amount: string;
   description: string | null;
   periodId: string;
+  /** Token de concurrencia: `updatedAt` ISO exacto (milisegundos, `Z`). */
+  updatedAt: string;
 }
 
 export function serializeTaxRecord(t: {
@@ -198,6 +200,7 @@ export function serializeTaxRecord(t: {
   amount: Prisma.Decimal;
   description: string | null;
   periodId: string;
+  updatedAt: Date;
 }): TaxRecordDTO {
   return {
     id: t.id,
@@ -206,6 +209,7 @@ export function serializeTaxRecord(t: {
     amount: money(t.amount),
     description: t.description,
     periodId: t.periodId,
+    updatedAt: iso(t.updatedAt),
   };
 }
 

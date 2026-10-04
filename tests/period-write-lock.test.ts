@@ -226,6 +226,7 @@ const WRITERS: Record<string, readonly string[]> = {
   "app/api/invoices/route.ts": ["POST"],
   "app/api/invoices/[id]/route.ts": ["PATCH", "DELETE"],
   "app/api/taxes/route.ts": ["POST"],
+  "app/api/taxes/[id]/route.ts": ["PATCH", "DELETE"],
   "app/api/periods/[id]/vat-settings/route.ts": ["PATCH"],
   "app/api/periods/[id]/route.ts": ["DELETE"],
 };
@@ -242,8 +243,9 @@ const codes = (file: string, src: string, methods?: readonly string[]) => codesO
 const details = (file: string, src: string, methods?: readonly string[]) => analyzeSource(file, src, methods).map((v) => v.detail).join(" | ");
 
 describe("cobertura estructural — producción", () => {
-  it("el inventario es exacto: 6 handlers en 5 archivos", () => {
-    expect(Object.values(WRITERS).flat()).toHaveLength(6);
+  it("el inventario es exacto: 8 handlers en 6 archivos", () => {
+    expect(Object.keys(WRITERS)).toHaveLength(6);
+    expect(Object.values(WRITERS).flat()).toHaveLength(8);
     expect(productionFiles.length).toBeGreaterThan(20);
   });
 
@@ -252,11 +254,12 @@ describe("cobertura estructural — producción", () => {
     expect(all).toEqual([]);
   });
 
-  it("lib/prisma.ts construye un único PrismaClient y lib/period-lock.ts / lib/invoice-lock.ts tienen el SQL inventariado", () => {
+  it("lib/prisma.ts construye un único PrismaClient y lib/period-lock.ts / lib/invoice-lock.ts / lib/tax-record-lock.ts tienen el SQL inventariado", () => {
     expect(read("lib/prisma.ts").match(/new PrismaClient\(/g)).toHaveLength(1);
     expect(productionFiles.filter((f) => /new PrismaClient\(/.test(code(read(f))))).toEqual(["lib/prisma.ts"]);
     expect(code(read("lib/period-lock.ts")).match(/\.\$queryRaw/g)).toHaveLength(4);
     expect(code(read("lib/invoice-lock.ts")).match(/\.\$queryRaw/g)).toHaveLength(1);
+    expect(code(read("lib/tax-record-lock.ts")).match(/\.\$queryRaw/g)).toHaveLength(1);
   });
 });
 
@@ -274,9 +277,12 @@ const HANDLER_OK = `export const POST = withApiAuthz(async (request: Request) =>
         const updated = await tx.invoice.update({});
         await recordAudit(tx, {});
         return updated;
-    });
+    }, { maxWait: 5000, timeout: 10000 });
     return NextResponse.json(saved);
 });`;
+const TX_OPTIONS = "{ maxWait: 5000, timeout: 10000 }";
+/** HANDLER_OK con otras opciones (o sin ellas) en su $transaction. */
+const withTxOptions = (replacement: string) => mutate(HANDLER_OK, `}, ${TX_OPTIONS});`, replacement);
 const LOCK_LINE = "await lockPeriodForWrite(tx, periodId, organizationId);\n";
 const UPDATE_LINE = "const updated = await tx.invoice.update({});";
 const handler = (src: string) => codes(HANDLER_FILE, src, ["POST"]);
@@ -333,6 +339,194 @@ describe("cobertura estructural — fuentes sintéticas: handler inventariado", 
     expect(codes(HANDLER_FILE, "async function helper(tx) { await tx.invoice.create({}); }\n" + HANDLER_OK, ["POST"])).toEqual(["WRITE_IN_PRELUDE"]);
     expect(codes(HANDLER_FILE, HANDLER_OK + "\nexport const GET = withApiAuthz(async () => { await prisma.invoice.delete({}); });", ["POST"])).toEqual(["WRITE_IN_UNLISTED_HANDLER"]);
     expect(codes(HANDLER_FILE, HANDLER_OK, ["POST", "DELETE"])).toEqual(["HANDLER_MISSING"]);
+  });
+});
+
+describe("cobertura estructural — fuentes sintéticas: opciones de la transacción del handler", () => {
+  it.each([
+    // Opciones ausentes o no evaluables en conjunto.
+    ["sin opciones", withTxOptions("});"), "TX_OPTIONS_MISSING", /sin \{ maxWait: 5000, timeout: 10000 \}/],
+    ["opciones por identificador", withTxOptions("}, txOptions);"), "TX_OPTIONS_UNEVALUABLE", /no literales: txOptions/],
+    ["opciones por llamada", withTxOptions("}, periodWriteTxOptions());"), "TX_OPTIONS_UNEVALUABLE", /no literales: periodWriteTxOptions\(\)/],
+    ["opciones entre paréntesis", withTxOptions(`}, (${TX_OPTIONS}));`), "TX_OPTIONS_UNEVALUABLE", /no literales/],
+    ["spread ambiguo", withTxOptions("}, { ...base, maxWait: 5000, timeout: 10000 });"), "TX_OPTIONS_UNEVALUABLE", /spread en las opciones de \$transaction: \.\.\.base/],
+    ["spread después de los valores", withTxOptions("}, { maxWait: 5000, timeout: 10000, ...override });"), "TX_OPTIONS_UNEVALUABLE", /spread en las opciones/],
+    ["clave calculada", withTxOptions("}, { [key]: 1, maxWait: 5000, timeout: 10000 });"), "TX_OPTIONS_UNEVALUABLE", /clave no evaluable/],
+    ["tercer argumento", withTxOptions(`}, ${TX_OPTIONS}, extra);`), "TX_OPTIONS_UNEVALUABLE", /argumentos no inventariados/],
+    ["opción ajena", withTxOptions('}, { maxWait: 5000, timeout: 10000, isolationLevel: "Serializable" });'), "TX_OPTIONS_UNEXPECTED", /no inventariada: isolationLevel/],
+    // maxWait.
+    ["maxWait ausente", withTxOptions("}, { timeout: 10000 });"), "TX_MAX_WAIT_MISSING", /falta maxWait: 5000/],
+    ["maxWait 2000", withTxOptions("}, { maxWait: 2000, timeout: 10000 });"), "TX_MAX_WAIT_INVALID", /maxWait 2000 \(se exige exactamente 5000\)/],
+    ["maxWait 5_000 (otra escritura del valor)", withTxOptions("}, { maxWait: 5_000, timeout: 10000 });"), "TX_MAX_WAIT_INVALID", /maxWait 5_000/],
+    ["maxWait 5e3", withTxOptions("}, { maxWait: 5e3, timeout: 10000 });"), "TX_MAX_WAIT_INVALID", /maxWait 5e3/],
+    ["maxWait negativo", withTxOptions("}, { maxWait: -5000, timeout: 10000 });"), "TX_MAX_WAIT_INVALID", /maxWait -5000/],
+    ["maxWait por identificador", withTxOptions("}, { maxWait: MAX_WAIT_MS, timeout: 10000 });"), "TX_MAX_WAIT_UNEVALUABLE", /maxWait no es un literal numérico: MAX_WAIT_MS/],
+    ["maxWait por expresión", withTxOptions("}, { maxWait: 2500 * 2, timeout: 10000 });"), "TX_MAX_WAIT_UNEVALUABLE", /no es un literal numérico: 2500 \* 2/],
+    ["maxWait como string", withTxOptions('}, { maxWait: "5000", timeout: 10000 });'), "TX_MAX_WAIT_UNEVALUABLE", /no es un literal numérico: "5000"/],
+    ["maxWait con aserción de tipo", withTxOptions("}, { maxWait: 5000 as number, timeout: 10000 });"), "TX_MAX_WAIT_UNEVALUABLE", /no es un literal numérico: 5000 as number/],
+    ["maxWait abreviado", withTxOptions("}, { maxWait, timeout: 10000 });"), "TX_MAX_WAIT_UNEVALUABLE", /maxWait no evaluable: maxWait/],
+    ["maxWait repetido", withTxOptions("}, { maxWait: 5000, timeout: 10000, maxWait: 5000 });"), "TX_MAX_WAIT_DUPLICATE", /maxWait repetido/],
+    // timeout.
+    ["timeout ausente", withTxOptions("}, { maxWait: 5000 });"), "TX_TIMEOUT_MISSING", /falta timeout: 10000/],
+    ["timeout 5000", withTxOptions("}, { maxWait: 5000, timeout: 5000 });"), "TX_TIMEOUT_INVALID", /timeout 5000 \(se exige exactamente 10000\)/],
+    ["timeout 3000 (menor que lock_timeout)", withTxOptions("}, { maxWait: 5000, timeout: 3000 });"), "TX_TIMEOUT_INVALID", /timeout 3000/],
+    ["timeout 10000.0", withTxOptions("}, { maxWait: 5000, timeout: 10000.0 });"), "TX_TIMEOUT_INVALID", /timeout 10000\.0/],
+    ["timeout por identificador", withTxOptions("}, { maxWait: 5000, timeout: TX_TIMEOUT_MS });"), "TX_TIMEOUT_UNEVALUABLE", /timeout no es un literal numérico: TX_TIMEOUT_MS/],
+    ["timeout por variable de entorno", withTxOptions("}, { maxWait: 5000, timeout: Number(process.env.TX_TIMEOUT) });"), "TX_TIMEOUT_UNEVALUABLE", /no es un literal numérico: Number/],
+    ["timeout como getter", withTxOptions("}, { maxWait: 5000, get timeout() { return 10000; } });"), "TX_TIMEOUT_UNEVALUABLE", /timeout no evaluable/],
+    ["timeout repetido", withTxOptions("}, { maxWait: 5000, timeout: 10000, timeout: 10000 });"), "TX_TIMEOUT_DUPLICATE", /timeout repetido/],
+  ] as const)("%s -> exactamente la violación prevista", (_l, src, expected, message) => {
+    expect(handler(src)).toEqual([expected]);
+    expect(details(HANDLER_FILE, src, ["POST"])).toMatch(message);
+  });
+
+  it("ambos valores incorrectos -> una violación por opción, sin otras", () => {
+    expect(handler(withTxOptions("}, { maxWait: 2000, timeout: 5000 });"))).toEqual(["TX_MAX_WAIT_INVALID", "TX_TIMEOUT_INVALID"]);
+    expect(handler(withTxOptions("}, {});"))).toEqual(["TX_MAX_WAIT_MISSING", "TX_TIMEOUT_MISSING"]);
+  });
+
+  it.each([
+    ["claves entre comillas", withTxOptions('}, { "maxWait": 5000, "timeout": 10000 });')],
+    ["orden inverso", withTxOptions("}, { timeout: 10000, maxWait: 5000 });")],
+    ["coma final", withTxOptions("}, { maxWait: 5000, timeout: 10000, });")],
+    ["opciones en otra línea", withTxOptions("}, {\n        maxWait: 5000,\n        timeout: 10000,\n    });")],
+    // La segunda transacción ya es HANDLER_MULTI_TX; sus opciones no se suman a la regla del handler.
+  ])("negativo: %s -> sin violaciones", (_l, src) => {
+    expect(handler(src)).toEqual([]);
+  });
+
+  it("fuera de un handler inventariado no se exigen opciones (la regla es por handler)", () => {
+    expect(lib("export async function f() { await prisma.$transaction(async (tx) => { await tx.client.findMany(); }); }")).toEqual([]);
+    expect(codes(HANDLER_FILE, withTxOptions("});").replace("export const POST", "export const GET"), ["GET"])).toEqual(["TX_OPTIONS_MISSING"]);
+    expect(codes(HANDLER_FILE, "export const GET = withApiAuthz(async () => prisma.$transaction(async (tx) => tx.client.findMany()));")).toEqual([]);
+  });
+
+  it("los 6 handlers productivos inventariados llevan exactamente { maxWait: 5000, timeout: 10000 } en su única transacción", () => {
+    for (const [file, methods] of Object.entries(WRITERS)) {
+      const { handlers } = splitHandlers(code(read(file)));
+      for (const m of methods) {
+        expect(handlers[m], `${file} ${m}`).toBeDefined();
+        expect(handlers[m].match(/\$transaction\(/g), `${file} ${m}`).toHaveLength(1);
+        expect(handlers[m], `${file} ${m}`).toContain(`}, ${TX_OPTIONS})`);
+      }
+    }
+  });
+
+  it("ninguna transacción productiva ajena al inventario lleva esas opciones", () => {
+    const outside = productionFiles
+      .filter((f) => !(f in WRITERS))
+      .filter((f) => code(read(f)).includes(TX_OPTIONS));
+    expect(outside).toEqual([]);
+  });
+});
+
+// ── Fuentes sintéticas: edición/baja de TaxRecord ─────────────────────────
+
+const TAX_HANDLER_OK = `export const PATCH = withApiAuthz(async (request: Request) => {
+    const { organizationId } = await resolveActiveOrganization(profileId);
+    const saved = await prisma.$transaction(async (tx) => {
+        await lockPeriodForWrite(tx, periodId, organizationId);
+        const period = await tx.period.findFirst({});
+        const locked = await lockTaxRecordForUpdate(tx, id, organizationId);
+        const updated = await tx.taxRecord.update({});
+        await recordAudit(tx, {});
+        return updated;
+    }, { maxWait: 5000, timeout: 10000 });
+    return NextResponse.json(saved);
+});`;
+const TAX_ROW_LOCK_LINE = "const locked = await lockTaxRecordForUpdate(tx, id, organizationId);\n        ";
+const TAX_PERIOD_READ_LINE = "const period = await tx.period.findFirst({});\n        ";
+const taxHandler = (src: string) => codes(HANDLER_FILE, src, ["PATCH"]);
+const taxDetails = (src: string) => details(HANDLER_FILE, src, ["PATCH"]);
+
+describe("cobertura estructural — fuentes sintéticas: handler de TaxRecord (Period -> TaxRecord)", () => {
+  it("fuente correcta (update y deleteMany) -> sin violaciones", () => {
+    expect(taxHandler(TAX_HANDLER_OK)).toEqual([]);
+    expect(taxHandler(mutate(TAX_HANDLER_OK, "tx.taxRecord.update({})", "tx.taxRecord.deleteMany({})"))).toEqual([]);
+  });
+
+  it.each([
+    [
+      "lock de TaxRecord antes del de Period",
+      mutate(mutate(TAX_HANDLER_OK, TAX_ROW_LOCK_LINE, ""), LOCK_LINE, "const pending = lockTaxRecordForUpdate(tx, id, organizationId);\n        " + LOCK_LINE),
+      "BEFORE_LOCK",
+      /lock de TaxRecord antes de lockPeriodForWrite/,
+    ],
+    ["lock de TaxRecord ausente (update)", mutate(TAX_HANDLER_OK, TAX_ROW_LOCK_LINE, ""), "TAX_RECORD_LOCK_MISSING", /tx\.taxRecord\.update sin lockTaxRecordForUpdate/],
+    [
+      "lock de TaxRecord ausente (deleteMany)",
+      mutate(mutate(TAX_HANDLER_OK, TAX_ROW_LOCK_LINE, ""), "tx.taxRecord.update({})", "tx.taxRecord.deleteMany({})"),
+      "TAX_RECORD_LOCK_MISSING",
+      /tx\.taxRecord\.deleteMany sin lockTaxRecordForUpdate/,
+    ],
+    [
+      "escritura de TaxRecord antes de su lock",
+      mutate(TAX_HANDLER_OK, TAX_ROW_LOCK_LINE, "await tx.taxRecord.deleteMany({});\n        " + TAX_ROW_LOCK_LINE),
+      "TAX_RECORD_WRITE_BEFORE_LOCK",
+      /tx\.taxRecord\.deleteMany antes de lockTaxRecordForUpdate/,
+    ],
+    [
+      "AuditLog antes del lock de TaxRecord",
+      mutate(TAX_HANDLER_OK, TAX_ROW_LOCK_LINE, "await recordAudit(tx, {});\n        " + TAX_ROW_LOCK_LINE),
+      "TAX_RECORD_WRITE_BEFORE_LOCK",
+      /recordAudit antes de lockTaxRecordForUpdate/,
+    ],
+    ["timeout incorrecto en el handler de TaxRecord", mutate(TAX_HANDLER_OK, "timeout: 10000", "timeout: 5000"), "TX_TIMEOUT_INVALID", /timeout 5000/],
+    ["maxWait ausente en el handler de TaxRecord", mutate(TAX_HANDLER_OK, "maxWait: 5000, ", ""), "TX_MAX_WAIT_MISSING", /falta maxWait/],
+    ["sin opciones en el handler de TaxRecord", mutate(TAX_HANDLER_OK, "}, { maxWait: 5000, timeout: 10000 });", "});"), "TX_OPTIONS_MISSING", /sin \{ maxWait/],
+  ] as const)("%s -> exactamente la violación prevista", (_l, src, expected, message) => {
+    expect(taxHandler(src)).toEqual([expected]);
+    expect(taxDetails(src)).toMatch(message);
+  });
+
+  it.each([
+    ["el alta (create) no exige lock de fila", mutate(mutate(TAX_HANDLER_OK, TAX_ROW_LOCK_LINE, ""), "tx.taxRecord.update({})", "tx.taxRecord.create({})")],
+    ["lecturas de TaxRecord antes del lock de fila", mutate(TAX_HANDLER_OK, TAX_ROW_LOCK_LINE, "const n = await tx.taxRecord.findFirst({});\n        " + TAX_ROW_LOCK_LINE)],
+    ["relectura del Period entre ambos locks", TAX_HANDLER_OK],
+    ["sin relectura del Period", mutate(TAX_HANDLER_OK, TAX_PERIOD_READ_LINE, "")],
+  ])("negativo: %s -> sin violaciones", (_l, src) => {
+    expect(taxHandler(src)).toEqual([]);
+  });
+
+  it("uso del helper fuera del inventario: archivo no inventariado, preámbulo o handler no listado", () => {
+    expect(codes("lib/synthetic.ts", "export async function f(tx) { await lockTaxRecordForUpdate(tx, id, organizationId); }")).toEqual(["TAX_RECORD_LOCK_OUTSIDE_INVENTORY"]);
+    expect(codes(HANDLER_FILE, "async function helper(tx) { return lockTaxRecordForUpdate(tx, id, organizationId); }\n" + TAX_HANDLER_OK, ["PATCH"])).toEqual(["TAX_RECORD_LOCK_OUTSIDE_INVENTORY"]);
+    expect(
+      codes(HANDLER_FILE, TAX_HANDLER_OK + "\nexport const GET = withApiAuthz(async () => { await prisma.$transaction(async (tx) => { await lockTaxRecordForUpdate(tx, id, organizationId); }); });", ["PATCH"]),
+    ).toEqual(["TAX_RECORD_LOCK_OUTSIDE_INVENTORY"]);
+  });
+});
+
+describe("cobertura estructural — fuentes sintéticas: lib/tax-record-lock.ts", () => {
+  const TAX_LOCK_FILE = "lib/tax-record-lock.ts";
+  const helperSrc = read(TAX_LOCK_FILE);
+  const taxLock = (src: string) => codes(TAX_LOCK_FILE, src);
+  const RAW_CALL = /const rows = await tx\.\$queryRaw<LockedTaxRecordRow\[\]>`[\s\S]*?FOR UPDATE`;/;
+  const replaceRaw = (to: string) => {
+    expect(RAW_CALL.test(helperSrc)).toBe(true);
+    return helperSrc.replace(RAW_CALL, to);
+  };
+
+  it("el helper real -> sin violaciones", () => {
+    expect(taxLock(helperSrc)).toEqual([]);
+  });
+
+  it.each([
+    ["SQL mutado: sin FOR UPDATE", () => mutate(helperSrc, "\n        FOR UPDATE`", "`"), "RAW_NOT_INVENTORIED", /no inventariado/],
+    ["SQL mutado: otra tabla", () => mutate(helperSrc, 'FROM "TaxRecord"', 'FROM "Invoice"'), "RAW_NOT_INVENTORIED", /FROM "Invoice"/],
+    ["parámetro cambiado (id)", () => mutate(helperSrc, '"id" = ${taxRecordId}', '"id" = ${id}'), "RAW_NOT_INVENTORIED", /\[id, organizationId\]/],
+    ["parámetro cambiado (organización)", () => mutate(helperSrc, '"organizationId" = ${organizationId}', '"organizationId" = ${orgId}'), "RAW_NOT_INVENTORIED", /\[taxRecordId, orgId\]/],
+    ["filtro sin organización", () => mutate(helperSrc, ' AND "organizationId" = ${organizationId}', ""), "RAW_NOT_INVENTORIED", /no inventariado/],
+    ["columna inesperada", () => mutate(helperSrc, '"description", "updatedAt"', '"description", "createdById", "updatedAt"'), "RAW_NOT_INVENTORIED", /"createdById"/],
+    ["columna faltante", () => mutate(helperSrc, '"amount", "description"', '"amount"'), "RAW_NOT_INVENTORIED", /no inventariado/],
+    ["FOR UPDATE repetido", () => mutate(helperSrc, "    return rows.length", "    await tx.$queryRaw`SELECT \"id\", \"organizationId\", \"periodId\", \"type\", \"date\", \"amount\", \"description\", \"updatedAt\" FROM \"TaxRecord\" WHERE \"id\" = ${taxRecordId} AND \"organizationId\" = ${organizationId} FOR UPDATE`;\n    return rows.length"), "RAW_NOT_INVENTORIED", /repetido/],
+    ["FOR UPDATE ausente", () => replaceRaw("const rows: LockedTaxRecordRow[] = [];"), "RAW_MISSING", /falta el FOR UPDATE de TaxRecord/],
+    ["consulta que menciona Period", () => mutate(helperSrc, 'FROM "TaxRecord"', 'FROM "TaxRecord" JOIN "Period" ON "Period"."id" = "TaxRecord"."periodId"'), "TAX_RECORD_LOCK_PERIOD", /consulta Period/],
+    ["bloqueo de Period dentro del helper", () => mutate(helperSrc, "    const rows = await", "    await lockPeriodForWrite(tx, taxRecordId, organizationId);\n    const rows = await"), "TAX_RECORD_LOCK_PERIOD", /bloquea Period: lockPeriodForWrite/],
+    ["lectura de Period dentro del helper", () => mutate(helperSrc, "    const rows = await", "    await tx.period.findFirst({});\n    const rows = await"), "TAX_RECORD_LOCK_PERIOD", /usa Period: tx\.period\.findFirst/],
+  ] as const)("%s -> exactamente la violación prevista", (_l, src, expected, message) => {
+    expect(taxLock(src())).toEqual([expected]);
+    expect(details(TAX_LOCK_FILE, src())).toMatch(message);
   });
 });
 
@@ -467,10 +661,26 @@ describe("cobertura estructural — helpers de bloqueo", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("el único SELECT … FOR UPDATE sobre Period vive en lib/period-lock.ts; FOR UPDATE sólo en period-lock e invoice-lock", () => {
+  it("el único SELECT … FOR UPDATE sobre Period vive en lib/period-lock.ts; FOR UPDATE sólo en period-lock, invoice-lock y tax-record-lock", () => {
     const forUpdate = productionFiles.filter((f) => /FOR UPDATE/.test(code(read(f))));
-    expect(forUpdate).toEqual(["lib/invoice-lock.ts", "lib/period-lock.ts"]);
+    expect(forUpdate).toEqual(["lib/invoice-lock.ts", "lib/period-lock.ts", "lib/tax-record-lock.ts"]);
     expect(code(read("lib/invoice-lock.ts"))).not.toMatch(/FROM "Period"/);
+  });
+
+  it("lib/tax-record-lock.ts: server-only, un único export público (lockTaxRecordForUpdate) y ninguna mención de Period en el código", () => {
+    const src = read("lib/tax-record-lock.ts");
+    expect(src.startsWith('import "server-only";')).toBe(true);
+    const helper = code(src);
+    expect([...helper.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)].map((m) => m[1])).toEqual(["lockTaxRecordForUpdate"]);
+    expect(helper).not.toMatch(/export\s+(const|let|var|default|\{)/);
+    expect(helper).not.toMatch(/Period/);
+    expect(helper).not.toMatch(/\$queryRawUnsafe|\$executeRaw|\$transaction/);
+  });
+
+  it("lockTaxRecordForUpdate sólo se usa en archivos del inventario (fuera de su definición)", () => {
+    const users = productionFiles.filter((f) => f !== "lib/tax-record-lock.ts" && /lockTaxRecordForUpdate\(/.test(code(read(f))));
+    expect(users).toEqual(["app/api/taxes/[id]/route.ts"]);
+    for (const f of users) expect(Object.keys(WRITERS), f).toContain(f);
   });
 
   it("assertTurivaIncludedUnderLock no bloquea: sin lockPeriod*, $queryRaw ni FOR UPDATE, y lib/invoice-write no importa period-lock", () => {

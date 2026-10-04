@@ -98,8 +98,35 @@ describe("lib/serializers (caso 12: JSON -> string, serialización explícita)",
       amount: D("25000"),
       description: "Banco Galicia",
       periodId: "p1",
+      updatedAt: new Date("2026-01-11T12:34:56.789Z"),
     });
     expect(typeof dto.amount).toBe("string");
     expect(dto.amount).toBe("25000.00");
+  });
+
+  it("serializeTaxRecord: contrato exacto con updatedAt ISO (milisegundos y Z); sin organización ni autoría", () => {
+    const dto = serializeTaxRecord({
+      id: "t1",
+      date: new Date("2026-05-10T00:00:00.000Z"),
+      type: "SIRCREB",
+      amount: D("0.5"),
+      description: null,
+      periodId: "p1",
+      updatedAt: new Date("2026-05-15T10:20:30.123Z"),
+      // claves internas que NO deben salir
+      organizationId: "org_a",
+      createdById: "u1",
+      updatedById: "u2",
+      createdAt: new Date("2026-05-15T10:00:00.000Z"),
+    } as Parameters<typeof serializeTaxRecord>[0]);
+    expect(dto).toEqual({
+      id: "t1",
+      date: "2026-05-10T00:00:00.000Z",
+      type: "SIRCREB",
+      amount: "0.50",
+      description: null,
+      periodId: "p1",
+      updatedAt: "2026-05-15T10:20:30.123Z",
+    });
   });
 });

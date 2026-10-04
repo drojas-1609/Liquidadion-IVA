@@ -188,7 +188,7 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
             },
         });
         return updated;
-    }).catch(async (err: unknown) => {
+    }, { maxWait: 5000, timeout: 10000 }).catch(async (err: unknown) => {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
             const racing = await findDuplicateVoucherPeriod(plan.duplicateWhere);
             if (racing) throw new ConflictError(duplicateVoucherMessage(racing));
@@ -289,7 +289,7 @@ export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 number: locked.number,
             },
         });
-    });
+    }, { maxWait: 5000, timeout: 10000 });
 
     return new NextResponse(null, { status: 204 });
 });

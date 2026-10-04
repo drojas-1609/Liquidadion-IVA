@@ -100,6 +100,45 @@ export function periodRow(
   };
 }
 
+/** Fila completa de TaxRecord (como en la base), con `updatedAt` exacto. */
+export interface TaxRecordRow {
+  id: string;
+  organizationId: string;
+  periodId: string;
+  date: Date;
+  type: string;
+  amount: Prisma.Decimal;
+  description: string | null;
+  createdById: string | null;
+  updatedById: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+export const TAX_RECORD_UPDATED_AT = "2026-05-15T10:20:30.123Z";
+/** `updatedAt` que asigna el harness a una fila editada (siempre distinto del inicial). */
+export const TAX_RECORD_UPDATED_AT_AFTER = "2026-05-16T11:22:33.456Z";
+export function taxRecordRow(
+  id: string,
+  periodId: string,
+  organizationId: string,
+  over: Partial<TaxRecordRow> = {},
+): TaxRecordRow {
+  return {
+    id,
+    organizationId,
+    periodId,
+    date: new Date("2026-05-10T00:00:00.000Z"),
+    type: "RETENCION IVA",
+    amount: new Prisma.Decimal("2500.00"),
+    description: "Banco Galicia",
+    createdById: null,
+    updatedById: null,
+    createdAt: new Date("2026-05-15T10:00:00.000Z"),
+    updatedAt: new Date(TAX_RECORD_UPDATED_AT),
+    ...over,
+  };
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface World {
   memberships: Array<{ profileId: string; organizationId: string; role: Role }>;
@@ -143,11 +182,11 @@ export interface DbMock {
   period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn; delete: Fn };
   invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; delete: Fn };
   invoiceVatLine: { findMany: Fn; deleteMany: Fn };
-  taxRecord: { findMany: Fn; create: Fn; count: Fn };
+  taxRecord: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; deleteMany: Fn };
   auditLog: { create: Fn };
   periodVatSettings: { findUnique: Fn; create: Fn; update: Fn };
   $transaction: Fn;
-  /** Simula lockPeriodForWrite (lock_timeout + FOR UPDATE de Period) y el FOR UPDATE de Invoice; no hay locks reales. */
+  /** Simula lockPeriodForWrite (lock_timeout + FOR UPDATE de Period) y los FOR UPDATE de Invoice y TaxRecord; no hay locks reales. */
   $queryRaw: Fn;
 }
 
@@ -166,7 +205,7 @@ export function freshDbMock(): DbMock {
     period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), delete: vi.fn() },
     invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
     invoiceVatLine: { findMany: vi.fn(), deleteMany: vi.fn() },
-    taxRecord: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
+    taxRecord: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     auditLog: { create: vi.fn() },
     periodVatSettings: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
@@ -179,14 +218,14 @@ export interface Recorder {
   audits: any[];
   created: Record<string, any>;
   failAudit: boolean;
-  /** Bloqueos (Period / Invoice) solicitados vía $queryRaw: { sql, values }. Sólo locks reales. */
+  /** Bloqueos (Period / Invoice / TaxRecord) solicitados vía $queryRaw: { sql, values }. Sólo locks reales. */
   locks: Array<{ sql: string; values: unknown[] }>;
   /** Pasos de `lock_timeout` de lockPeriodForWrite (lectura, set 3000ms, restauración), en orden. */
   lockTimeouts: Array<{ step: "read" | "set" | "restore"; value: string }>;
   /**
    * Secuencia de TODAS las consultas raw aceptadas, en orden, con el
    * `lock_timeout` vigente al ejecutarse: "timeout:read@0", "timeout:set@3000ms",
-   * "lock:Period@3000ms", "timeout:restore@0", "lock:Invoice@0".
+   * "lock:Period@3000ms", "timeout:restore@0", "lock:Invoice@0" / "lock:TaxRecord@0".
    */
   rawSteps: string[];
   /** `lock_timeout` con el que arranca cada transacción del harness (default "0"). */
@@ -197,6 +236,12 @@ export interface Recorder {
   periodLockBusy: boolean;
   /** La transacción quedó abortada (tras un error de la base): toda raw posterior falla. */
   txAborted: boolean;
+  /**
+   * Opciones recibidas por CADA invocación de `$transaction`, en orden: copia
+   * superficial del segundo argumento (o `undefined` si no se pasó). No se
+   * simula ningún timeout; sólo se fija lo que envió la ruta.
+   */
+  txOptions: Array<Record<string, unknown> | undefined>;
 }
 export function freshRecorder(): Recorder {
   return {
@@ -210,6 +255,7 @@ export function freshRecorder(): Recorder {
     lockTimeout: null,
     periodLockBusy: false,
     txAborted: false,
+    txOptions: [],
   };
 }
 
@@ -304,7 +350,15 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     if (!select?.vatLines) return withPeriod;
     return { ...withPeriod, vatLines: linesOf(hit.id, hit.organizationId).map((l) => ({ vatRateCode: l.vatRateCode })) };
   });
-  db.taxRecord.findMany.mockImplementation(async () => world.taxRecords ?? []);
+  // Igualdad simple por cada clave de `where` (sin `where`: todas las filas).
+  const taxRecordsWhere = (where: any) =>
+    (world.taxRecords ?? []).filter((t) => Object.entries(where ?? {}).every(([k, v]) => t[k] === v));
+  const pick = (row: any, select: any) => (select ? Object.fromEntries(Object.keys(select).map((k) => [k, row[k]])) : row);
+  db.taxRecord.findMany.mockImplementation(async ({ where }: AnyArgs = {}) => taxRecordsWhere(where).map((t) => ({ ...t })));
+  db.taxRecord.findFirst.mockImplementation(async ({ where, select }: AnyArgs) => {
+    const hit = taxRecordsWhere(where)[0];
+    return hit ? pick({ ...hit }, select) : null;
+  });
 
   const mkId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 
@@ -521,6 +575,24 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     };
   });
 
+  // update con where extendido { id, organizationId }; P2025 si no existe.
+  db.taxRecord.update.mockImplementation(async ({ where, data }: AnyArgs) => {
+    const rows = world.taxRecords ?? [];
+    const idx = rows.findIndex((t) => t.id === where.id && t.organizationId === where.organizationId);
+    if (idx === -1) throw knownError("P2025", "Record to update not found");
+    const next = { ...rows[idx], ...data, updatedAt: new Date(TAX_RECORD_UPDATED_AT_AFTER) };
+    rows[idx] = next;
+    rec.created.taxRecordUpdate = data;
+    return { ...next };
+  });
+  db.taxRecord.deleteMany.mockImplementation(async ({ where }: AnyArgs) => {
+    const before = world.taxRecords ?? [];
+    const removed = taxRecordsWhere(where);
+    world.taxRecords = before.filter((t) => !removed.includes(t));
+    if (removed.length > 0) rec.created.taxRecordDelete = where;
+    return { count: removed.length };
+  });
+
   db.auditLog.create.mockImplementation(async ({ data }: AnyArgs) => {
     if (rec.failAudit) throw new Error("audit down");
     rec.audits.push(data);
@@ -568,6 +640,8 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   const RESTORE_TIMEOUT = "SELECT set_config('lock_timeout', ?, true)";
   const PERIOD_LOCK = /^SELECT "id" FROM "Period" WHERE "id" = \? AND "organizationId" = \? FOR UPDATE$/;
   const INVOICE_LOCK = /^SELECT .+ FROM "Invoice" WHERE "id" = \? AND "organizationId" = \? FOR UPDATE$/;
+  const TAX_RECORD_LOCK_COLUMNS = ["id", "organizationId", "periodId", "type", "date", "amount", "description", "updatedAt"];
+  const TAX_RECORD_LOCK = `SELECT ${TAX_RECORD_LOCK_COLUMNS.map((c) => `"${c}"`).join(", ")} FROM "TaxRecord" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE`;
   db.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const raw = strings.join("?");
     const sql = raw.replace(/\s+/g, " ").trim();
@@ -600,6 +674,13 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       const row = (world.invoices ?? []).find((i) => i.id === id && i.organizationId === organizationId);
       return row ? [{ ...row }] : [];
     }
+    if (sql === TAX_RECORD_LOCK && values.length === 2) {
+      rec.locks.push({ sql: raw, values });
+      rec.rawSteps.push(`lock:TaxRecord@${current}`);
+      const [id, organizationId] = values;
+      const row = (world.taxRecords ?? []).find((t) => t.id === id && t.organizationId === organizationId);
+      return row ? [pick(row, Object.fromEntries(TAX_RECORD_LOCK_COLUMNS.map((c) => [c, true])))] : [];
+    }
     if (PERIOD_LOCK.test(sql) && values.length === 2) {
       rec.locks.push({ sql: raw, values });
       rec.rawSteps.push(`lock:Period@${current}`);
@@ -616,7 +697,8 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   // lanza, se revierte lo que `rec` registró durante la transacción. El
   // lock_timeout es local a la transacción: arranca en rec.initialLockTimeout y
   // se descarta al terminar (commit o rollback).
-  db.$transaction.mockImplementation(async (fn: (tx: DbMock) => Promise<unknown>) => {
+  db.$transaction.mockImplementation(async (fn: (tx: DbMock) => Promise<unknown>, options?: Record<string, unknown>) => {
+    rec.txOptions.push(options === undefined ? undefined : { ...options });
     rec.lockTimeout = rec.initialLockTimeout;
     rec.txAborted = false;
     try {
@@ -634,6 +716,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     const vatSettingsBefore = world.vatSettings?.map((s) => ({ ...s }));
     const invoicesBefore = world.invoices?.slice();
     const invoiceVatLinesBefore = world.invoiceVatLines?.slice();
+    const taxRecordsBefore = world.taxRecords?.map((t) => ({ ...t }));
     try {
       return await fn(db);
     } catch (err) {
@@ -644,6 +727,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       world.vatSettings = vatSettingsBefore;
       world.invoices = invoicesBefore;
       world.invoiceVatLines = invoiceVatLinesBefore;
+      world.taxRecords = taxRecordsBefore;
       throw err;
     }
   };
@@ -674,6 +758,9 @@ export function rawCallOrder(db: DbMock, re: RegExp): number {
 export const periodLockOrder = (db: DbMock) => rawCallOrder(db, /FROM "Period"[\s\S]*FOR UPDATE/);
 /** Orden de la restauración del lock_timeout previo. */
 export const timeoutRestoreOrder = (db: DbMock) => rawCallOrder(db, /set_config\('lock_timeout', \?, true\)/);
+
+/** Opciones que todo writer inventariado pasa a `$transaction` (tests/_period-lock-structure.ts). */
+export const PERIOD_WRITE_TX_OPTIONS = { maxWait: 5000, timeout: 10000 } as const;
 
 /** Contrato EXACTO del 409 por período ocupado (independiente de la constante productiva). */
 export const PERIOD_BUSY_BODY = {
