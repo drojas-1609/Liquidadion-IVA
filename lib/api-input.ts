@@ -7,6 +7,7 @@ import { CLIENT_CONDITION_ERROR, isClientCondition } from "./client-condition";
 import { isValidPeriodMonth, isValidPeriodYear, periodYearRange } from "./period";
 import type { InvoiceCategory, InvoiceModelData } from "./invoice-model";
 import { VAT_CONDITIONS, VOUCHER_TYPES, type VoucherVariant } from "./arca/catalogs";
+import { isTaxRecordType, type TaxRecordType } from "./tax-types";
 
 /**
  * Construcción y validación de los `data` de creación para las rutas de API.
@@ -37,13 +38,19 @@ function nonEmptyString(v: unknown): v is string {
 
 /**
  * Fecha calendario estricta `YYYY-MM-DD` -> medianoche UTC del mismo día; si
- * no, null. Rechaza horas, zonas y formatos alternativos. Sin fecha mínima.
+ * no, null. Rechaza horas, zonas, offsets, barras, espacios (sin trim) y
+ * formatos alternativos. Sin fecha mínima.
  */
-function parseIsoDateOnly(v: string): Date | null {
+export function parseIsoDateOnly(v: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
   const d = new Date(`${v}T00:00:00.000Z`);
   // Ida y vuelta UTC: descarta días inexistentes (2026-02-30 -> 2026-03-02).
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v ? d : null;
+}
+
+/** `true` si el día UTC de `date` cae en el mes (1-12) y año del período. Pura: no consulta la base. */
+export function isDateInPeriod(date: Date, period: { month: number; year: number }): boolean {
+  return date.getUTCFullYear() === period.year && date.getUTCMonth() + 1 === period.month;
 }
 
 function parseIntStrict(v: unknown): number | null {
@@ -274,39 +281,98 @@ export function buildInvoiceUpdateInput(body: unknown): InputResult<InvoiceUpdat
 
 // ── TaxRecord ──────────────────────────────────────────────────────────────
 
-export interface TaxCreateData {
+/** Máximo de caracteres (puntos de código) de `TaxRecord.description`, tras el trim. */
+export const TAX_DESCRIPTION_MAX = 200;
+
+export const TAX_PERIOD_IMMUTABLE_MESSAGE =
+  "No se puede cambiar el período de una retención/percepción: eliminala y cargala en el período correcto.";
+
+/** Campos de negocio de un TaxRecord, comunes al alta y a la edición. */
+export interface TaxFieldsData {
+  /** Medianoche UTC del día informado (`AAAA-MM-DD`). */
   date: Date;
-  type: string;
+  type: TaxRecordType;
+  /** Estrictamente mayor que cero, hasta 2 decimales, dentro de NUMERIC(18,2). */
   amount: Prisma.Decimal;
   description: string | null;
+}
+
+export interface TaxCreateData extends TaxFieldsData {
   periodId: string;
 }
 
+/** PATCH /api/taxes/[id]: reemplazo completo de los campos + token de concurrencia. */
+export interface TaxUpdateData extends TaxFieldsData {
+  expectedUpdatedAt: Date;
+}
+
+/**
+ * Reglas comunes de alta y edición. La pertenencia de la fecha al mes/año del
+ * período NO se controla acá: requiere el Period leído bajo el bloqueo.
+ */
+function parseTaxFields(b: Record<string, unknown>): InputResult<TaxFieldsData> {
+  if (!nonEmptyString(b.date)) return fail("date", "fecha requerida");
+  const date = parseIsoDateOnly(b.date);
+  if (date === null) return fail("date", "fecha inválida: debe ser AAAA-MM-DD y existir en el calendario");
+
+  if (!nonEmptyString(b.type)) return fail("type", "tipo requerido");
+  if (!isTaxRecordType(b.type)) return fail("type", "tipo fuera del catálogo de retenciones/percepciones");
+
+  const amount = parseMoney(b.amount, { allowNegative: false });
+  if (!amount.ok) return fail("amount", amount.error);
+  if (!amount.value.greaterThan(0)) return fail("amount", "el importe debe ser mayor que cero");
+
+  let description: string | null;
+  if (b.description === undefined || b.description === null) description = null;
+  else if (typeof b.description === "string") {
+    const trimmed = b.description.trim();
+    if (Array.from(trimmed).length > TAX_DESCRIPTION_MAX) {
+      return fail("description", `descripción demasiado larga (máximo ${TAX_DESCRIPTION_MAX} caracteres)`);
+    }
+    description = trimmed === "" ? null : trimmed;
+  } else return fail("description", "descripción inválida: debe ser texto");
+
+  return { ok: true, data: { date, type: b.type, amount: amount.value, description } };
+}
+
+/**
+ * POST /api/taxes. Se ignoran organizationId, clientId, autoría y toda otra
+ * clave del body.
+ */
 export function buildTaxInput(body: unknown): InputResult<TaxCreateData> {
-  if (typeof body !== "object" || body === null) return fail("body", "cuerpo inválido");
-  const b = body as Record<string, unknown>;
+  if (!isPlainObject(body)) return fail("body", "cuerpo inválido");
+  const b = body;
 
   if (!nonEmptyString(b.date)) return fail("date", "fecha requerida");
-  const date = new Date(b.date);
-  if (Number.isNaN(date.getTime())) return fail("date", "fecha inválida");
-
   if (!nonEmptyString(b.type)) return fail("type", "tipo requerido");
   if (!nonEmptyString(b.periodId)) return fail("periodId", "periodId requerido");
 
-  const amount = parseMoney(b.amount, { allowNegative: true });
-  if (!amount.ok) return fail("amount", amount.error);
+  const fields = parseTaxFields(b);
+  if (!fields.ok) return fields;
+  return { ok: true, data: { ...fields.data, periodId: b.periodId } };
+}
 
-  const description =
-    b.description === undefined || b.description === null || b.description === ""
-      ? null
-      : typeof b.description === "string"
-        ? b.description
-        : null;
+/**
+ * PATCH /api/taxes/[id]: mismas reglas que el alta más `expectedUpdatedAt`.
+ * `periodId` es opcional; si viene, debe ser exactamente `expectedPeriodId`
+ * (el período no se cambia). Se ignoran organizationId, clientId, autoría y
+ * toda otra clave del body.
+ */
+export function buildTaxUpdateInput(body: unknown, expectedPeriodId: string): InputResult<TaxUpdateData> {
+  if (!isPlainObject(body)) return fail("body", "cuerpo inválido");
+  const b = body;
 
-  return {
-    ok: true,
-    data: { date, type: b.type, amount: amount.value, description, periodId: b.periodId },
-  };
+  const fields = parseTaxFields(b);
+  if (!fields.ok) return fields;
+
+  if (b.periodId !== undefined && b.periodId !== expectedPeriodId) {
+    return fail("periodId", TAX_PERIOD_IMMUTABLE_MESSAGE);
+  }
+
+  const expected = parseExpectedUpdatedAt(b.expectedUpdatedAt);
+  if (!expected.ok) return expected;
+
+  return { ok: true, data: { ...fields.data, expectedUpdatedAt: expected.data } };
 }
 
 // ── Client ────────────────────────────────────────────────────────────────

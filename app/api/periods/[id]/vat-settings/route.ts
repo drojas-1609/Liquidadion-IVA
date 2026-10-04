@@ -80,7 +80,7 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
             targetId: id,
             metadata: { changedFields: "turivaIncluded", turivaIncludedBefore: before, turivaIncludedAfter: after },
         });
-    });
+    }, { maxWait: 5000, timeout: 10000 });
 
     return NextResponse.json({ periodId: id, turivaIncluded: after }, { status: 200 });
 });

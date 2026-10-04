@@ -87,6 +87,14 @@ describe("submitPeriodDelete", () => {
         expect(deletePeriodErrorMessage({ foo: "bar" })).toBe(DELETE_PERIOD_GENERIC_ERROR);
     });
 
+    it("409 PERIOD_BUSY -> el mensaje EXACTO del servidor, no el de 'período con movimientos' (CONFLICT)", async () => {
+        const busy = "El período está siendo modificado por otra operación. Esperá unos segundos y volvé a intentarlo.";
+        const body = err("PERIOD_BUSY", busy);
+        expect(deletePeriodErrorMessage(body)).toBe(busy);
+        expect(deletePeriodErrorMessage(body)).not.toBe(DELETE_PERIOD_HAS_MOVEMENTS_ERROR);
+        expect(await submitPeriodDelete("p_1", fetchReturning(jsonResponse(409, body)))).toEqual({ ok: false, message: busy });
+    });
+
     it("todos los mensajes visibles escriben 'período' con tilde", () => {
         for (const m of [
             CREATE_PERIOD_GENERIC_ERROR,

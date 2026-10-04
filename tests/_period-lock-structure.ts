@@ -12,9 +12,14 @@ import ts from "typescript";
  *    ≤ 3000 ms o no evaluable, PrismaClient con transactionOptions.timeout
  *    ≤ 3000 ms o no evaluable, PeriodBusyError fuera del helper;
  *  - de inventario: escrituras fuera de los handlers inventariados;
- *  - por handler inventariado: transacción interactiva única, lockPeriodForWrite
- *    como primera operación awaited, único, y nada dependiente antes;
- *  - de lib/period-lock.ts: secuencia lock_timeout -> FOR UPDATE -> restauración.
+ *  - por handler inventariado: transacción interactiva única con opciones
+ *    LITERALES `{ maxWait: 5000, timeout: 10000 }`, lockPeriodForWrite como
+ *    primera operación awaited, único, y nada dependiente antes;
+ *  - de lib/period-lock.ts: secuencia lock_timeout -> FOR UPDATE -> restauración;
+ *  - de lib/tax-record-lock.ts: un único FOR UPDATE de TaxRecord con columnas y
+ *    parámetros exactos, sin Period; el helper sólo se usa dentro de handlers
+ *    inventariados, después del lock de Period y antes de toda escritura de
+ *    TaxRecord (update/delete) y del AuditLog del handler.
  */
 
 export type ViolationCode =
@@ -31,6 +36,16 @@ export type ViolationCode =
   | "TX_NOT_INTERACTIVE"
   | "TX_TIMEOUT_LOW"
   | "TX_TIMEOUT_UNEVALUABLE"
+  | "TX_OPTIONS_MISSING"
+  | "TX_OPTIONS_UNEVALUABLE"
+  | "TX_OPTIONS_UNEXPECTED"
+  | "TX_MAX_WAIT_MISSING"
+  | "TX_MAX_WAIT_INVALID"
+  | "TX_MAX_WAIT_UNEVALUABLE"
+  | "TX_MAX_WAIT_DUPLICATE"
+  | "TX_TIMEOUT_MISSING"
+  | "TX_TIMEOUT_INVALID"
+  | "TX_TIMEOUT_DUPLICATE"
   | "BUSY_OUTSIDE_HELPER"
   | "WRITE_OUTSIDE_INVENTORY"
   | "WRITE_IN_PRELUDE"
@@ -56,7 +71,11 @@ export type ViolationCode =
   | "RESTORE_BEFORE_LOCK"
   | "RESTORE_NOT_LOCAL"
   | "NOTFOUND_BEFORE_RESTORE"
-  | "BUSY_TRANSLATION";
+  | "BUSY_TRANSLATION"
+  | "TAX_RECORD_LOCK_PERIOD"
+  | "TAX_RECORD_LOCK_OUTSIDE_INVENTORY"
+  | "TAX_RECORD_LOCK_MISSING"
+  | "TAX_RECORD_WRITE_BEFORE_LOCK";
 
 export interface Violation {
   code: ViolationCode;
@@ -87,12 +106,28 @@ const CLIENT_NAMES = new Set(["prisma", "tx", "db"]);
 const BANNED_RAW = new Set(["$executeRaw", "$executeRawUnsafe", "$queryRawUnsafe"]);
 const HANDLER_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
+/**
+ * Opciones exigidas, como texto literal del fuente, en la transacción de cada
+ * handler inventariado: `{ maxWait: 5000, timeout: 10000 }`.
+ */
+const HANDLER_TX_OPTIONS = [
+  { key: "maxWait", literal: "5000", missing: "TX_MAX_WAIT_MISSING", invalid: "TX_MAX_WAIT_INVALID", unevaluable: "TX_MAX_WAIT_UNEVALUABLE", duplicate: "TX_MAX_WAIT_DUPLICATE" },
+  { key: "timeout", literal: "10000", missing: "TX_TIMEOUT_MISSING", invalid: "TX_TIMEOUT_INVALID", unevaluable: "TX_TIMEOUT_UNEVALUABLE", duplicate: "TX_TIMEOUT_DUPLICATE" },
+] as const satisfies ReadonlyArray<{ key: string; literal: string; missing: ViolationCode; invalid: ViolationCode; unevaluable: ViolationCode; duplicate: ViolationCode }>;
+
 // ── SQL inventariado ───────────────────────────────────────────────────────
 
 const READ_TIMEOUT_SQL = `SELECT current_setting('lock_timeout') AS "lockTimeout"`;
 const SET_CONFIG_SQL = /^SELECT set_config\('lock_timeout', ('[^']*'|\?), (true|false)\)$/;
 const PERIOD_LOCK_SQL = `SELECT "id" FROM "Period" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE`;
 const INVOICE_LOCK_SQL = /^SELECT (?:"\w+", )*"\w+" FROM "Invoice" WHERE "id" = \? AND "organizationId" = \? FOR UPDATE$/;
+/** FOR UPDATE de TaxRecord: columnas y orden EXACTOS. */
+const TAX_RECORD_LOCK_SQL =
+  'SELECT "id", "organizationId", "periodId", "type", "date", "amount", "description", "updatedAt" FROM "TaxRecord" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE';
+const TAX_RECORD_LOCK_FILE = "lib/tax-record-lock.ts";
+const TAX_RECORD_LOCK_FN = "lockTaxRecordForUpdate";
+/** Escrituras de TaxRecord que exigen la fila bloqueada (el alta no). */
+const TAX_RECORD_ROW_WRITE_OPS = new Set(["update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
 
 // ── utilidades AST ─────────────────────────────────────────────────────────
 
@@ -292,12 +327,18 @@ function timeoutOf(obj: ts.Expression): number | "absent" | "unevaluable" {
   return result;
 }
 
-function checkTransactions(ctx: Ctx): void {
+/**
+ * `handlerTx`: transacciones de handlers inventariados; sus opciones las evalúa
+ * (con reglas más estrictas) `checkHandlerTxOptions`, así cada infracción da
+ * un único código.
+ */
+function checkTransactions(ctx: Ctx, handlerTx: ReadonlySet<ts.CallExpression>): void {
   for (const call of calls(ctx.sf)) {
     if (memberName(unwrap(call.expression)) !== "$transaction") continue;
     const first = call.arguments[0] ? unwrap(call.arguments[0]) : null;
     if (first && ts.isArrayLiteralExpression(first)) add(ctx, "TX_BATCH", call, "$transaction([...]) por lotes");
     else if (!first || !isFunctionLike(first)) add(ctx, "TX_NOT_INTERACTIVE", call, "$transaction sin callback interactivo");
+    if (handlerTx.has(call)) continue;
     const opts = call.arguments[1];
     if (opts) {
       const t = timeoutOf(opts);
@@ -379,7 +420,33 @@ function checkRawInventory(ctx: Ctx, raws: RawQuery[]): void {
     if (ok.length > 1) for (const r of ok.slice(1)) add(ctx, "RAW_NOT_INVENTORIED", r.node, `FOR UPDATE de Invoice repetido`);
     return;
   }
-  for (const r of raws) add(ctx, "RAW_NOT_INVENTORIED", r.node, `$queryRaw fuera de lib/period-lock.ts y lib/invoice-lock.ts: ${r.sql}`);
+  if (ctx.file === TAX_RECORD_LOCK_FILE) {
+    // Una consulta por infracción: la que menciona Period es TAX_RECORD_LOCK_PERIOD;
+    // cualquier otra distinta de la inventariada, RAW_NOT_INVENTORIED; sin
+    // ninguna consulta, RAW_MISSING.
+    let ok = 0;
+    for (const r of raws) {
+      if (/"Period"/.test(r.sql)) add(ctx, "TAX_RECORD_LOCK_PERIOD", r.node, `el lock de TaxRecord consulta Period: ${r.sql}`);
+      else if (r.sql !== TAX_RECORD_LOCK_SQL || r.params.join(",") !== "taxRecordId,organizationId") {
+        add(ctx, "RAW_NOT_INVENTORIED", r.node, `$queryRaw no inventariado: ${r.sql} [${r.params.join(", ")}]`);
+      } else if (++ok > 1) add(ctx, "RAW_NOT_INVENTORIED", r.node, "FOR UPDATE de TaxRecord repetido");
+    }
+    if (raws.length === 0) add(ctx, "RAW_MISSING", null, "falta el FOR UPDATE de TaxRecord");
+    return;
+  }
+  for (const r of raws) add(ctx, "RAW_NOT_INVENTORIED", r.node, `$queryRaw fuera de lib/period-lock.ts, lib/invoice-lock.ts y lib/tax-record-lock.ts: ${r.sql}`);
+}
+
+/** lib/tax-record-lock.ts no bloquea ni lee Period (el Period lo bloquea la ruta, antes). */
+function checkTaxRecordLockHelper(ctx: Ctx): void {
+  for (const c of calls(ctx.sf)) {
+    const name = calleeName(c);
+    if (name === "lockPeriodForWrite" || name === "lockPeriodForUpdate") {
+      add(ctx, "TAX_RECORD_LOCK_PERIOD", c, `el lock de TaxRecord bloquea Period: ${text(ctx.sf, c.expression)}`);
+    } else if (modelCall(ctx, c)?.model === "period") {
+      add(ctx, "TAX_RECORD_LOCK_PERIOD", c, `el lock de TaxRecord usa Period: ${text(ctx.sf, c.expression)}`);
+    }
+  }
 }
 
 function checkBusyOutsideHelper(ctx: Ctx): void {
@@ -500,13 +567,71 @@ function writesIn(ctx: Ctx, scope: ts.Node): ts.CallExpression[] {
   return [...calls(scope)].filter((c) => isWriteCall(ctx, c));
 }
 
+/** `$transaction` de un handler (en orden de aparición). */
+const txCallsOf = (handler: ts.Node) => [...calls(handler)].filter((c) => memberName(unwrap(c.expression)) === "$transaction");
+
+/**
+ * Opciones de la transacción de un handler inventariado: exactamente
+ * `{ maxWait: 5000, timeout: 10000 }`, como objeto literal con valores
+ * numéricos literales (sin identificadores, expresiones, spread ni claves
+ * calculadas, repetidas o ajenas).
+ */
+function checkHandlerTxOptions(ctx: Ctx, method: string, call: ts.CallExpression): void {
+  if (call.arguments.length > 2) return add(ctx, "TX_OPTIONS_UNEVALUABLE", call.arguments[2], `${method}: $transaction con argumentos no inventariados`);
+  const opts = call.arguments[1];
+  if (!opts) return add(ctx, "TX_OPTIONS_MISSING", call, `${method}: $transaction sin { maxWait: 5000, timeout: 10000 }`);
+  if (!ts.isObjectLiteralExpression(opts)) return add(ctx, "TX_OPTIONS_UNEVALUABLE", opts, `${method}: opciones de $transaction no literales: ${text(ctx.sf, opts)}`);
+
+  const seen = new Map<string, ts.ObjectLiteralElementLike[]>();
+  for (const p of opts.properties) {
+    if (ts.isSpreadAssignment(p)) {
+      add(ctx, "TX_OPTIONS_UNEVALUABLE", p, `${method}: spread en las opciones de $transaction: ${text(ctx.sf, p)}`);
+      continue;
+    }
+    const name = p.name && (ts.isIdentifier(p.name) || isStringLit(p.name)) ? p.name.text : null;
+    if (name === null) {
+      add(ctx, "TX_OPTIONS_UNEVALUABLE", p, `${method}: clave no evaluable en las opciones de $transaction: ${text(ctx.sf, p)}`);
+      continue;
+    }
+    if (!HANDLER_TX_OPTIONS.some((o) => o.key === name)) {
+      add(ctx, "TX_OPTIONS_UNEXPECTED", p, `${method}: opción de $transaction no inventariada: ${name}`);
+      continue;
+    }
+    seen.set(name, [...(seen.get(name) ?? []), p]);
+  }
+
+  for (const o of HANDLER_TX_OPTIONS) {
+    const props = seen.get(o.key) ?? [];
+    if (props.length === 0) {
+      add(ctx, o.missing, opts, `${method}: falta ${o.key}: ${o.literal} en las opciones de $transaction`);
+      continue;
+    }
+    if (props.length > 1) {
+      add(ctx, o.duplicate, props[1], `${method}: ${o.key} repetido en las opciones de $transaction`);
+      continue;
+    }
+    const p = props[0];
+    if (!ts.isPropertyAssignment(p)) {
+      add(ctx, o.unevaluable, p, `${method}: ${o.key} no evaluable: ${text(ctx.sf, p)}`);
+      continue;
+    }
+    const v = p.initializer;
+    const isNumber =
+      ts.isNumericLiteral(v) ||
+      (ts.isPrefixUnaryExpression(v) && v.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(v.operand));
+    if (!isNumber) add(ctx, o.unevaluable, v, `${method}: ${o.key} no es un literal numérico: ${text(ctx.sf, v)}`);
+    else if (text(ctx.sf, v) !== o.literal) add(ctx, o.invalid, v, `${method}: ${o.key} ${text(ctx.sf, v)} (se exige exactamente ${o.literal})`);
+  }
+}
+
 function checkHandler(ctx: Ctx, method: string, handler: ts.Node): void {
   const { sf } = ctx;
   checkClientAliases(ctx, handler);
 
-  const txCalls = [...calls(handler)].filter((c) => memberName(unwrap(c.expression)) === "$transaction");
+  const txCalls = txCallsOf(handler);
   if (txCalls.length === 0) return add(ctx, "HANDLER_NO_TX", handler, `${method}: sin transacción interactiva`);
   if (txCalls.length > 1) add(ctx, "HANDLER_MULTI_TX", txCalls[1], `${method}: más de una transacción`);
+  checkHandlerTxOptions(ctx, method, txCalls[0]);
   const cb = txCalls[0].arguments[0] ? unwrap(txCalls[0].arguments[0]) : null;
   if (!cb || !isFunctionLike(cb)) return; // TX_BATCH / TX_NOT_INTERACTIVE (global)
   const fn = cb as ts.ArrowFunction | ts.FunctionExpression;
@@ -543,6 +668,7 @@ function checkHandler(ctx: Ctx, method: string, handler: ts.Node): void {
     if (isWriteCall(ctx, c)) kind = "escritura";
     else if (name === "recordAudit") kind = "recordAudit";
     else if (name === "lockInvoiceForUpdate" || name === "lockedRowWithLines") kind = "lock de Invoice";
+    else if (name === TAX_RECORD_LOCK_FN) kind = "lock de TaxRecord";
     else if (name === "assertTurivaIncludedUnderLock" || mc?.model === "periodVatSettings") kind = "lectura TurIVA";
     else if (mc?.op === "count") kind = "conteo";
     if (kind) add(ctx, "BEFORE_LOCK", c, `${method}: ${kind} antes de lockPeriodForWrite: ${text(sf, c.expression)}`);
@@ -552,6 +678,27 @@ function checkHandler(ctx: Ctx, method: string, handler: ts.Node): void {
   if (writes.length === 0) add(ctx, "NO_WRITES", handler, `${method}: sin escrituras (¿sobra en el inventario?)`);
   for (const w of writes) {
     if (!within(sf, w, fn.body) && w.getStart(sf) >= lockAt) add(ctx, "WRITE_OUTSIDE_TX", w, `${method}: escritura fuera de la transacción`);
+  }
+
+  // Edición/baja de TaxRecord: la fila se bloquea (después del Period, ya
+  // controlado por BEFORE_LOCK) antes de escribirla y antes del AuditLog.
+  const rowWrites = writes.filter((w) => {
+    const mc = modelCall(ctx, w);
+    return mc?.model === "taxRecord" && TAX_RECORD_ROW_WRITE_OPS.has(mc.op);
+  });
+  const rowLocks = [...calls(handler)].filter((c) => calleeName(c) === TAX_RECORD_LOCK_FN);
+  if (rowWrites.length > 0 && rowLocks.length === 0) {
+    add(ctx, "TAX_RECORD_LOCK_MISSING", rowWrites[0], `${method}: ${text(sf, rowWrites[0].expression)} sin ${TAX_RECORD_LOCK_FN}`);
+  }
+  if (rowLocks.length > 0) {
+    const rowLockAt = rowLocks[0].getStart(sf);
+    for (const c of calls(handler)) {
+      const at = c.getStart(sf);
+      if (at < lockAt || at >= rowLockAt) continue;
+      if (rowWrites.includes(c) || calleeName(c) === "recordAudit") {
+        add(ctx, "TAX_RECORD_WRITE_BEFORE_LOCK", c, `${method}: ${text(sf, c.expression)} antes de ${TAX_RECORD_LOCK_FN}`);
+      }
+    }
   }
 }
 
@@ -566,15 +713,35 @@ export function analyzeSource(file: string, src: string, methods?: readonly stri
   const ctx: Ctx = { file, sf, v: [], modelAliases: new Map() };
   collectModelAliases(ctx);
 
+  const handlers = findHandlers(sf);
+  // Transacción (la primera) de cada handler inventariado presente.
+  const handlerTx = new Set<ts.CallExpression>();
+  for (const m of methods ?? []) {
+    const h = handlers.get(m);
+    const tx = h ? txCallsOf(h)[0] : undefined;
+    if (tx) handlerTx.add(tx);
+  }
+
   const raws = collectRaw(ctx);
   checkRawInventory(ctx, raws);
   checkAccessAndAliases(ctx);
   checkNestedWrites(ctx);
-  checkTransactions(ctx);
+  checkTransactions(ctx, handlerTx);
   checkBusyOutsideHelper(ctx);
   if (file === "lib/period-lock.ts") checkLockHelper(ctx, raws);
+  if (file === TAX_RECORD_LOCK_FILE) checkTaxRecordLockHelper(ctx);
 
-  const handlers = findHandlers(sf);
+  // lockTaxRecordForUpdate sólo dentro de handlers inventariados.
+  if (file !== TAX_RECORD_LOCK_FILE) {
+    for (const c of calls(sf)) {
+      if (calleeName(c) !== TAX_RECORD_LOCK_FN) continue;
+      const owner = [...handlers.entries()].find(([, h]) => within(sf, c, h));
+      if (!owner || !methods?.includes(owner[0])) {
+        add(ctx, "TAX_RECORD_LOCK_OUTSIDE_INVENTORY", c, `${TAX_RECORD_LOCK_FN} fuera de un handler inventariado`);
+      }
+    }
+  }
+
   const writes = writesIn(ctx, sf);
   if (!methods) {
     for (const w of writes) add(ctx, "WRITE_OUTSIDE_INVENTORY", w, `escritura del contenido del período fuera del inventario: ${text(sf, w.expression)}`);

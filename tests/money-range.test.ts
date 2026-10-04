@@ -37,10 +37,15 @@ describe("rango monetario NUMERIC(18,2) (punto 1)", () => {
     expect(buildTaxInput({ date: "2026-01-01", type: "RETENCION IVA", amount: MAX, periodId: "p1" }).ok).toBe(true);
   });
 
-  it("2: mínimo monetario válido se acepta", () => {
+  it("2: mínimo monetario válido se acepta (retenciones/percepciones: sólo importes > 0)", () => {
     expect(moneyInRange(MIN)).toBe(true);
     expect(parseMoney(MIN).ok).toBe(true);
-    expect(buildTaxInput({ date: "2026-01-01", type: "RETENCION IVA", amount: MIN, periodId: "p1" }).ok).toBe(true);
+    const r = buildTaxInput({ date: "2026-01-01", type: "RETENCION IVA", amount: MIN, periodId: "p1" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(422);
+      expect(r.field).toBe("amount");
+    }
   });
 
   it("3: un centavo por encima del máximo se rechaza (422 con field)", () => {

@@ -32,6 +32,8 @@ const EXPECTED = {
   // PATCH devuelve el Invoice corregido serializado; DELETE responde 204 sin cuerpo.
   "app/api/invoices/[id]/route.ts": { models: ["Invoice"], serializer: "serializeInvoice" },
   "app/api/taxes/route.ts": { models: ["TaxRecord"], serializer: "serializeTaxRecord" },
+  // PATCH devuelve el TaxRecord corregido serializado; DELETE responde 204 sin cuerpo.
+  "app/api/taxes/[id]/route.ts": { models: ["TaxRecord"], serializer: "serializeTaxRecord" },
   // Period no tiene campos Decimal, pero igual se serializa (serializePeriod)
   // para NO exponer organizationId/createdById/updatedById.
   "app/api/periods/route.ts": { models: [], serializer: "serializePeriod" },
@@ -103,7 +105,7 @@ describe("auditoría de serialización de decimales (punto 2)", () => {
       entityName: "e", entityCuit: "c", netAmount: D("1"), vatRate: D("21"),
       vatAmount: D("0.21"), totalAmount: D("1.21"), category: "SALES", periodId: "p",
     });
-    const tax = serializeTaxRecord({ id: "t", date: new Date(0), type: "X", amount: D("2"), description: null, periodId: "p" });
+    const tax = serializeTaxRecord({ id: "t", date: new Date(0), type: "X", amount: D("2"), description: null, periodId: "p", updatedAt: new Date(0) });
     const cli = serializeClient({
       id: "c", name: "n", cuit: "q", condition: "RI", address: null,
       defaultIibbRate: D("3"), createdAt: new Date(0), updatedAt: new Date(0),

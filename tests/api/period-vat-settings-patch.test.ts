@@ -34,6 +34,7 @@ import {
   ORG_B,
   type World,
   periodLockSteps,
+  PERIOD_WRITE_TX_OPTIONS,
   periodLockOrder,
   timeoutRestoreOrder,
   expectPeriodBusyResponse,
@@ -315,6 +316,11 @@ describe("PATCH /api/periods/[id]/vat-settings — organización y bloqueo", () 
     expect(lockOrder).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
     expect(lockOrder).toBeLessThan(db.invoice.count.mock.invocationCallOrder[0]);
     expect(lockOrder).toBeLessThan(db.periodVatSettings.update.mock.invocationCallOrder[0]);
+  });
+
+  it("200: una única la transacción recibe exactamente { maxWait: 5000, timeout: 10000 }", async () => {
+    expect((await patch("p_on", { turivaIncluded: false })).status).toBe(200);
+    expect(rec.txOptions).toEqual([PERIOD_WRITE_TX_OPTIONS]);
   });
 
   it("secuencia: leer timeout -> set 3000ms -> lock Period -> restaurar; recién después lectura de la configuración, conteo y escritura", async () => {

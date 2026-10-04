@@ -86,7 +86,7 @@ export const POST = withApiAuthz(async (request: Request) => {
             },
         });
         return invoice;
-    }).catch(async (err: unknown) => {
+    }, { maxWait: 5000, timeout: 10000 }).catch(async (err: unknown) => {
         // Carrera con otra alta: P2002 sobre los índices únicos parciales. Se
         // informa el período si ya es visible; si no, 409 genérico (withApiAuthz).
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

@@ -32,6 +32,7 @@ import {
   periodRow,
   type World,
   periodLockSteps,
+  PERIOD_WRITE_TX_OPTIONS,
   periodLockOrder,
   rawCallOrder,
   timeoutRestoreOrder,
@@ -744,6 +745,26 @@ describe("PATCH / DELETE /api/invoices/[id] — orden único de locks", () => {
     const res = await (run as () => Promise<Response>)();
     expect(res.status).toBe(status);
     expectLockOrder();
+  });
+
+  it.each([
+    ["PATCH (200)", () => edit({ number: 1002 }), 200],
+    ["PATCH no-op (200)", () => edit(), 200],
+    ["PATCH con updatedAt viejo (409, rollback)", () => edit({ number: 1002, expectedUpdatedAt: "2020-01-01T00:00:00.000Z" }), 409],
+    [
+      "PATCH T con inclusión desactivada bajo el lock (422, rollback)",
+      () => {
+        withInvoice(saleT, {}, (w) => turivaIncluded(w, true));
+        onPeriodLock(() => turivaIncluded(world, false));
+        return edit({ number: 1002 }, saleT);
+      },
+      422,
+    ],
+    ["DELETE (204)", () => del(), 204],
+    ["DELETE con updatedAt viejo (409, rollback)", () => del("2020-01-01T00:00:00.000Z"), 409],
+  ])("%s: una única la transacción recibe exactamente { maxWait: 5000, timeout: 10000 }", async (_l, run, status) => {
+    expect((await (run as () => Promise<Response>)()).status).toBe(status);
+    expect(rec.txOptions).toEqual([PERIOD_WRITE_TX_OPTIONS]);
   });
 
   it("período eliminado en paralelo: el lock de Period no lo encuentra -> 404 sin bloquear Invoice ni escribir", async () => {

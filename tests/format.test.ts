@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { formatIsoDate } from "@/lib/format";
+import { formatIsoDate, formatUtcDate, utcDateIso } from "@/lib/format";
+import { periodFirstDayIso, periodLastDayIso } from "@/lib/period";
 import { isoDate } from "@/lib/invoice-model";
 
 /**
@@ -48,5 +49,38 @@ describe("fecha @db.Date: el día no cambia por zona horaria", () => {
     process.env.TZ = "America/Argentina/Buenos_Aires";
     expect(fromDb().getDate()).toBe(30); // día LOCAL: 30/05
     expect(formatIsoDate(isoDate(fromDb()))).toBe("31/05/2026"); // día contable correcto
+  });
+});
+
+describe("utcDateIso / formatUtcDate — fechas de retenciones (medianoche UTC)", () => {
+  it("día UTC en los límites del mes, sin depender de la zona horaria", () => {
+    expect(utcDateIso(new Date("2026-05-01T00:00:00.000Z"))).toBe("2026-05-01");
+    expect(utcDateIso(new Date("2026-05-31T23:59:59.999Z"))).toBe("2026-05-31");
+    expect(utcDateIso(new Date("2026-06-01T00:00:00.000Z"))).toBe("2026-06-01");
+    expect(formatUtcDate(new Date("2026-05-10T00:00:00.000Z"))).toBe("10/05/2026");
+    expect(formatUtcDate(new Date("2024-02-29T00:00:00.000Z"))).toBe("29/02/2024");
+    expect(formatUtcDate(new Date("2025-12-31T00:00:00.000Z"))).toBe("31/12/2025");
+  });
+
+  it("fecha inválida -> null / '—' (nunca 'Invalid Date' ni excepción)", () => {
+    expect(utcDateIso(new Date("x"))).toBeNull();
+    expect(formatUtcDate(new Date("x"))).toBe("—");
+  });
+
+  it.each(["UTC", "America/Argentina/Buenos_Aires", "Pacific/Kiritimati", "Pacific/Pago_Pago"])(
+    "TZ=%s -> el mismo día (01/05/2026 y 31/05/2026)",
+    (tz) => {
+      process.env.TZ = tz;
+      expect(formatUtcDate(new Date("2026-05-01T00:00:00.000Z"))).toBe("01/05/2026");
+      expect(formatUtcDate(new Date("2026-05-31T00:00:00.000Z"))).toBe("31/05/2026");
+      expect(utcDateIso(new Date("2026-05-01T00:00:00.000Z"))).toBe("2026-05-01");
+    },
+  );
+
+  it("límites min/max del formulario: primer y último día del período (bisiesto y diciembre)", () => {
+    expect([periodFirstDayIso({ year: 2026, month: 5 }), periodLastDayIso({ year: 2026, month: 5 })]).toEqual(["2026-05-01", "2026-05-31"]);
+    expect(periodLastDayIso({ year: 2024, month: 2 })).toBe("2024-02-29");
+    expect(periodLastDayIso({ year: 2026, month: 2 })).toBe("2026-02-28");
+    expect([periodFirstDayIso({ year: 2025, month: 12 }), periodLastDayIso({ year: 2025, month: 12 })]).toEqual(["2025-12-01", "2025-12-31"]);
   });
 });

@@ -60,7 +60,7 @@ export const DELETE = withApiAuthz(async (_request: Request, ctx: Ctx) => {
                 targetId: id,
                 metadata: { clientId: period.clientId, month: period.month, year: period.year },
             });
-        });
+        }, { maxWait: 5000, timeout: 10000 });
     } catch (err) {
         if (isPrismaError(err, "P2003")) throw new ConflictError(PERIOD_HAS_MOVEMENTS_MESSAGE);
         if (isPrismaError(err, "P2025")) throw new NotFoundError();

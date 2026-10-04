@@ -1,96 +1,37 @@
-"use client";
+import prisma from "@/lib/prisma";
+import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
+import { ROLES_CREATE } from "@/lib/auth/roles";
+import { NotFoundError } from "@/lib/auth/errors";
+import { AccessNotice } from "@/app/_components/access-notice";
+import { formatPeriodLabel, periodFirstDayIso, periodLastDayIso } from "@/lib/period";
+import { TaxForm } from "../_components/tax-form";
 
-import { useState, use } from "react";
-import { useRouter } from "next/navigation";
-import { taxErrorMessage } from "@/lib/tax-form-client";
+export const dynamic = "force-dynamic";
 
-export default function NewTaxPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
-    const { id, periodId } = use(params);
-    const router = useRouter();
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
+// Alta de retención/percepción: OWNER / ADMIN / ACCOUNTANT (ROLES_CREATE).
+// VIEWER ve el aviso de permisos; organización, cliente o período que no
+// coinciden -> 404. El formulario recibe los límites de fecha del período.
+export default async function NewTaxPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
+    const { id, periodId } = await params;
 
-    async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-        e.preventDefault();
-        setLoading(true);
-        setError("");
-
-        const formData = new FormData(e.currentTarget);
-        const data = Object.fromEntries(formData.entries());
-
-        try {
-            const res = await fetch("/api/taxes", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    ...data,
-                    periodId,
-                }),
-            });
-
-            if (!res.ok) {
-                const j: unknown = await res.json().catch(() => null);
-                throw new Error(taxErrorMessage(j));
-            }
-
-            router.push(`/client/${id}/period/${periodId}/taxes`);
-            router.refresh();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Ocurrió un error al guardar.");
-        } finally {
-            setLoading(false);
-        }
-    }
+    const guard = await guardPage(async () => {
+        const { profileId } = await requireAuthenticatedProfile();
+        const { organizationId } = await requirePeriodAccess(profileId, periodId, ROLES_CREATE, { expectClientId: id });
+        const period = await prisma.period.findFirst({ where: { id: periodId, organizationId }, select: { month: true, year: true } });
+        if (!period) throw new NotFoundError();
+        return period;
+    });
+    if (!guard.ok) return <AccessNotice notice={guard.notice} />;
+    const period = guard.data;
 
     return (
-        <div className="container" style={{ maxWidth: "600px" }}>
-            <h1 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "var(--spacing-lg)" }}>
-                Nueva Retención / Percepción
-            </h1>
-
-            <form onSubmit={handleSubmit} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
-                {error && (
-                    <div style={{ padding: "var(--spacing-sm)", backgroundColor: "rgba(239, 68, 68, 0.1)", color: "var(--error)", borderRadius: "var(--radius-sm)" }}>
-                        {error}
-                    </div>
-                )}
-
-                <div>
-                    <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Fecha</label>
-                    <input name="date" type="date" required className="input" />
-                </div>
-
-                <div>
-                    <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Tipo</label>
-                    <select name="type" className="input" required>
-                        <option value="RETENCION IVA">Retención IVA</option>
-                        <option value="RETENCION IIBB">Retención IIBB</option>
-                        <option value="PERCEPCION IVA">Percepción IVA</option>
-                        <option value="PERCEPCION IIBB">Percepción IIBB</option>
-                        <option value="SIRCREB">SIRCREB</option>
-                        <option value="SIRTAC">SIRTAC</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Monto</label>
-                    <input name="amount" type="text" inputMode="decimal" required className="input" placeholder="0.00" />
-                </div>
-
-                <div>
-                    <label style={{ display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 }}>Descripción (Opcional)</label>
-                    <input name="description" type="text" className="input" placeholder="Ej. Banco Galicia" />
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--spacing-sm)", marginTop: "var(--spacing-md)" }}>
-                    <button type="button" onClick={() => router.back()} className="btn btn-secondary">
-                        Cancelar
-                    </button>
-                    <button type="submit" className="btn btn-primary" disabled={loading}>
-                        Guardar
-                    </button>
-                </div>
-            </form>
-        </div>
+        <TaxForm
+            clientId={id}
+            periodId={periodId}
+            periodLabel={formatPeriodLabel(period)}
+            dateMin={periodFirstDayIso(period)}
+            dateMax={periodLastDayIso(period)}
+            initial={{ date: "", type: "RETENCION IVA", amount: "", description: "" }}
+        />
     );
 }
