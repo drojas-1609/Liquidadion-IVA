@@ -48,13 +48,30 @@ describe(`migración ${MIGRATION} — revisión estática`, () => {
     }
   });
 
-  it("exactamente 4 sentencias aditivas, en orden", () => {
+  /** Las 4 operaciones aditivas, sin cambios respecto del diff de Prisma (+ CHECK). */
+  const OPERATIONS = [
+    `CREATE TYPE "PeriodStatus" AS ENUM ('OPEN', 'CLOSED')`,
+    `ALTER TABLE "Period" ADD COLUMN "closedAt" TIMESTAMP(3), ADD COLUMN "closedById" UUID, ADD COLUMN "status" "PeriodStatus" NOT NULL DEFAULT 'OPEN'`,
+    `ALTER TABLE "Period" ADD CONSTRAINT "Period_closedById_fkey" FOREIGN KEY ("closedById") REFERENCES "Profile"("id") ON DELETE SET NULL ON UPDATE CASCADE`,
+    `ALTER TABLE "Period" ADD CONSTRAINT "Period_closed_state_check" CHECK (("status" = 'CLOSED') = ("closedAt" IS NOT NULL))`,
+  ];
+
+  it("transacción explícita con límites exactos que envuelve las 4 operaciones aditivas, en orden", () => {
     expect(statements).toEqual([
-      `CREATE TYPE "PeriodStatus" AS ENUM ('OPEN', 'CLOSED')`,
-      `ALTER TABLE "Period" ADD COLUMN "closedAt" TIMESTAMP(3), ADD COLUMN "closedById" UUID, ADD COLUMN "status" "PeriodStatus" NOT NULL DEFAULT 'OPEN'`,
-      `ALTER TABLE "Period" ADD CONSTRAINT "Period_closedById_fkey" FOREIGN KEY ("closedById") REFERENCES "Profile"("id") ON DELETE SET NULL ON UPDATE CASCADE`,
-      `ALTER TABLE "Period" ADD CONSTRAINT "Period_closed_state_check" CHECK (("status" = 'CLOSED') = ("closedAt" IS NOT NULL))`,
+      "BEGIN",
+      "SET LOCAL lock_timeout = '5s'",
+      "SET LOCAL statement_timeout = '60s'",
+      ...OPERATIONS,
+      "COMMIT",
     ]);
+  });
+
+  it("control de transacción único: un BEGIN al inicio, un COMMIT al final, sin ROLLBACK, SAVEPOINT ni SET fuera de LOCAL", () => {
+    expect(statements.filter((s) => /^(BEGIN|START TRANSACTION|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b/i.test(s))).toEqual(["BEGIN", "COMMIT"]);
+    expect(statements[0]).toBe("BEGIN");
+    expect(statements[statements.length - 1]).toBe("COMMIT");
+    expect(statements.filter((s) => /^SET\b/i.test(s)).every((s) => /^SET LOCAL /.test(s))).toBe(true);
+    expect(code).not.toMatch(/\b(ROLLBACK|SAVEPOINT|CONCURRENTLY)\b/i);
   });
 
   it("sin operaciones destructivas, backfill ni cambios fuera de Period", () => {

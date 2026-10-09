@@ -30,6 +30,17 @@
 --   El cierre bloquea en la aplicación (lib/period-lock) la modificación y la
 --   eliminación del período y de su contenido. NO congela la liquidación: se
 --   sigue calculando con Client.defaultIibbRate vigente.
+--
+-- TRANSACCIÓN Y LÍMITES
+--   Las cuatro operaciones van en una transacción EXPLÍCITA: si cualquiera
+--   falla, no queda estructura parcial. lock_timeout (5 s) acota la espera de
+--   CADA bloqueo y statement_timeout (60 s) acota CADA sentencia; ninguno de los
+--   dos limita el tiempo total de la migración. Ambos son SET LOCAL: valen sólo
+--   dentro de esta transacción.
+
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
 
 -- CreateEnum
 CREATE TYPE "PeriodStatus" AS ENUM ('OPEN', 'CLOSED');
@@ -44,3 +55,5 @@ ALTER TABLE "Period" ADD CONSTRAINT "Period_closedById_fkey" FOREIGN KEY ("close
 
 -- AddCheckConstraint
 ALTER TABLE "Period" ADD CONSTRAINT "Period_closed_state_check" CHECK (("status" = 'CLOSED') = ("closedAt" IS NOT NULL));
+
+COMMIT;
