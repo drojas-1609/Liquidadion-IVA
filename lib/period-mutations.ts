@@ -1,7 +1,7 @@
 /**
- * Alta y eliminación de períodos desde la UI, con traducción de errores de la
- * API (`{ error: { code, message }, field? }`) a mensajes legibles. Nunca se
- * convierte un objeto a string de forma implícita.
+ * Alta, eliminación, cierre y reapertura de períodos desde la UI, con
+ * traducción de errores de la API (`{ error: { code, message }, field? }`) a
+ * mensajes legibles. Nunca se convierte un objeto a string de forma implícita.
  */
 import { readApiError } from "@/lib/new-client-submit";
 import { formatPeriodLabel } from "@/lib/period";
@@ -74,6 +74,52 @@ export function submitNewPeriod(
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) },
         (body) => createPeriodErrorMessage(body, data),
         CREATE_PERIOD_GENERIC_ERROR,
+        fetchImpl,
+    );
+}
+
+// ── Cierre / reapertura ─────────────────────────────────────────────────────
+
+export type PeriodTransition = "close" | "reopen";
+
+export const PERIOD_TRANSITION_GENERIC_ERROR: Record<PeriodTransition, string> = {
+    close: "Ocurrió un error inesperado al cerrar el período.",
+    reopen: "Ocurrió un error inesperado al reabrir el período.",
+};
+export const PERIOD_TRANSITION_FORBIDDEN_ERROR: Record<PeriodTransition, string> = {
+    close: "No tenés permisos para cerrar períodos.",
+    reopen: "No tenés permisos para reabrir períodos.",
+};
+/** 409 CONFLICT: otra persona cerró o reabrió el período desde que se abrió la pantalla. */
+export const PERIOD_TRANSITION_STALE_ERROR =
+    "Otra persona cambió el estado del período mientras lo tenías abierto. No se aplicó ningún cambio: recargá la página para ver el estado actual.";
+
+export function periodTransitionErrorMessage(transition: PeriodTransition, body: unknown): string {
+    const apiError = readApiError(body);
+    if (!apiError) return PERIOD_TRANSITION_GENERIC_ERROR[transition];
+    if (apiError.code === "CONFLICT") return PERIOD_TRANSITION_STALE_ERROR;
+    if (apiError.code === "NOT_FOUND") return PERIOD_NOT_FOUND_ERROR;
+    if (apiError.code === "FORBIDDEN") return PERIOD_TRANSITION_FORBIDDEN_ERROR[transition];
+    // PERIOD_BUSY y el resto con mensaje: el mensaje exacto de la API.
+    if (apiError.code === "INTERNAL" || !apiError.message) return PERIOD_TRANSITION_GENERIC_ERROR[transition];
+    return apiError.message;
+}
+
+/**
+ * POST /api/periods/[id]/close | /reopen con el cuerpo exacto
+ * `{ expectedUpdatedAt }`: la versión del estado que vio la pantalla.
+ */
+export function submitPeriodTransition(
+    transition: PeriodTransition,
+    periodId: string,
+    expectedUpdatedAt: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<PeriodMutationResult> {
+    return send(
+        `/api/periods/${encodeURIComponent(periodId)}/${transition}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt }) },
+        (body) => periodTransitionErrorMessage(transition, body),
+        PERIOD_TRANSITION_GENERIC_ERROR[transition],
         fetchImpl,
     );
 }

@@ -13,6 +13,8 @@ import {
   ROLES_AUDIT_READ,
   ROLES_ORG_DELETE,
   ROLES_CLIENT_MANAGE,
+  ROLES_PERIOD_CLOSE,
+  ROLES_PERIOD_REOPEN,
   roleAllows,
 } from "@/lib/auth/roles";
 
@@ -31,6 +33,9 @@ const MATRIX: Record<string, { roles: readonly Role[]; allowed: Role[] }> = {
   ROLES_EXPORT: { roles: ROLES_EXPORT, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "VIEWER"] },
   // Gestión de clientes (editar)
   ROLES_CLIENT_MANAGE: { roles: ROLES_CLIENT_MANAGE, allowed: ["OWNER", "ADMIN"] },
+  // Cierre y reapertura de períodos
+  ROLES_PERIOD_CLOSE: { roles: ROLES_PERIOD_CLOSE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT"] },
+  ROLES_PERIOD_REOPEN: { roles: ROLES_PERIOD_REOPEN, allowed: ["OWNER", "ADMIN"] },
   // Futuras
   ROLES_UPDATE: { roles: ROLES_UPDATE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT"] },
   ROLES_DELETE: { roles: ROLES_DELETE, allowed: ["OWNER", "ADMIN"] },

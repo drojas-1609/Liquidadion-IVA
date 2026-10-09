@@ -35,6 +35,8 @@ import {
   claimsFor,
   clientRow,
   periodRow,
+  closedPeriodRow,
+  PERIOD_UPDATED_AT,
   SUB_OWNER_A,
   SUB_ADMIN_A,
   SUB_ACCOUNTANT_A,
@@ -48,6 +50,8 @@ import NewPeriodPage from "@/app/(app)/client/[id]/period/new/page";
 import { NewPeriodForm } from "@/app/(app)/client/[id]/period/new/new-period-form";
 import PeriodDashboard from "@/app/(app)/client/[id]/period/[periodId]/page";
 import { PeriodActions } from "@/app/(app)/client/[id]/period/[periodId]/period-actions";
+import { PeriodStatusActions } from "@/app/(app)/client/[id]/period/[periodId]/period-status-actions";
+import { TurivaSetting } from "@/app/(app)/client/[id]/period/[periodId]/turiva-setting";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { periodYearOptions } from "@/lib/period";
 
@@ -62,6 +66,7 @@ beforeEach(() => {
       periods: [
         periodRow("p_empty", "c_a", ORG_A, { month: 4, year: 2026 }),
         periodRow("p_inv", "c_a", ORG_A, { month: 5, year: 2026 }),
+        closedPeriodRow("p_closed", "c_a", ORG_A, { month: 3, year: 2026 }),
         periodRow("p_b", "c_b", ORG_B),
       ],
       invoices: [],
@@ -69,12 +74,14 @@ beforeEach(() => {
     }),
     freshRecorder(),
   );
-  // Dashboard del período: p_empty sin movimientos, p_inv con un TaxRecord.
+  // Dashboard del período: p_empty sin movimientos, p_inv con un TaxRecord,
+  // p_closed cerrado y sin movimientos.
   db.period.findFirst.mockImplementation(async ({ where }: { where: { id: string; organizationId: string } }) => {
-    const base = { month: 4, year: 2026, clientId: "c_a", organizationId: ORG_A };
+    const base = { month: 4, year: 2026, clientId: "c_a", organizationId: ORG_A, status: "OPEN", updatedAt: new Date(PERIOD_UPDATED_AT) };
     if (where.organizationId !== ORG_A) return null;
     const client = clientRow("c_a", ORG_A);
     if (where.id === "p_empty") return { id: "p_empty", ...base, invoices: [], taxRecords: [], client };
+    if (where.id === "p_closed") return { id: "p_closed", ...base, month: 3, status: "CLOSED", invoices: [], taxRecords: [], client };
     if (where.id === "p_inv") {
       const taxRecords = [{ id: "t1", type: "RETENCION IVA", amount: new Prisma.Decimal("1") }];
       return { id: "p_inv", ...base, month: 5, invoices: [], taxRecords, client };
@@ -122,10 +129,16 @@ describe("detalle del cliente — botón 'Nuevo período' según rol", () => {
     expect(links.length > 0).toBe(perms.create);
   });
 
-  it("no muestra el badge 'Abierto' fijo (no existe estado real) y usa 'Período' con tilde", async () => {
+  it("muestra el estado REAL de cada período (Abierto / Cerrado, desde la fila) y usa 'Período' con tilde", async () => {
     const el = await call();
+    const cells = findAll(el, (e) => e.props?.["data-period-status"] !== undefined);
+    expect(cells.map((c) => [c.props["data-period-status"], c.props.children])).toEqual(
+      expect.arrayContaining([
+        ["OPEN", "Abierto"],
+        ["CLOSED", "Cerrado"],
+      ]),
+    );
     const text = textOf(el);
-    expect(text).not.toMatch(/Abierto/);
     expect(text).toMatch(/Períodos fiscales/);
     expect(text).not.toMatch(/Periodo/);
   });
@@ -184,6 +197,56 @@ describe("dashboard del período — acción 'Eliminar período' según rol", ()
     const actions = findType(await call("p_inv"), PeriodActions);
     expect(actions.props.hasMovements).toBe(true);
   });
+
+  it.each(ROLE_CASES)("%s con el período CERRADO -> canDelete = false", async (_role, sub) => {
+    H.claims.value = claimsFor(sub);
+    expect(findType(await call("p_closed"), PeriodActions).props.canDelete).toBe(false);
+  });
+});
+
+describe("dashboard del período — cerrar / reabrir según estado y rol", () => {
+  const call = (periodId: string) => PeriodDashboard({ params: Promise.resolve({ id: "c_a", periodId }) });
+  const CASES = [
+    ["OWNER", SUB_OWNER_A, { close: true, reopen: true }],
+    ["ADMIN", SUB_ADMIN_A, { close: true, reopen: true }],
+    ["ACCOUNTANT", SUB_ACCOUNTANT_A, { close: true, reopen: false }],
+    ["VIEWER", SUB_VIEWER_A, { close: false, reopen: false }],
+  ] as const;
+
+  it.each(CASES)("%s, período ABIERTO -> props exactas (versión = updatedAt ISO)", async (_role, sub, perms) => {
+    H.claims.value = claimsFor(sub);
+    const el = await call("p_empty");
+    expect(findType(el, PeriodStatusActions).props).toEqual({
+      periodId: "p_empty",
+      periodLabel: "04/2026",
+      closed: false,
+      updatedAt: PERIOD_UPDATED_AT,
+      canClose: perms.close,
+      canReopen: perms.reopen,
+    });
+    expect(textOf(el)).not.toMatch(/Período cerrado/);
+  });
+
+  it.each(CASES)("%s, período CERRADO -> closed = true; TurIVA sin edición; aviso de alcance y de IIBB", async (_role, sub, perms) => {
+    H.claims.value = claimsFor(sub);
+    const el = await call("p_closed");
+    expect(findType(el, PeriodStatusActions).props).toMatchObject({ closed: true, canClose: perms.close, canReopen: perms.reopen });
+    expect(findType(el, TurivaSetting).props.canEdit).toBe(false);
+    const text = textOf(el);
+    expect(text).toMatch(/Período cerrado/);
+    expect(text).toMatch(/se puede consultar y exportar/);
+    expect(text).toMatch(/no congela la liquidación/);
+    // Sólo consulta: los accesos dicen "Ver", no "Gestionar".
+    const hrefs = findAll(el, (e) => typeof e.props?.href === "string").map((e) => e.props.href);
+    expect(hrefs).toEqual(expect.arrayContaining(["/client/c_a/period/p_closed/sales", "/client/c_a/period/p_closed/liquidation"]));
+  });
+
+  it("la etiqueta de estado sale de la fila (data-period-status)", async () => {
+    const open = findAll(await call("p_empty"), (e) => e.props?.["data-period-status"] !== undefined);
+    const closed = findAll(await call("p_closed"), (e) => e.props?.["data-period-status"] !== undefined);
+    expect(open.map((e) => e.props.children)).toEqual(["Abierto"]);
+    expect(closed.map((e) => e.props.children)).toEqual(["Cerrado"]);
+  });
 });
 
 describe("fuentes de UI — requisitos", () => {
@@ -191,7 +254,14 @@ describe("fuentes de UI — requisitos", () => {
   const FILES = [
     "app/(app)/client/[id]/period/new/new-period-form.tsx",
     "app/(app)/client/[id]/period/[periodId]/period-actions.tsx",
+    "app/(app)/client/[id]/period/[periodId]/period-status-actions.tsx",
   ];
+
+  it("period-closed-notice.tsx (sin envíos) no usa confirm()/alert()/prompt() y escribe 'período' con tilde", () => {
+    const s = src("app/(app)/client/[id]/period/[periodId]/_components/period-closed-notice.tsx");
+    expect(s).not.toMatch(/\b(window\.)?(confirm|alert|prompt)\s*\(/);
+    expect(s).not.toMatch(/[Pp]eriodo/);
+  });
 
   it.each(FILES)("%s no usa confirm()/alert()/prompt() y escribe 'período' con tilde", (rel) => {
     const s = src(rel);

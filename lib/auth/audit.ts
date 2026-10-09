@@ -27,6 +27,9 @@ export const AUDIT_ACTIONS = [
   "client.delete",
   // Gestión de períodos
   "period.delete",
+  // Cierre y reapertura de períodos
+  "period.close",
+  "period.reopen",
   // Configuración de IVA del período (declarada en Fase A; se emitirá cuando
   // exista el endpoint que modifique PeriodVatSettings).
   "period.vat_settings_change",
@@ -64,6 +67,9 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "client.update": ["changedFields", "condition"],
   "client.delete": ["condition"], // NO cuit, nombre ni dirección
   "period.delete": ["clientId", "month", "year"],
+  // Sin texto libre (no hay motivo de reapertura), CUIT, nombres ni importes.
+  "period.close": ["clientId", "month", "year"],
+  "period.reopen": ["clientId", "month", "year"],
   // Reconstruye cómo se obtuvo una liquidación. Coeficientes como strings
   // decimales EXACTOS (nunca float). Sin CUIT, nombres ni importes.
   "period.vat_settings_change": [

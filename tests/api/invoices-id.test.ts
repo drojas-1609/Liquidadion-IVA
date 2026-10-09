@@ -38,6 +38,9 @@ import {
   timeoutRestoreOrder,
   expectPeriodBusyResponse,
   expectBusyRollback,
+  closePeriodInWorld,
+  expectPeriodClosedResponse,
+  expectClosedRollback,
   loggedUnclassified,
 } from "./_harness";
 import { Prisma } from "@prisma/client";
@@ -797,6 +800,38 @@ describe("PATCH / DELETE /api/invoices/[id] — orden único de locks", () => {
     expect(restoreAt).toBeLessThan(db.invoiceVatLine.deleteMany.mock.invocationCallOrder[0]);
     expect(restoreAt).toBeLessThan(db.invoice.delete.mock.invocationCallOrder[0]);
     expect(restoreAt).toBeLessThan(db.auditLog.create.mock.invocationCallOrder[0]);
+  });
+
+  it("PATCH con el período CERRADO -> 409 PERIOD_CLOSED exacto, no-store; sin lock de Invoice, líneas, TurIVA, escritura ni AuditLog", async () => {
+    withInvoice(saleT, {}, (w) => turivaIncluded(w, true));
+    closePeriodInWorld(world, "p_a");
+    const { result: res, unclassified } = await loggedUnclassified(() => edit({ number: 1002 }, saleT));
+    await expectPeriodClosedResponse(res);
+    expect(unclassified).toBe(false);
+    expectClosedRollback(db, rec);
+    expect(lockTargets()).toEqual(["Period:p_a"]);
+    expect(db.invoiceVatLine.findMany).not.toHaveBeenCalled();
+    expect(db.periodVatSettings.findUnique).not.toHaveBeenCalled();
+    expectNoUpdate();
+    expect(current()?.number).toBe(1001);
+  });
+
+  it("DELETE con el período CERRADO -> 409 PERIOD_CLOSED exacto, no-store; sin lock de Invoice, borrado de líneas, baja ni AuditLog", async () => {
+    closePeriodInWorld(world, "p_a");
+    const { result: res, unclassified } = await loggedUnclassified(() => del());
+    await expectPeriodClosedResponse(res);
+    expect(unclassified).toBe(false);
+    expectClosedRollback(db, rec);
+    expect(lockTargets()).toEqual(["Period:p_a"]);
+    expect(db.invoiceVatLine.findMany).not.toHaveBeenCalled();
+    expectNotDeleted();
+  });
+
+  it("DELETE con cierre confirmado mientras esperaba el bloqueo del Period -> 409 PERIOD_CLOSED (mismo lock), sin baja", async () => {
+    onPeriodLock(() => closePeriodInWorld(world, "p_a"));
+    await expectPeriodClosedResponse(await del());
+    expectClosedRollback(db, rec);
+    expectNotDeleted();
   });
 
   it("PATCH con el período ocupado (55P03 en el lock de Period) -> 409 PERIOD_BUSY exacto, no-store; sin lock de Invoice, líneas, TurIVA, escritura ni AuditLog; rollback", async () => {

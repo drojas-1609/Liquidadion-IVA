@@ -2,6 +2,7 @@ import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
 import { ROLES_READ, ROLES_UPDATE } from "@/lib/auth/roles";
+import { isPeriodClosed } from "@/lib/period-status";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { formatMoney, formatIsoDate } from "@/lib/format";
 import { normalizeInvoiceRow } from "@/lib/invoice-model";
@@ -18,7 +19,7 @@ export default async function PurchasesPage({ params }: { params: Promise<{ id: 
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
-        const { organizationId, role } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
+        const { organizationId, role, period } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
             expectClientId: id,
         });
         const invoices = await prisma.invoice.findMany({
@@ -27,12 +28,12 @@ export default async function PurchasesPage({ params }: { params: Promise<{ id: 
             // Sólo los códigos de alícuota: deciden editabilidad / eliminabilidad.
             include: { vatLines: { select: { vatRateCode: true } } },
         });
-        return { role, invoices };
+        return { role, invoices, closed: isPeriodClosed(period.status) };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { role, invoices } = guard.data;
-    // VIEWER: sin columna de acciones.
-    const showActions = ROLES_UPDATE.includes(role);
+    const { role, invoices, closed } = guard.data;
+    // VIEWER o período cerrado: sin columna de acciones ni alta (sólo consulta).
+    const showActions = ROLES_UPDATE.includes(role) && !closed;
 
     return (
         <div className="container">
@@ -43,9 +44,13 @@ export default async function PurchasesPage({ params }: { params: Promise<{ id: 
                     </Link>
                     <h1 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>Compras</h1>
                 </div>
-                <Link href={`/client/${id}/period/${periodId}/purchases/new`} className="btn btn-primary">
-                    Nueva Compra
-                </Link>
+                {closed ? (
+                    <span role="status" style={{ color: "var(--secondary)" }}>Período cerrado: sólo consulta</span>
+                ) : (
+                    <Link href={`/client/${id}/period/${periodId}/purchases/new`} className="btn btn-primary">
+                        Nueva Compra
+                    </Link>
+                )}
             </div>
 
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>

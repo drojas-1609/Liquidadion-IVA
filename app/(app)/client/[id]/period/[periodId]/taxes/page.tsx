@@ -7,6 +7,7 @@ import { formatMoney, formatUtcDate } from "@/lib/format";
 import { describeTaxRecordType } from "@/lib/tax-types";
 import { taxEditHref, taxRowLabel } from "@/lib/tax-form-client";
 import { TaxRowActions } from "./_components/tax-row-actions";
+import { isPeriodClosed } from "@/lib/period-status";
 
 export const dynamic = "force-dynamic";
 
@@ -26,22 +27,23 @@ export default async function TaxesPage({ params }: { params: Promise<{ id: stri
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
-        const { organizationId, role } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
+        const { organizationId, role, period } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
             expectClientId: id,
         });
         const taxes = await prisma.taxRecord.findMany({
             where: { periodId, organizationId },
             orderBy: { date: "desc" },
         });
-        return { taxes, role };
+        return { taxes, role, closed: isPeriodClosed(period.status) };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { taxes, role } = guard.data;
+    const { taxes, role, closed } = guard.data;
 
-    // La API sigue siendo la autoridad; esto sólo decide qué se ofrece.
-    const canCreate = ROLES_CREATE.includes(role);
-    const canEdit = ROLES_UPDATE.includes(role);
-    const canDelete = ROLES_DELETE.includes(role);
+    // La API sigue siendo la autoridad; esto sólo decide qué se ofrece. Período
+    // cerrado: sólo consulta.
+    const canCreate = ROLES_CREATE.includes(role) && !closed;
+    const canEdit = ROLES_UPDATE.includes(role) && !closed;
+    const canDelete = ROLES_DELETE.includes(role) && !closed;
     const showActions = canEdit || canDelete;
 
     return (
@@ -58,6 +60,7 @@ export default async function TaxesPage({ params }: { params: Promise<{ id: stri
                         Nueva Retención/Percepción
                     </Link>
                 )}
+                {closed && <span role="status" style={{ color: "var(--secondary)" }}>Período cerrado: sólo consulta</span>}
             </div>
 
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>

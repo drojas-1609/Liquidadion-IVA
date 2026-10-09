@@ -45,7 +45,9 @@ import {
   ORG_A,
   ORG_B,
   type World,
+  closePeriodInWorld,
 } from "../api/_harness";
+import { PeriodClosedNotice } from "@/app/(app)/client/[id]/period/[periodId]/_components/period-closed-notice";
 import { AccessNotice } from "@/app/_components/access-notice";
 import TaxesPage from "@/app/(app)/client/[id]/period/[periodId]/taxes/page";
 import NewTaxPage from "@/app/(app)/client/[id]/period/[periodId]/taxes/new/page";
@@ -434,5 +436,63 @@ describe("fuentes de UI de retenciones/percepciones", () => {
     expect(code(actions).match(/router\.refresh\(\)/g)).toHaveLength(2); // éxito y "Recargar"
     expect(actions).toMatch(/state\.feedback\.stale && \([\s\S]*?Recargar/);
     expect(actions).not.toMatch(/markDeleted|DeletableInvoiceRow|invoice-form-client/);
+  });
+});
+
+// ── Período cerrado ─────────────────────────────────────────────────────────
+
+function allNodesOf(node: any, out: any[] = []): any[] {
+  if (Array.isArray(node)) for (const n of node) allNodesOf(n, out);
+  else if (node && typeof node === "object" && "props" in node) {
+    out.push(node);
+    allNodesOf(node.props?.children, out);
+  }
+  return out;
+}
+
+describe("retenciones/percepciones — período cerrado", () => {
+  const list = () => TaxesPage({ params: Promise.resolve({ id: "c_a", periodId: "p_a" }) });
+  const create = () => NewTaxPage({ params: Promise.resolve({ id: "c_a", periodId: "p_a" }) });
+  const edit = (taxId = "t_a") => EditTaxPage({ params: Promise.resolve({ id: "c_a", periodId: "p_a", taxId }) });
+  const hrefs = (el: any) => allNodesOf(el).map((n) => n.props?.href).filter((h) => typeof h === "string");
+
+  it("lista abierta (referencia): alta y acciones visibles para OWNER", async () => {
+    const el = await list();
+    expect(hrefs(el)).toContain("/client/c_a/period/p_a/taxes/new");
+    expect(findAll(el, TaxRowActions).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["OWNER", SUB_OWNER_A],
+    ["ADMIN", SUB_ADMIN_A],
+    ["ACCOUNTANT", SUB_ACCOUNTANT_A],
+  ])("lista cerrada (%s): sin alta ni acciones; los registros se siguen viendo", async (_r, sub) => {
+    as(sub);
+    closePeriodInWorld(world, "p_a");
+    const el = await list();
+    expect(hrefs(el)).not.toContain("/client/c_a/period/p_a/taxes/new");
+    expect(findAll(el, TaxRowActions)).toHaveLength(0);
+    expect(allNodesOf(el).filter((n) => n.type === "tr").length).toBeGreaterThan(1);
+  });
+
+  it("alta en período cerrado -> aviso, sin formulario", async () => {
+    closePeriodInWorld(world, "p_a");
+    const el: any = await create();
+    expect(el.type).toBe(PeriodClosedNotice);
+    expect(findAll(el, TaxForm)).toHaveLength(0);
+  });
+
+  it("edición en período cerrado -> aviso, sin formulario; registro inexistente -> notFound()", async () => {
+    closePeriodInWorld(world, "p_a");
+    const el: any = await edit();
+    expect(el.type).toBe(PeriodClosedNotice);
+    await expect(edit("t_missing")).rejects.toThrow("NOTFOUND_PAGE");
+  });
+
+  it("VIEWER en período cerrado -> aviso de permisos en alta y edición", async () => {
+    as(SUB_VIEWER_A);
+    closePeriodInWorld(world, "p_a");
+    expect(noticeOf(await create())).toBe("forbidden");
+    expect(noticeOf(await edit())).toBe("forbidden");
   });
 });
