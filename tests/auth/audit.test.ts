@@ -295,6 +295,21 @@ describe("sanitizeAuditMetadata — allow-list por acción", () => {
     ).toEqual({ clientId: "c1", month: 4, year: 2026 });
   });
 
+  it.each([["period.close"], ["period.reopen"]])("%s: sólo clientId, month y year (sin texto libre, CUIT ni importes)", (action) => {
+    expect(
+      sanitizeAuditMetadata(action, {
+        clientId: "c1",
+        month: 4,
+        year: 2026,
+        reason: "texto libre del usuario",
+        status: "CLOSED",
+        closedById: "aaaaaaaa-0000-4000-8000-000000000001",
+        cuit: "20-12345678-6",
+        organizationId: "org",
+      }),
+    ).toEqual({ clientId: "c1", month: 4, year: 2026 });
+  });
+
   it("period.vat_settings_change: sólo los 9 campos aprobados; coeficientes como strings exactos", () => {
     const out = sanitizeAuditMetadata("period.vat_settings_change", {
       changedFields: "creditProrationMode,globalCoefficient",
@@ -444,6 +459,11 @@ describe("recordAudit", () => {
         metadata: { clientId: "c1", month: 1, year: 2026 },
       }),
     ).rejects.toThrow("db down");
+  });
+
+  it("AUDIT_ACTIONS incluye el cierre y la reapertura de períodos", () => {
+    expect(AUDIT_ACTIONS).toContain("period.close");
+    expect(AUDIT_ACTIONS).toContain("period.reopen");
   });
 
   it("AUDIT_ACTIONS incluye la corrección de comprobantes manuales", () => {

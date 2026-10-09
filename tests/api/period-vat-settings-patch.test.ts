@@ -39,6 +39,9 @@ import {
   timeoutRestoreOrder,
   expectPeriodBusyResponse,
   expectBusyRollback,
+  closePeriodInWorld,
+  expectPeriodClosedResponse,
+  expectClosedRollback,
   loggedUnclassified,
 } from "./_harness";
 import { PATCH } from "@/app/api/periods/[id]/vat-settings/route";
@@ -331,6 +334,22 @@ describe("PATCH /api/periods/[id]/vat-settings — organización y bloqueo", () 
     expect(restoreAt).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
     expect(restoreAt).toBeLessThan(db.invoice.count.mock.invocationCallOrder[0]);
     expect(restoreAt).toBeLessThan(db.periodVatSettings.update.mock.invocationCallOrder[0]);
+  });
+
+  it.each([
+    ["desactivar (p_on)", "p_on", false],
+    ["activar sin fila (p_new)", "p_new", true],
+  ] as const)("período CERRADO, %s -> 409 PERIOD_CLOSED exacto, sin leer configuración, contar, escribir ni AuditLog", async (_l, periodId, turivaIncluded) => {
+    closePeriodInWorld(world, periodId);
+    const before = vatRow(periodId)?.turivaIncluded;
+    const { result: res, unclassified } = await loggedUnclassified(() => patch(periodId, { turivaIncluded }));
+    await expectPeriodClosedResponse(res);
+    expect(unclassified).toBe(false);
+    expectClosedRollback(db, rec);
+    expect(db.periodVatSettings.findUnique).not.toHaveBeenCalled();
+    expect(db.invoice.count).not.toHaveBeenCalled();
+    noWrites();
+    expect(vatRow(periodId)?.turivaIncluded).toBe(before);
   });
 
   it("período ocupado (55P03 en el lock de Period) -> 409 PERIOD_BUSY exacto, no-store, sin leer configuración, contar, escribir ni AuditLog; rollback", async () => {

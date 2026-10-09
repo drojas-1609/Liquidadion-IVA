@@ -48,11 +48,18 @@ export interface PeriodRow {
   organizationId: string;
   month: number;
   year: number;
+  /** "OPEN" | "CLOSED" (string: los tests de falla cerrada usan valores ajenos al enum). */
+  status: string;
+  closedAt: Date | null;
+  closedById: string | null;
   createdById: string | null;
   updatedById: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
+
+/** `updatedAt` inicial de los períodos del harness: el token de cerrar / reabrir. */
+export const PERIOD_UPDATED_AT = "2026-01-01T00:00:00.000Z";
 
 /** CUIT ficticio y válido (DV módulo 11) derivado del id del fixture. */
 function fixtureCuit(id: string): string {
@@ -92,12 +99,30 @@ export function periodRow(
     organizationId,
     month: 5,
     year: 2026,
+    status: "OPEN",
+    closedAt: null,
+    closedById: null,
     createdById: null,
     updatedById: null,
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
-    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date(PERIOD_UPDATED_AT),
     ...over,
   };
+}
+
+/** Período CERRADO del harness (coherente con el CHECK de la base: closedAt NOT NULL). */
+export function closedPeriodRow(
+  id: string,
+  clientId: string,
+  organizationId: string,
+  over: Partial<PeriodRow> = {},
+): PeriodRow {
+  return periodRow(id, clientId, organizationId, {
+    status: "CLOSED",
+    closedAt: new Date("2026-06-01T12:00:00.000Z"),
+    closedById: SUB_OWNER_A,
+    ...over,
+  });
 }
 
 /** Fila completa de TaxRecord (como en la base), con `updatedAt` exacto. */
@@ -179,7 +204,7 @@ export interface DbMock {
   profile: { findUnique: Fn };
   membership: { findMany: Fn; findUnique: Fn };
   client: { findMany: Fn; findUnique: Fn; findFirst: Fn; create: Fn; update: Fn; delete: Fn };
-  period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn; delete: Fn };
+  period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn; delete: Fn; update: Fn };
   invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; delete: Fn };
   invoiceVatLine: { findMany: Fn; deleteMany: Fn };
   taxRecord: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; deleteMany: Fn };
@@ -202,7 +227,7 @@ export function freshDbMock(): DbMock {
       update: vi.fn(),
       delete: vi.fn(),
     },
-    period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), delete: vi.fn() },
+    period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), delete: vi.fn(), update: vi.fn() },
     invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
     invoiceVatLine: { findMany: vi.fn(), deleteMany: vi.fn() },
     taxRecord: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
@@ -454,6 +479,19 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     return removed;
   });
 
+  // update sobre @@unique([id, organizationId]); P2025 si no existe. Reemplaza
+  // la fila (no la muta) para que el rollback de la transacción la restaure.
+  // Sin `data.updatedAt` explícito, Prisma (@updatedAt) usaría el instante actual.
+  db.period.update.mockImplementation(async ({ where, data, select }: AnyArgs) => {
+    const { id, organizationId } = where.id_organizationId;
+    const idx = world.periods.findIndex((p) => p.id === id && p.organizationId === organizationId);
+    if (idx === -1) throw knownError("P2025", "Record to update not found");
+    const next = { ...world.periods[idx], ...data, updatedAt: data.updatedAt ?? new Date() };
+    world.periods[idx] = next;
+    rec.created.periodUpdate = { where: where.id_organizationId, data };
+    return select ? pick(next, select) : next;
+  });
+
   db.period.create.mockImplementation(async ({ data }: AnyArgs) => {
     if (
       world.periods.some(
@@ -638,7 +676,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   const READ_TIMEOUT = `SELECT current_setting('lock_timeout') AS "lockTimeout"`;
   const SET_TIMEOUT = "SELECT set_config('lock_timeout', '3000ms', true)";
   const RESTORE_TIMEOUT = "SELECT set_config('lock_timeout', ?, true)";
-  const PERIOD_LOCK = /^SELECT "id" FROM "Period" WHERE "id" = \? AND "organizationId" = \? FOR UPDATE$/;
+  const PERIOD_LOCK = /^SELECT "id", "status"::text AS "status" FROM "Period" WHERE "id" = \? AND "organizationId" = \? FOR UPDATE$/;
   const INVOICE_LOCK = /^SELECT .+ FROM "Invoice" WHERE "id" = \? AND "organizationId" = \? FOR UPDATE$/;
   const TAX_RECORD_LOCK_COLUMNS = ["id", "organizationId", "periodId", "type", "date", "amount", "description", "updatedAt"];
   const TAX_RECORD_LOCK = `SELECT ${TAX_RECORD_LOCK_COLUMNS.map((c) => `"${c}"`).join(", ")} FROM "TaxRecord" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE`;
@@ -688,7 +726,8 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
         rec.txAborted = true;
         throw lockNotAvailableError();
       }
-      return world.periods.some((p) => p.id === id && p.organizationId === organizationId) ? [{ id }] : [];
+      const period = world.periods.find((p) => p.id === id && p.organizationId === organizationId);
+      return period ? [{ id, status: period.status }] : [];
     }
     throw new Error(`consulta raw inesperada: ${sql}`);
   });
@@ -769,6 +808,55 @@ export const PERIOD_BUSY_BODY = {
     message: "El período está siendo modificado por otra operación. Esperá unos segundos y volvé a intentarlo.",
   },
 };
+
+/** Contrato EXACTO del 409 por período cerrado (independiente de la constante productiva). */
+export const PERIOD_CLOSED_BODY = {
+  error: {
+    code: "PERIOD_CLOSED",
+    message:
+      "El período está cerrado: no se pueden modificar ni eliminar sus datos. Para corregirlo, primero hay que reabrirlo.",
+  },
+};
+
+/** 409 PERIOD_CLOSED con cuerpo exacto y no-store. */
+export async function expectPeriodClosedResponse(res: Response): Promise<void> {
+  expect(res.status).toBe(409);
+  expect(res.headers.get("cache-control")).toBe("no-store, max-age=0");
+  expect(await res.json()).toEqual(PERIOD_CLOSED_BODY);
+}
+
+/**
+ * Cierra `periodId` en el mundo (reemplaza la fila, coherente con el CHECK de
+ * la base). Debe llamarse DESPUÉS de cualquier `setWorld` del test.
+ */
+export function closePeriodInWorld(world: World, periodId: string): void {
+  const idx = world.periods.findIndex((p) => p.id === periodId);
+  if (idx === -1) throw new Error(`closePeriodInWorld: no existe ${periodId}`);
+  world.periods[idx] = { ...world.periods[idx], status: "CLOSED", closedAt: new Date("2026-06-01T12:00:00.000Z"), closedById: SUB_OWNER_A };
+}
+
+/**
+ * Estado del harness tras el rechazo por período cerrado: el bloqueo del
+ * Period se obtuvo y el lock_timeout se restauró (secuencia completa), ningún
+ * otro bloqueo, ninguna escritura ni AuditLog, y una sola transacción con las
+ * opciones exactas. Además, NINGÚN método de escritura de ningún modelo (ni
+ * auditLog.create) llegó a invocarse: no basta con el rollback simulado.
+ */
+export function expectClosedRollback(db: DbMock, rec: Recorder, previous = "0"): void {
+  const writeOps = new Set(["create", "createMany", "update", "updateMany", "upsert", "delete", "deleteMany"]);
+  for (const [model, ops] of Object.entries(db)) {
+    if (model.startsWith("$") || typeof ops !== "object" || ops === null) continue;
+    for (const [op, fn] of Object.entries(ops as Record<string, Fn>)) {
+      if (writeOps.has(op)) expect(fn, `${model}.${op}`).not.toHaveBeenCalled();
+    }
+  }
+  expect(rec.rawSteps).toEqual(periodLockSteps(previous));
+  expect(rec.locks).toHaveLength(1);
+  expect(rec.locks[0].sql).toMatch(/FROM "Period"/);
+  expect(rec.audits).toHaveLength(0);
+  expect(rec.created).toEqual({});
+  expect(rec.txOptions).toEqual([PERIOD_WRITE_TX_OPTIONS]);
+}
 
 /** 409 PERIOD_BUSY con cuerpo exacto y no-store. */
 export async function expectPeriodBusyResponse(res: Response): Promise<void> {

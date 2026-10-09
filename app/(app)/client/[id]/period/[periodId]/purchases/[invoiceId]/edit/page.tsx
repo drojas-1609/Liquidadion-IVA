@@ -2,6 +2,7 @@ import { guardPage } from "@/lib/auth/authz";
 import { loadInvoiceEditContext } from "@/lib/invoice-form-context";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { InvoiceEditUnavailable, InvoiceForm } from "../../../_components/invoice-form";
+import { PeriodClosedNotice } from "../../../_components/period-closed-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,9 @@ export default async function EditPurchasePage({
 
     const guard = await guardPage(() => loadInvoiceEditContext(id, periodId, invoiceId, "PURCHASES"));
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { edit, ...form } = guard.data;
+    const { edit, periodClosed, ...form } = guard.data;
+    // Período cerrado: aviso en lugar del formulario (la API rechaza igual).
+    if (periodClosed) return <PeriodClosedNotice clientId={id} periodId={periodId} />;
 
     if (edit.status === "NOT_EDITABLE") {
         return <InvoiceEditUnavailable direction="PURCHASES" clientId={id} periodId={periodId} clientName={form.clientName} period={form.period} message={edit.message} />;

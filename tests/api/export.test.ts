@@ -47,6 +47,7 @@ import {
   claimsFor,
   clientRow,
   periodRow,
+  closedPeriodRow,
   SUB_OWNER_A,
   SUB_VIEWER_A,
   SUB_NO_ORG,
@@ -79,6 +80,28 @@ const get = (id: string, periodId: string) =>
   GET(new Request(`http://localhost/api/client/${id}/period/${periodId}/export`), {
     params: Promise.resolve({ id, periodId }),
   });
+
+describe("GET .../export — período cerrado", () => {
+  it.each([
+    ["OWNER", SUB_OWNER_A],
+    ["VIEWER", SUB_VIEWER_A],
+  ])("%s exporta un período CERRADO: 200 XLSX + AuditLog, sin bloquear el Period ni escribir", async (_r, sub) => {
+    const world = makeWorld({
+      clients: [clientRow("c_a", ORG_A)],
+      periods: [closedPeriodRow("p_a", "c_a", ORG_A)],
+      invoices: [],
+      taxRecords: [],
+    });
+    wireDb(db, world, rec);
+    H.claims.value = claimsFor(sub);
+    const res = await get("c_a", "p_a");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("spreadsheetml.sheet");
+    expect(rec.audits.map((a) => a.action)).toEqual(["liquidation.export"]);
+    expect(rec.locks).toHaveLength(0);
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
+});
 
 describe("GET .../export — orden seguro (generar -> auditar -> responder)", () => {
   it("camino feliz: 200 XLSX + EXACTAMENTE 1 AuditLog liquidation.export sin importes ni buffer", async () => {

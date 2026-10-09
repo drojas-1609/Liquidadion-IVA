@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requireClientAccess, guardPage } from "@/lib/auth/authz";
 import { ROLES_READ, ROLES_CREATE, ROLES_CLIENT_MANAGE, ROLES_DELETE, roleAllows } from "@/lib/auth/roles";
 import { formatPeriodLabel } from "@/lib/period";
+import { periodStatusLabel } from "@/lib/period-status";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { ClientActions } from "./client-actions";
@@ -61,13 +62,14 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
                     <thead>
                         <tr>
                             <th>Período</th>
+                            <th>Estado</th>
                             <th>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
                         {client.periods.length === 0 ? (
                             <tr>
-                                <td colSpan={2} style={{ textAlign: "center", color: "var(--secondary)" }}>
+                                <td colSpan={3} style={{ textAlign: "center", color: "var(--secondary)" }}>
                                     No hay períodos registrados.
                                 </td>
                             </tr>
@@ -75,6 +77,7 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
                             client.periods.map((period) => (
                                 <tr key={period.id}>
                                     <td>{formatPeriodLabel(period)}</td>
+                                    <td data-period-status={period.status}>{periodStatusLabel(period.status)}</td>
                                     <td>
                                         <Link
                                             href={`/client/${id}/period/${period.id}`}
