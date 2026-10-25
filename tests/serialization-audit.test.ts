@@ -44,6 +44,9 @@ const EXPECTED = {
   // Cierre / reapertura: responden { periodId, status, updatedAt } (sin Decimal ni la fila cruda).
   "app/api/periods/[id]/close/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/reopen/route.ts": { models: [], serializer: null },
+  // Consulta de CUIT en ARCA: responde la propuesta normalizada (strings), sin
+  // modelos de la base ni Decimal; no lee ni escribe Client.
+  "app/api/arca/cuit-lookup/route.ts": { models: [], serializer: null },
   // Devuelve XLSX binario (no JSON); internamente serializeLiquidation -> strings.
   "app/api/client/[id]/period/[periodId]/export/route.ts": { models: ["Invoice", "TaxRecord", "Client"], serializer: "serializeLiquidation" },
 } as const;

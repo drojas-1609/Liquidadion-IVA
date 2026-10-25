@@ -22,6 +22,11 @@ export interface ClientDTO {
   condition: string;
   address: string | null;
   defaultIibbRate: string;
+  /** Contacto confirmado por el estudio; null = pendiente (cliente histórico). */
+  phone: string | null;
+  contactEmail: string | null;
+  /** Inscripción IIBB informativa; null = sin clasificar. */
+  iibbRegistration: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -33,6 +38,9 @@ export function serializeClient(c: {
   condition: string;
   address: string | null;
   defaultIibbRate: Prisma.Decimal;
+  phone?: string | null;
+  contactEmail?: string | null;
+  iibbRegistration?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): ClientDTO {
@@ -43,6 +51,9 @@ export function serializeClient(c: {
     condition: c.condition,
     address: c.address,
     defaultIibbRate: rate(c.defaultIibbRate),
+    phone: c.phone ?? null,
+    contactEmail: c.contactEmail ?? null,
+    iibbRegistration: c.iibbRegistration ?? null,
     createdAt: iso(c.createdAt),
     updatedAt: iso(c.updatedAt),
   };

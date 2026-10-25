@@ -50,7 +50,8 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 /** Claves permitidas en `metadata`, por acción. Vacío => siempre `{}`. */
 const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
-  "client.create": ["condition"], // NO cuit
+  // NO cuit ni contactos. iibbRegistration: categoría (enum), no dato personal.
+  "client.create": ["condition", "iibbRegistration"],
   "period.create": ["clientId", "month", "year"],
   // Fase A: voucherCode (código oficial) reemplaza a `type`. Sin CUIT, nombres ni importes.
   "invoice.create": ["periodId", "category", "voucherCode"],
@@ -63,8 +64,9 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "invoiceCount",
     "taxRecordCount",
   ],
-  // changedFields: NOMBRES de campo separados por coma, nunca valores. NO cuit.
-  "client.update": ["changedFields", "condition"],
+  // changedFields: NOMBRES de campo separados por coma, nunca valores (ni
+  // teléfono, email, actividades o alícuotas). NO cuit.
+  "client.update": ["changedFields", "condition", "iibbRegistration"],
   "client.delete": ["condition"], // NO cuit, nombre ni dirección
   "period.delete": ["clientId", "month", "year"],
   // Sin texto libre (no hay motivo de reapertura), CUIT, nombres ni importes.

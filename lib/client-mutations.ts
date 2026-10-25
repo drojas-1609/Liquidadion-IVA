@@ -4,6 +4,7 @@
  * convierte un objeto a string de forma implícita.
  */
 import { readApiError } from "@/lib/new-client-submit";
+import { profileFieldLabel } from "@/lib/client-profile";
 
 export const UPDATE_CLIENT_GENERIC_ERROR = "Error al actualizar el cliente";
 export const DELETE_CLIENT_GENERIC_ERROR = "Error al eliminar el cliente";
@@ -13,6 +14,13 @@ export const DELETE_CLIENT_HAS_PERIODS_ERROR =
     "El cliente tiene períodos asociados y no se puede eliminar.";
 export const CLIENT_NOT_FOUND_ERROR = "El cliente no existe o ya fue eliminado.";
 export const CLIENT_FORBIDDEN_ERROR = "No tenés permisos para modificar clientes.";
+export const UPDATE_CLIENT_STALE_ERROR =
+    "Otra persona modificó este cliente después de que abriste el formulario. Tus cambios NO se guardaron y siguen en pantalla.";
+
+/** 409 por versión obsoleta (no por CUIT duplicado): `field` = "expectedUpdatedAt". */
+export function isStaleClientError(body: unknown): boolean {
+    return readApiError(body)?.code === "CONFLICT" && (body as { field?: unknown }).field === "expectedUpdatedAt";
+}
 
 const FIELD_LABELS: Record<string, string> = {
     name: "Nombre",
@@ -20,6 +28,7 @@ const FIELD_LABELS: Record<string, string> = {
     condition: "Condición fiscal",
     address: "Dirección",
     defaultIibbRate: "Alícuota IIBB",
+    expectedUpdatedAt: "Versión del formulario",
 };
 
 function commonMessage(code: string | null): string | null {
@@ -31,14 +40,17 @@ function commonMessage(code: string | null): string | null {
 export function updateClientErrorMessage(body: unknown): string {
     const apiError = readApiError(body);
     if (!apiError) return UPDATE_CLIENT_GENERIC_ERROR;
-    // En la edición, la única unicidad alcanzable es @@unique([organizationId, cuit]).
+    if (isStaleClientError(body)) return UPDATE_CLIENT_STALE_ERROR;
+    // Fuera del conflicto de versión, la única unicidad alcanzable en la
+    // edición es @@unique([organizationId, cuit]).
     if (apiError.code === "CONFLICT") return UPDATE_CLIENT_DUPLICATE_CUIT_ERROR;
     const common = commonMessage(apiError.code);
     if (common) return common;
     if (!apiError.message) return UPDATE_CLIENT_GENERIC_ERROR;
 
     const field = (body as { field?: unknown }).field;
-    const label = typeof field === "string" && field !== "body" ? (FIELD_LABELS[field] ?? field) : null;
+    const label =
+        typeof field === "string" && field !== "body" ? (FIELD_LABELS[field] ?? profileFieldLabel(field) ?? field) : null;
     return label ? `${label}: ${apiError.message}` : apiError.message;
 }
 
@@ -49,7 +61,8 @@ export function deleteClientErrorMessage(body: unknown): string {
     return commonMessage(apiError.code) ?? apiError.message ?? DELETE_CLIENT_GENERIC_ERROR;
 }
 
-export type ClientMutationResult = { ok: true } | { ok: false; message: string };
+/** `stale`: el formulario quedó desactualizado (409 de versión); nunca se reenvía solo. */
+export type ClientMutationResult = { ok: true } | { ok: false; message: string; stale?: true };
 
 async function send(
     url: string,
@@ -66,7 +79,7 @@ async function send(
     }
     if (res.ok) return { ok: true };
     const body: unknown = await res.json().catch(() => null);
-    return { ok: false, message: toMessage(body) };
+    return isStaleClientError(body) ? { ok: false, message: toMessage(body), stale: true } : { ok: false, message: toMessage(body) };
 }
 
 export function submitClientUpdate(

@@ -692,6 +692,27 @@ describe("cobertura estructural — fuentes sintéticas: lib/tax-record-lock.ts"
   });
 });
 
+describe("cobertura estructural — fuentes sintéticas: lib/client-lock.ts", () => {
+  const CLIENT_LOCK_FILE = "lib/client-lock.ts";
+  const helperSrc = read(CLIENT_LOCK_FILE);
+  const clientLock = (src: string) => codes(CLIENT_LOCK_FILE, src);
+
+  it("el helper real -> sin violaciones", () => {
+    expect(clientLock(helperSrc)).toEqual([]);
+  });
+
+  it.each([
+    ["SQL mutado: sin FOR UPDATE", () => mutate(helperSrc, "\n        FOR UPDATE`", "`"), "RAW_NOT_INVENTORIED", /no inventariado/],
+    ["SQL mutado: otra tabla", () => mutate(helperSrc, 'FROM "Client"', 'FROM "Period"'), "RAW_NOT_INVENTORIED", /FROM "Period"/],
+    ["filtro sin organización", () => mutate(helperSrc, ' AND "organizationId" = ${organizationId}', ""), "RAW_NOT_INVENTORIED", /no inventariado/],
+    ["parámetro cambiado (organización)", () => mutate(helperSrc, '"organizationId" = ${organizationId}', '"organizationId" = ${orgId}'), "RAW_NOT_INVENTORIED", /\[clientId, orgId\]/],
+    ["columna inesperada", () => mutate(helperSrc, '"organizationId", "updatedAt"', '"organizationId", "phone", "updatedAt"'), "RAW_NOT_INVENTORIED", /"phone"/],
+  ] as const)("%s -> exactamente la violación prevista", (_l, src, expected, message) => {
+    expect(clientLock(src())).toEqual([expected]);
+    expect(details(CLIENT_LOCK_FILE, src())).toMatch(message);
+  });
+});
+
 // ── Fuentes sintéticas: archivos no inventariados ─────────────────────────
 
 const LIB_FILE = "lib/synthetic.ts";
@@ -829,9 +850,10 @@ describe("cobertura estructural — helpers de bloqueo", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("el único SELECT … FOR UPDATE sobre Period vive en lib/period-lock.ts; FOR UPDATE sólo en period-lock, invoice-lock y tax-record-lock", () => {
+  it("el único SELECT … FOR UPDATE sobre Period vive en lib/period-lock.ts; FOR UPDATE sólo en period-lock, invoice-lock, tax-record-lock y client-lock", () => {
     const forUpdate = productionFiles.filter((f) => /FOR UPDATE/.test(code(read(f))));
-    expect(forUpdate).toEqual(["lib/invoice-lock.ts", "lib/period-lock.ts", "lib/tax-record-lock.ts"]);
+    expect(forUpdate).toEqual(["lib/client-lock.ts", "lib/invoice-lock.ts", "lib/period-lock.ts", "lib/tax-record-lock.ts"]);
+    expect(code(read("lib/client-lock.ts"))).not.toMatch(/"Period"/);
     expect(code(read("lib/invoice-lock.ts"))).not.toMatch(/FROM "Period"/);
   });
 

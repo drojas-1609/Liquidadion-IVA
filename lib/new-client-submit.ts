@@ -8,6 +8,8 @@
  * Nunca se convierte un objeto a string de forma implícita.
  */
 
+import { profileFieldLabel } from "./client-profile";
+
 export const NEW_CLIENT_GENERIC_ERROR = "Error al crear el cliente";
 
 /**
@@ -40,7 +42,7 @@ export function newClientErrorMessage(body: unknown): string {
     if (!apiError.message) return NEW_CLIENT_GENERIC_ERROR;
 
     const field = nonEmptyString((body as { field?: unknown }).field);
-    return field ? `${field}: ${apiError.message}` : apiError.message;
+    return field ? `${profileFieldLabel(field) ?? field}: ${apiError.message}` : apiError.message;
 }
 
 export type NewClientSubmitResult = { ok: true } | { ok: false; message: string };

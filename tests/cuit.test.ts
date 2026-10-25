@@ -84,7 +84,7 @@ describe("lib/cuit — normalizeCuit", () => {
 });
 
 describe("lib/api-input — normalización de CUIT antes de persistir", () => {
-  const client = { name: "X SA", condition: "Responsable Inscripto" };
+  const client = { name: "X SA", condition: "Responsable Inscripto", phone: "+54 11 5555-0100", contactEmail: "contacto@estudio.test" };
 
   it("buildClientInput guarda el CUIT canónico", () => {
     for (const cuit of ["30111111118", "30 11111111 8", "30.11111111.8", "30-11111111-8"]) {

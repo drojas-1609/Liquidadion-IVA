@@ -10,6 +10,8 @@ import {
     DELETE_CLIENT_HAS_PERIODS_ERROR,
     CLIENT_NOT_FOUND_ERROR,
     CLIENT_FORBIDDEN_ERROR,
+    UPDATE_CLIENT_STALE_ERROR,
+    isStaleClientError,
 } from "@/lib/client-mutations";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -66,6 +68,28 @@ describe("submitClientUpdate", () => {
         expect(updateClientErrorMessage({ error: { code: 1, message: { x: 1 } } })).toBe(UPDATE_CLIENT_GENERIC_ERROR);
         expect(updateClientErrorMessage({ error: {} })).not.toMatch(/object Object/);
         expect(updateClientErrorMessage(null)).toBe(UPDATE_CLIENT_GENERIC_ERROR);
+    });
+});
+
+describe("submitClientUpdate — versión obsoleta (409 expectedUpdatedAt)", () => {
+    it("409 con field expectedUpdatedAt -> stale y mensaje que conserva el borrador; un solo intento", async () => {
+        const fetchImpl = fetchReturning(jsonResponse(409, err("CONFLICT", "El cliente fue modificado por otra persona.", "expectedUpdatedAt")));
+        const result = await submitClientUpdate("c_1", { name: "X", expectedUpdatedAt: "2026-01-01T00:00:00.000Z" }, fetchImpl);
+        expect(result).toEqual({ ok: false, message: UPDATE_CLIENT_STALE_ERROR, stale: true });
+        expect(fetchImpl).toHaveBeenCalledTimes(1); // nunca se reintenta ni se renueva el token
+    });
+    it("409 sin field (CUIT duplicado) NO es versión obsoleta", async () => {
+        const result = await submitClientUpdate("c_1", {}, fetchReturning(jsonResponse(409, err("CONFLICT", "Ya existe un registro con esos datos."))));
+        expect(result).toEqual({ ok: false, message: UPDATE_CLIENT_DUPLICATE_CUIT_ERROR });
+    });
+    it("isStaleClientError: sólo CONFLICT + expectedUpdatedAt", () => {
+        expect(isStaleClientError(err("CONFLICT", "x", "expectedUpdatedAt"))).toBe(true);
+        expect(isStaleClientError(err("UNPROCESSABLE_ENTITY", "x", "expectedUpdatedAt"))).toBe(false);
+        expect(isStaleClientError(err("CONFLICT", "x"))).toBe(false);
+        expect(isStaleClientError(null)).toBe(false);
+    });
+    it("422 expectedUpdatedAt (ausente o inválida) se informa como error común, no como conflicto", () => {
+        expect(updateClientErrorMessage(err("UNPROCESSABLE_ENTITY", "expectedUpdatedAt inválido", "expectedUpdatedAt"))).toBe("Versión del formulario: expectedUpdatedAt inválido");
     });
 });
 

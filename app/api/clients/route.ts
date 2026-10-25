@@ -10,6 +10,7 @@ import {
     withApiAuthz,
 } from "@/lib/auth/authz";
 import { recordAudit } from "@/lib/auth/audit";
+import { replaceIibbProfile } from "@/lib/client-iibb-store";
 import { ROLES_READ, ROLES_CREATE } from "@/lib/auth/roles";
 import { ValidationError } from "@/lib/auth/errors";
 
@@ -36,7 +37,8 @@ export const GET = withApiAuthz(async () => {
 //
 // `organizationId`, `createdById` y campos calculados enviados en el body se
 // IGNORAN por completo: se usa siempre la organización resuelta server-side y
-// el Profile autenticado.
+// el Profile autenticado. Teléfono y email de contacto son obligatorios en el
+// alta; el perfil IIBB es opcional e informativo.
 export const POST = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
@@ -54,18 +56,27 @@ export const POST = withApiAuthz(async (request: Request) => {
                 condition: parsed.data.condition,
                 address: parsed.data.address,
                 defaultIibbRate: parsed.data.defaultIibbRate,
+                phone: parsed.data.phone,
+                contactEmail: parsed.data.contactEmail,
+                iibbRegistration: parsed.data.iibb?.registration ?? null,
                 organizationId,
                 createdById: profileId,
                 updatedById: profileId,
             },
         });
+        // Perfil IIBB informativo (jurisdicciones, actividades, alícuotas): no
+        // modifica defaultIibbRate ni el cálculo.
+        if (parsed.data.iibb && (parsed.data.iibb.jurisdictions.length > 0 || parsed.data.iibb.activities.length > 0)) {
+            await replaceIibbProfile(tx, { clientId: client.id, organizationId, profile: parsed.data.iibb });
+        }
         await recordAudit(tx, {
             organizationId,
             actorProfileId: profileId,
             action: "client.create",
             targetType: "Client",
             targetId: client.id,
-            metadata: { condition: parsed.data.condition }, // SIN cuit
+            // SIN cuit ni contactos.
+            metadata: { condition: parsed.data.condition, iibbRegistration: parsed.data.iibb?.registration ?? null },
         });
         return client;
     });
