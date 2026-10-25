@@ -5,6 +5,7 @@
  */
 import { readApiError } from "@/lib/new-client-submit";
 import { formatPeriodLabel } from "@/lib/period";
+import { isPeriodVersionString, type PeriodStatusValue, type PeriodVersion } from "@/lib/period-status";
 
 export const CREATE_PERIOD_GENERIC_ERROR = "Ocurrió un error inesperado al crear el período.";
 export const DELETE_PERIOD_GENERIC_ERROR = "Ocurrió un error inesperado al eliminar el período.";
@@ -90,6 +91,11 @@ export const PERIOD_TRANSITION_FORBIDDEN_ERROR: Record<PeriodTransition, string>
     close: "No tenés permisos para cerrar períodos.",
     reopen: "No tenés permisos para reabrir períodos.",
 };
+/** Red caída, 5xx, cuerpo ilegible o 2xx sin respuesta autoritativa: el servidor pudo haber aplicado el cambio. */
+export const PERIOD_TRANSITION_UNCERTAIN_ERROR: Record<PeriodTransition, string> = {
+    close: "No se pudo confirmar si el período se cerró. Recargá la página antes de volver a intentarlo.",
+    reopen: "No se pudo confirmar si el período se reabrió. Recargá la página antes de volver a intentarlo.",
+};
 /** 409 CONFLICT: otra persona cerró o reabrió el período desde que se abrió la pantalla. */
 export const PERIOD_TRANSITION_STALE_ERROR =
     "Otra persona cambió el estado del período mientras lo tenías abierto. No se aplicó ningún cambio: recargá la página para ver el estado actual.";
@@ -105,23 +111,55 @@ export function periodTransitionErrorMessage(transition: PeriodTransition, body:
     return apiError.message;
 }
 
+const TRANSITION_TARGET: Record<PeriodTransition, PeriodStatusValue> = { close: "CLOSED", reopen: "OPEN" };
+
+/**
+ * Resultado de una transición. `confirmed`: estado y versión que devolvió la
+ * API (autoritativos). `uncertain`: no se puede saber si se aplicó; la UI no
+ * debe permitir repetirla hasta ver una versión verificable o recargar.
+ */
+export type PeriodTransitionResult =
+    | { ok: true; confirmed: PeriodVersion }
+    | { ok: false; uncertain: boolean; message: string };
+
+/** `{ periodId, status, updatedAt }` del 200, sólo si corresponde a este período y a esta transición. */
+export function parsePeriodTransitionResponse(body: unknown, transition: PeriodTransition, periodId: string): PeriodVersion | null {
+    if (typeof body !== "object" || body === null) return null;
+    const { periodId: id, status, updatedAt } = body as { periodId?: unknown; status?: unknown; updatedAt?: unknown };
+    if (id !== periodId || status !== TRANSITION_TARGET[transition] || !isPeriodVersionString(updatedAt)) return null;
+    return { status: TRANSITION_TARGET[transition], updatedAt };
+}
+
 /**
  * POST /api/periods/[id]/close | /reopen con el cuerpo exacto
  * `{ expectedUpdatedAt }`: la versión del estado que vio la pantalla.
+ * Un error definido (4xx con código) permite reintentar; red, 5xx, cuerpo
+ * ilegible o un 2xx sin respuesta autoritativa son inciertos.
  */
-export function submitPeriodTransition(
+export async function submitPeriodTransition(
     transition: PeriodTransition,
     periodId: string,
     expectedUpdatedAt: string,
     fetchImpl: typeof fetch = fetch,
-): Promise<PeriodMutationResult> {
-    return send(
-        `/api/periods/${encodeURIComponent(periodId)}/${transition}`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt }) },
-        (body) => periodTransitionErrorMessage(transition, body),
-        PERIOD_TRANSITION_GENERIC_ERROR[transition],
-        fetchImpl,
-    );
+): Promise<PeriodTransitionResult> {
+    const uncertain = { ok: false, uncertain: true, message: PERIOD_TRANSITION_UNCERTAIN_ERROR[transition] } as const;
+    let res: Response;
+    try {
+        res = await fetchImpl(`/api/periods/${encodeURIComponent(periodId)}/${transition}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ expectedUpdatedAt }),
+        });
+    } catch {
+        return uncertain;
+    }
+    const body: unknown = await res.json().catch(() => null);
+    if (res.ok) {
+        const confirmed = parsePeriodTransitionResponse(body, transition, periodId);
+        return confirmed ? { ok: true, confirmed } : uncertain;
+    }
+    if (res.status >= 500 || !readApiError(body)) return uncertain;
+    return { ok: false, uncertain: false, message: periodTransitionErrorMessage(transition, body) };
 }
 
 export function submitPeriodDelete(

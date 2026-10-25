@@ -1,9 +1,18 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useReducer, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { submitPeriodTransition, PERIOD_TRANSITION_GENERIC_ERROR, type PeriodTransition } from "@/lib/period-mutations";
-import { PERIOD_CLOSE_IIBB_NOTICE, PERIOD_CLOSE_SCOPE_NOTICE } from "@/lib/period-status";
+import { submitPeriodTransition, PERIOD_TRANSITION_UNCERTAIN_ERROR, type PeriodTransition } from "@/lib/period-mutations";
+import {
+    PERIOD_CLOSE_IIBB_NOTICE,
+    PERIOD_CLOSE_SCOPE_NOTICE,
+    PERIOD_TRANSITION_INITIAL,
+    canStartPeriodTransition,
+    periodTransitionDisplay,
+    periodTransitionNotice,
+    periodTransitionReducer,
+    type PeriodVersion,
+} from "@/lib/period-status";
 
 /**
  * Cierre / reapertura del período. Sólo se renderiza el botón que corresponde
@@ -11,6 +20,12 @@ import { PERIOD_CLOSE_IIBB_NOTICE, PERIOD_CLOSE_SCOPE_NOTICE } from "@/lib/perio
  * ADMIN); la API vuelve a exigir el rol y rechaza con 409 si el estado cambió
  * desde que se cargó la pantalla (`updatedAt`). Confirmación visible en la
  * propia página: nunca `window.confirm`.
+ *
+ * Tras un 200 el control usa el estado y la versión que devolvió la API y no
+ * ofrece otra transición hasta que las props reflejen esa versión (o una
+ * posterior). Un resultado incierto (red, 5xx, respuesta ilegible) también
+ * bloquea hasta ver una versión posterior. En ambos casos siempre se ofrece
+ * recargar la página (GET completo); nunca se repite la mutación.
  */
 export function PeriodStatusActions({
     periodId,
@@ -29,33 +44,59 @@ export function PeriodStatusActions({
     canReopen: boolean;
 }) {
     const router = useRouter();
-    const [confirming, setConfirming] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
+    const [state, dispatch] = useReducer(periodTransitionReducer, PERIOD_TRANSITION_INITIAL);
+    const [refreshing, startRefresh] = useTransition();
     const inFlight = useRef(false);
+
+    const view: PeriodVersion = { status: closed ? "CLOSED" : "OPEN", updatedAt };
+    const display = periodTransitionDisplay(state, view);
+    const notice = periodTransitionNotice(display, refreshing);
 
     const transition: PeriodTransition = closed ? "reopen" : "close";
     const allowed = closed ? canReopen : canClose;
+    const canStart = canStartPeriodTransition(display);
+    const confirming = display.kind === "confirming" || display.kind === "submitting";
+    const loading = display.kind === "submitting";
 
     async function handleConfirm() {
-        if (inFlight.current) return;
+        if (inFlight.current || display.kind !== "confirming") return;
         inFlight.current = true;
-        setLoading(true);
-        setError("");
+        dispatch({ type: "start", view });
         try {
             const result = await submitPeriodTransition(transition, periodId, updatedAt);
-            if (!result.ok) {
-                setError(result.message);
+            if (result.ok) {
+                dispatch({ type: "succeed", confirmed: result.confirmed, view });
+            } else if (result.uncertain) {
+                dispatch({ type: "uncertain", message: result.message, view });
+            } else {
+                dispatch({ type: "fail", message: result.message, view });
                 return;
             }
-            setConfirming(false);
-            router.refresh();
+            startRefresh(() => router.refresh());
         } catch {
-            setError(PERIOD_TRANSITION_GENERIC_ERROR[transition]);
+            dispatch({ type: "uncertain", message: PERIOD_TRANSITION_UNCERTAIN_ERROR[transition], view });
         } finally {
             inFlight.current = false;
-            setLoading(false);
         }
+    }
+
+    if (notice) {
+        return (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "var(--spacing-sm)" }}>
+                <div
+                    role={notice.tone}
+                    aria-live="polite"
+                    data-period-transition={display.kind}
+                    style={{ padding: "var(--spacing-sm)", borderRadius: "var(--radius-sm)", maxWidth: "420px", ...(notice.tone === "alert" ? { backgroundColor: "rgba(239, 68, 68, 0.1)", color: "var(--error)" } : {}) }}
+                >
+                    {notice.message}{" "}
+                    {/* Recarga completa de la página (GET); nunca repite la transición. */}
+                    <button type="button" className="btn btn-secondary" onClick={() => window.location.reload()}>
+                        Recargar
+                    </button>
+                </div>
+            </div>
+        );
     }
 
     if (!allowed) return null;
@@ -64,14 +105,7 @@ export function PeriodStatusActions({
     return (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "var(--spacing-sm)" }}>
             {!confirming && (
-                <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                        setError("");
-                        setConfirming(true);
-                    }}
-                >
+                <button type="button" className="btn btn-secondary" disabled={!canStart} onClick={() => dispatch({ type: "open", view })}>
                     {label}
                 </button>
             )}
@@ -91,7 +125,7 @@ export function PeriodStatusActions({
                         </>
                     )}
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--spacing-sm)" }}>
-                        <button type="button" className="btn btn-secondary" disabled={loading} onClick={() => setConfirming(false)}>
+                        <button type="button" className="btn btn-secondary" disabled={loading} onClick={() => dispatch({ type: "cancel", view })}>
                             Cancelar
                         </button>
                         <button type="button" className="btn btn-primary" disabled={loading} aria-busy={loading} onClick={handleConfirm}>
@@ -101,9 +135,9 @@ export function PeriodStatusActions({
                 </div>
             )}
 
-            {error && (
+            {display.kind === "error" && (
                 <div role="alert" style={{ padding: "var(--spacing-sm)", backgroundColor: "rgba(239, 68, 68, 0.1)", color: "var(--error)", borderRadius: "var(--radius-sm)", maxWidth: "420px" }}>
-                    {error}
+                    {display.message}
                 </div>
             )}
         </div>
