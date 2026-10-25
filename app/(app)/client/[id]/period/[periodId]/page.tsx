@@ -1,14 +1,16 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
-import { ROLES_READ, ROLES_DELETE, ROLES_UPDATE, roleAllows } from "@/lib/auth/roles";
+import { ROLES_READ, ROLES_DELETE, ROLES_UPDATE, ROLES_PERIOD_CLOSE, ROLES_PERIOD_REOPEN, roleAllows } from "@/lib/auth/roles";
 import { formatPeriodLabel } from "@/lib/period";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-calc";
 import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { formatMoney } from "@/lib/format";
+import { isPeriodClosed, periodStatusLabel, PERIOD_CLOSE_IIBB_NOTICE, PERIOD_CLOSE_SCOPE_NOTICE } from "@/lib/period-status";
 import { PeriodActions } from "./period-actions";
+import { PeriodStatusActions } from "./period-status-actions";
 import { TurivaSetting } from "./turiva-setting";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +32,10 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
     const { period, role } = guard.data;
-    const canDelete = roleAllows(ROLES_DELETE, role);
+    // Período cerrado: consulta y exportación; ninguna acción de modificación o
+    // baja (la API las rechaza igual con 409 PERIOD_CLOSED).
+    const closed = isPeriodClosed(period.status);
+    const canDelete = roleAllows(ROLES_DELETE, role) && !closed;
     const hasMovements = period.invoices.length > 0 || period.taxRecords.length > 0;
 
     // Inclusión en el Régimen TurIVA: sin PeriodVatSettings -> false. Al cliente
@@ -42,9 +47,51 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
             key={String(turivaIncluded)}
             periodId={period.id}
             turivaIncluded={turivaIncluded}
-            canEdit={roleAllows(ROLES_UPDATE, role)}
+            canEdit={roleAllows(ROLES_UPDATE, role) && !closed}
         />
     );
+
+    // Estado del período: etiqueta, cerrar / reabrir según rol y aviso de alcance.
+    // Cerrar NO depende de que la liquidación sea calculable: también se ofrece
+    // cuando falta el coeficiente de prorrateo global.
+    const statusActions = (
+        <PeriodStatusActions
+            periodId={period.id}
+            periodLabel={formatPeriodLabel(period)}
+            closed={closed}
+            updatedAt={period.updatedAt.toISOString()}
+            canClose={roleAllows(ROLES_PERIOD_CLOSE, role)}
+            canReopen={roleAllows(ROLES_PERIOD_REOPEN, role)}
+        />
+    );
+    const statusHeader = (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "var(--spacing-sm)" }}>
+            {statusActions}
+            <PeriodActions
+                clientId={id}
+                periodId={period.id}
+                periodLabel={formatPeriodLabel(period)}
+                canDelete={canDelete}
+                hasMovements={hasMovements}
+            />
+        </div>
+    );
+    const statusBadge = (
+        <span
+            data-period-status={period.status}
+            style={{ fontSize: "0.875rem", padding: "2px 8px", borderRadius: "var(--radius-sm)", border: "1px solid var(--secondary)", marginLeft: "var(--spacing-sm)", verticalAlign: "middle" }}
+        >
+            {periodStatusLabel(period.status)}
+        </span>
+    );
+    const closedNotice = closed ? (
+        <div role="status" className="card" style={{ marginBottom: "var(--spacing-xl)" }}>
+            <h3 style={{ fontSize: "1.125rem", marginBottom: "var(--spacing-sm)" }}>Período cerrado</h3>
+            <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-sm)" }}>{PERIOD_CLOSE_SCOPE_NOTICE}</p>
+            <p style={{ color: "var(--secondary)" }}>{PERIOD_CLOSE_IIBB_NOTICE}</p>
+        </div>
+    ) : null;
+    const manageText = closed ? "Ver" : "Gestionar";
 
     // Totales vía la única fuente de cálculo (lib/liquidation-calc).
     // Falla cerrada: con líneas sujetas a prorrateo global y sin coeficiente no
@@ -57,6 +104,14 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
         if (!(err instanceof MissingGlobalProrationCoefficientError)) throw err;
         return (
             <div className="container">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--spacing-md)", flexWrap: "wrap", marginBottom: "var(--spacing-xl)" }}>
+                    <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>
+                        Período {formatPeriodLabel(period)}
+                        {statusBadge}
+                    </h1>
+                    {statusActions}
+                </div>
+                {closedNotice}
                 <div role="alert" className="card" style={{ color: "var(--error)" }}>
                     {err.message}
                 </div>
@@ -79,16 +134,13 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
                     </Link>
                     <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>
                         Período {formatPeriodLabel(period)}
+                        {statusBadge}
                     </h1>
                 </div>
-                <PeriodActions
-                    clientId={id}
-                    periodId={period.id}
-                    periodLabel={formatPeriodLabel(period)}
-                    canDelete={canDelete}
-                    hasMovements={hasMovements}
-                />
+                {statusHeader}
             </div>
+
+            {closedNotice}
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--spacing-lg)", marginBottom: "var(--spacing-xl)" }}>
                 {/* Sales Card */}
@@ -101,7 +153,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
                         IVA Débito: ${formatMoney(totalSalesVAT.toFixed(2))}
                     </div>
                     <Link href={`/client/${id}/period/${periodId}/sales`} className="btn btn-secondary" style={{ width: "100%" }}>
-                        Gestionar Ventas
+                        {manageText} Ventas
                     </Link>
                 </div>
 
@@ -115,7 +167,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
                         IVA Crédito: ${formatMoney(totalPurchasesVAT.toFixed(2))}
                     </div>
                     <Link href={`/client/${id}/period/${periodId}/purchases`} className="btn btn-secondary" style={{ width: "100%" }}>
-                        Gestionar Compras
+                        {manageText} Compras
                     </Link>
                 </div>
 
@@ -138,7 +190,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
                 <h3 style={{ fontSize: "1.25rem", marginBottom: "var(--spacing-md)" }}>Retenciones y Percepciones</h3>
                 <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-md)" }}>Gestiona las retenciones y percepciones sufridas en el período.</p>
                 <Link href={`/client/${id}/period/${periodId}/taxes`} className="btn btn-secondary">
-                    Gestionar Retenciones/Percepciones
+                    {manageText} Retenciones/Percepciones
                 </Link>
             </div>
 

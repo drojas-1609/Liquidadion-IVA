@@ -2,6 +2,7 @@ import "server-only";
 import prisma from "./prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess } from "./auth/authz";
 import { ROLES_CREATE, ROLES_UPDATE } from "./auth/roles";
+import { isPeriodClosed } from "./period-status";
 import { NotFoundError } from "./auth/errors";
 import { clientConditionCode } from "./client-condition";
 import { INVOICE_NOT_EDITABLE_MESSAGES, invoiceEditInitialState, invoiceEditability } from "./invoice-edit";
@@ -51,10 +52,20 @@ async function loadFormBase(organizationId: string, clientId: string, periodId: 
     };
 }
 
-export async function loadInvoiceFormContext(clientId: string, periodId: string): Promise<InvoiceFormPageData> {
+/**
+ * Página de alta: datos del formulario más `periodClosed` (leído sin bloqueo,
+ * sólo para mostrar el aviso de período cerrado en lugar del formulario; la
+ * página lo separa y NO llega al formulario).
+ */
+export interface InvoiceNewPageData extends InvoiceFormPageData {
+    periodClosed: boolean;
+}
+
+export async function loadInvoiceFormContext(clientId: string, periodId: string): Promise<InvoiceNewPageData> {
     const { profileId } = await requireAuthenticatedProfile();
-    const { organizationId } = await requirePeriodAccess(profileId, periodId, ROLES_CREATE, { expectClientId: clientId });
-    return loadFormBase(organizationId, clientId, periodId);
+    const access = await requirePeriodAccess(profileId, periodId, ROLES_CREATE, { expectClientId: clientId });
+    const base = await loadFormBase(access.organizationId, clientId, periodId);
+    return { ...base, periodClosed: isPeriodClosed(access.period.status) };
 }
 
 // ── Edición ───────────────────────────────────────────────────────────────
@@ -70,6 +81,8 @@ export type InvoiceEditState =
 
 export interface InvoiceEditPageData extends InvoiceFormPageData {
     edit: InvoiceEditState;
+    /** Ver InvoiceNewPageData.periodClosed. */
+    periodClosed: boolean;
 }
 
 const EDIT_SELECT = {
@@ -107,7 +120,9 @@ export async function loadInvoiceEditContext(
     direction: "SALES" | "PURCHASES",
 ): Promise<InvoiceEditPageData> {
     const { profileId } = await requireAuthenticatedProfile();
-    const { organizationId } = await requirePeriodAccess(profileId, periodId, ROLES_UPDATE, { expectClientId: clientId });
+    const access = await requirePeriodAccess(profileId, periodId, ROLES_UPDATE, { expectClientId: clientId });
+    const organizationId = access.organizationId;
+    const periodClosed = isPeriodClosed(access.period.status);
 
     const invoice = await prisma.invoice.findFirst({
         where: { id: invoiceId, organizationId, periodId, category: direction },
@@ -119,10 +134,11 @@ export async function loadInvoiceEditContext(
     const row = { ...invoice, vatRateCodes: invoice.vatLines.map((l) => l.vatRateCode) };
     const editability = invoiceEditability(row);
     if (!editability.ok) {
-        return { ...base, edit: { status: "NOT_EDITABLE", message: INVOICE_NOT_EDITABLE_MESSAGES[editability.reason] } };
+        return { ...base, periodClosed, edit: { status: "NOT_EDITABLE", message: INVOICE_NOT_EDITABLE_MESSAGES[editability.reason] } };
     }
     return {
         ...base,
+        periodClosed,
         edit: {
             status: "EDITABLE",
             form: {

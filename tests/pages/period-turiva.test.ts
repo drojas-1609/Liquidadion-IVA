@@ -45,6 +45,7 @@ import {
 import PeriodDashboard from "@/app/(app)/client/[id]/period/[periodId]/page";
 import { TurivaSetting } from "@/app/(app)/client/[id]/period/[periodId]/turiva-setting";
 import { PeriodActions } from "@/app/(app)/client/[id]/period/[periodId]/period-actions";
+import { PeriodStatusActions } from "@/app/(app)/client/[id]/period/[periodId]/period-status-actions";
 import { MISSING_GLOBAL_COEFFICIENT_MESSAGE } from "@/lib/invoice-model";
 import { TURIVA_SECTION_ID } from "@/lib/turiva-setting";
 
@@ -57,6 +58,8 @@ const basePeriod = () => ({
   id: "p_a",
   month: 5,
   year: 2026,
+  status: "OPEN",
+  updatedAt: new Date("2026-01-01T00:00:00.000Z"),
   clientId: "c_a",
   organizationId: ORG_A,
   invoices: [],
@@ -144,8 +147,10 @@ describe("página del período — tarjeta TurIVA", () => {
       expect(alerts).toHaveLength(1);
       expect(alerts[0].props.children).toBe(MISSING_GLOBAL_COEFFICIENT_MESSAGE);
       expect(findType(el, TurivaSetting).props).toEqual({ periodId: "p_a", turivaIncluded: true, canEdit });
-      // Sin resultados de liquidación ni otras secciones.
+      // Sin resultados de liquidación ni otras secciones; cerrar / reabrir SÍ
+      // (no depende de que la liquidación sea calculable).
       expect(findType(el, PeriodActions)).toBeNull();
+      expect(findType(el, PeriodStatusActions)).not.toBeNull();
       expect(JSON.stringify(findAll(el, (e) => typeof e.props?.children === "string").map((e) => e.props.children))).not.toMatch(/Posición IVA|IVA Débito|IVA Crédito/);
     }
   });

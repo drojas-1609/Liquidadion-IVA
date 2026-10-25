@@ -20,6 +20,13 @@ import ts from "typescript";
  *    parámetros exactos, sin Period; el helper sólo se usa dentro de handlers
  *    inventariados, después del lock de Period y antes de toda escritura de
  *    TaxRecord (update/delete) y del AuditLog del handler.
+ *  - cierre del período: PeriodClosedError sólo en lockPeriodForWrite (nunca en
+ *    lockPeriodForStatusChange ni fuera de lib/period-lock.ts). Los handlers de
+ *    TRANSICIÓN de estado (`transitions`, subconjunto de `methods`) usan
+ *    lockPeriodForStatusChange en lugar de lockPeriodForWrite, con las mismas
+ *    reglas (primera operación, único, opciones literales) y sólo pueden
+ *    escribir `period.update`; los demás handlers no pueden modificar la fila
+ *    Period (sólo eliminarla) ni usar lockPeriodForStatusChange.
  */
 
 export type ViolationCode =
@@ -75,7 +82,13 @@ export type ViolationCode =
   | "TAX_RECORD_LOCK_PERIOD"
   | "TAX_RECORD_LOCK_OUTSIDE_INVENTORY"
   | "TAX_RECORD_LOCK_MISSING"
-  | "TAX_RECORD_WRITE_BEFORE_LOCK";
+  | "TAX_RECORD_WRITE_BEFORE_LOCK"
+  | "LOCK_KIND"
+  | "TRANSITION_CONTENT_WRITE"
+  | "PERIOD_UPDATE_OUTSIDE_TRANSITION"
+  | "STATUS_LOCK_OUTSIDE_TRANSITION"
+  | "CLOSED_OUTSIDE_HELPER"
+  | "CLOSED_CHECK";
 
 export interface Violation {
   code: ViolationCode;
@@ -119,13 +132,19 @@ const HANDLER_TX_OPTIONS = [
 
 const READ_TIMEOUT_SQL = `SELECT current_setting('lock_timeout') AS "lockTimeout"`;
 const SET_CONFIG_SQL = /^SELECT set_config\('lock_timeout', ('[^']*'|\?), (true|false)\)$/;
-const PERIOD_LOCK_SQL = `SELECT "id" FROM "Period" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE`;
+const PERIOD_LOCK_SQL = `SELECT "id", "status"::text AS "status" FROM "Period" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE`;
 const INVOICE_LOCK_SQL = /^SELECT (?:"\w+", )*"\w+" FROM "Invoice" WHERE "id" = \? AND "organizationId" = \? FOR UPDATE$/;
 /** FOR UPDATE de TaxRecord: columnas y orden EXACTOS. */
 const TAX_RECORD_LOCK_SQL =
   'SELECT "id", "organizationId", "periodId", "type", "date", "amount", "description", "updatedAt" FROM "TaxRecord" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE';
 const TAX_RECORD_LOCK_FILE = "lib/tax-record-lock.ts";
 const TAX_RECORD_LOCK_FN = "lockTaxRecordForUpdate";
+/** Bloqueo del Period de un writer del contenido y de una transición de estado. */
+const WRITE_LOCK_FN = "lockPeriodForWrite";
+const STATUS_LOCK_FN = "lockPeriodForStatusChange";
+const PERIOD_LOCK_FNS = new Set([WRITE_LOCK_FN, STATUS_LOCK_FN]);
+/** Operaciones de Period que modifican la fila (estado incluido): sólo en transiciones. */
+const PERIOD_UPDATE_OPS = new Set(["update", "updateMany", "updateManyAndReturn", "upsert"]);
 /** Escrituras de TaxRecord que exigen la fila bloqueada (el alta no). */
 const TAX_RECORD_ROW_WRITE_OPS = new Set(["update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
 
@@ -441,7 +460,7 @@ function checkRawInventory(ctx: Ctx, raws: RawQuery[]): void {
 function checkTaxRecordLockHelper(ctx: Ctx): void {
   for (const c of calls(ctx.sf)) {
     const name = calleeName(c);
-    if (name === "lockPeriodForWrite" || name === "lockPeriodForUpdate") {
+    if (name === "lockPeriodForWrite" || name === "lockPeriodForUpdate" || name === STATUS_LOCK_FN) {
       add(ctx, "TAX_RECORD_LOCK_PERIOD", c, `el lock de TaxRecord bloquea Period: ${text(ctx.sf, c.expression)}`);
     } else if (modelCall(ctx, c)?.model === "period") {
       add(ctx, "TAX_RECORD_LOCK_PERIOD", c, `el lock de TaxRecord usa Period: ${text(ctx.sf, c.expression)}`);
@@ -455,7 +474,45 @@ function checkBusyOutsideHelper(ctx: Ctx): void {
     if (ts.isNewExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "PeriodBusyError") {
       add(ctx, "BUSY_OUTSIDE_HELPER", n, "PeriodBusyError sólo lo construye lockPeriodForWrite");
     }
+    if (ts.isNewExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "PeriodClosedError") {
+      add(ctx, "CLOSED_OUTSIDE_HELPER", n, "PeriodClosedError sólo lo construye lockPeriodForWrite");
+    }
   });
+}
+
+/**
+ * lib/period-lock.ts: el rechazo del período cerrado vive SÓLO en
+ * lockPeriodForWrite (exactamente un `new PeriodClosedError()`, después de
+ * obtener el estado de lockPeriodForUpdate) y nunca en lockPeriodForStatusChange.
+ */
+function checkClosedCheck(ctx: Ctx): void {
+  const fns = new Map<string, ts.FunctionDeclaration>();
+  for (const st of ctx.sf.statements) if (ts.isFunctionDeclaration(st) && st.name) fns.set(st.name.text, st);
+  const closedIn = (node: ts.Node) => {
+    let n = 0;
+    forEachNode(node, (x) => {
+      if (ts.isNewExpression(x) && ts.isIdentifier(x.expression) && x.expression.text === "PeriodClosedError") n++;
+    });
+    return n;
+  };
+  const write = fns.get(WRITE_LOCK_FN);
+  const status = fns.get(STATUS_LOCK_FN);
+  if (!write || !status) return add(ctx, "CLOSED_CHECK", null, `faltan ${WRITE_LOCK_FN} y/o ${STATUS_LOCK_FN}`);
+  if (closedIn(ctx.sf) !== 1 || closedIn(write) !== 1) {
+    add(ctx, "CLOSED_CHECK", write, "PeriodClosedError debe construirse exactamente una vez, en lockPeriodForWrite");
+  }
+  for (const [name, fn] of [[WRITE_LOCK_FN, write], [STATUS_LOCK_FN, status]] as const) {
+    const inner = [...calls(fn)].filter((c) => calleeName(c) === "lockPeriodForUpdate");
+    if (inner.length !== 1) add(ctx, "CLOSED_CHECK", fn, `${name} debe llamar exactamente una vez a lockPeriodForUpdate`);
+  }
+  if (write.body) {
+    const lockAt = [...calls(write)].find((c) => calleeName(c) === "lockPeriodForUpdate")?.getStart(ctx.sf) ?? Number.POSITIVE_INFINITY;
+    forEachNode(write.body, (x) => {
+      if (ts.isNewExpression(x) && ts.isIdentifier(x.expression) && x.expression.text === "PeriodClosedError" && x.getStart(ctx.sf) < lockAt) {
+        add(ctx, "CLOSED_CHECK", x, "PeriodClosedError antes de obtener el estado bajo el bloqueo");
+      }
+    });
+  }
 }
 
 // ── lib/period-lock.ts: secuencia del helper ───────────────────────────────
@@ -624,8 +681,9 @@ function checkHandlerTxOptions(ctx: Ctx, method: string, call: ts.CallExpression
   }
 }
 
-function checkHandler(ctx: Ctx, method: string, handler: ts.Node): void {
+function checkHandler(ctx: Ctx, method: string, handler: ts.Node, transition: boolean): void {
   const { sf } = ctx;
+  const lockFn = transition ? STATUS_LOCK_FN : WRITE_LOCK_FN;
   checkClientAliases(ctx, handler);
 
   const txCalls = txCallsOf(handler);
@@ -644,19 +702,25 @@ function checkHandler(ctx: Ctx, method: string, handler: ts.Node): void {
   });
   awaits.sort((a, b) => a.getStart(sf) - b.getStart(sf));
   const firstExpr = awaits[0] ? unwrap(awaits[0].expression) : null;
-  const firstIsLock = !!firstExpr && ts.isCallExpression(firstExpr) && calleeName(firstExpr) === "lockPeriodForWrite";
-  if (!firstIsLock) add(ctx, "LOCK_NOT_FIRST", awaits[0] ?? fn, `${method}: lockPeriodForWrite no es la primera operación awaited de la transacción`);
+  const firstName = !!firstExpr && ts.isCallExpression(firstExpr) ? calleeName(firstExpr) : null;
+  // La primera operación es un bloqueo del Period (de cualquier tipo): el tipo
+  // equivocado es LOCK_KIND, no LOCK_NOT_FIRST.
+  const firstIsLock = firstName !== null && PERIOD_LOCK_FNS.has(firstName);
+  if (!firstIsLock) add(ctx, "LOCK_NOT_FIRST", awaits[0] ?? fn, `${method}: ${lockFn} no es la primera operación awaited de la transacción`);
   else {
     const args = (firstExpr as ts.CallExpression).arguments;
     const okArgs =
       args.length === 3 &&
       ts.isIdentifier(args[0]) && args[0].text === txParam &&
       ts.isIdentifier(args[2]) && args[2].text === "organizationId";
-    if (!okArgs) add(ctx, "LOCK_ARGS", firstExpr, `${method}: lockPeriodForWrite(tx, <período>, organizationId) con otros argumentos`);
+    if (!okArgs) add(ctx, "LOCK_ARGS", firstExpr, `${method}: ${firstName}(tx, <período>, organizationId) con otros argumentos`);
   }
 
-  const lockCalls = [...calls(handler)].filter((c) => calleeName(c) === "lockPeriodForWrite");
-  if (lockCalls.length !== 1) add(ctx, "LOCK_COUNT", lockCalls[1] ?? handler, `${method}: ${lockCalls.length} llamadas a lockPeriodForWrite`);
+  const lockCalls = [...calls(handler)].filter((c) => PERIOD_LOCK_FNS.has(calleeName(c) ?? ""));
+  if (lockCalls.length !== 1) add(ctx, "LOCK_COUNT", lockCalls[1] ?? handler, `${method}: ${lockCalls.length} bloqueos del Period`);
+  for (const c of lockCalls) {
+    if (calleeName(c) !== lockFn) add(ctx, "LOCK_KIND", c, `${method}: ${calleeName(c)} en un handler que debe usar ${lockFn}`);
+  }
   const lockAt = firstIsLock ? firstExpr!.getStart(sf) : (lockCalls[0]?.getStart(sf) ?? Number.POSITIVE_INFINITY);
 
   // Nada dependiente antes del bloqueo del Period.
@@ -671,11 +735,21 @@ function checkHandler(ctx: Ctx, method: string, handler: ts.Node): void {
     else if (name === TAX_RECORD_LOCK_FN) kind = "lock de TaxRecord";
     else if (name === "assertTurivaIncludedUnderLock" || mc?.model === "periodVatSettings") kind = "lectura TurIVA";
     else if (mc?.op === "count") kind = "conteo";
-    if (kind) add(ctx, "BEFORE_LOCK", c, `${method}: ${kind} antes de lockPeriodForWrite: ${text(sf, c.expression)}`);
+    if (kind) add(ctx, "BEFORE_LOCK", c, `${method}: ${kind} antes de ${lockFn}: ${text(sf, c.expression)}`);
   }
 
   const writes = writesIn(ctx, handler);
   if (writes.length === 0) add(ctx, "NO_WRITES", handler, `${method}: sin escrituras (¿sobra en el inventario?)`);
+  for (const w of writes) {
+    const mc = modelCall(ctx, w)!;
+    const periodUpdate = mc.model === "period" && PERIOD_UPDATE_OPS.has(mc.op);
+    if (transition && !periodUpdate) {
+      add(ctx, "TRANSITION_CONTENT_WRITE", w, `${method}: una transición de estado sólo puede modificar Period: ${text(sf, w.expression)}`);
+    }
+    if (!transition && periodUpdate) {
+      add(ctx, "PERIOD_UPDATE_OUTSIDE_TRANSITION", w, `${method}: modificación de Period fuera de una transición de estado: ${text(sf, w.expression)}`);
+    }
+  }
   for (const w of writes) {
     if (!within(sf, w, fn.body) && w.getStart(sf) >= lockAt) add(ctx, "WRITE_OUTSIDE_TX", w, `${method}: escritura fuera de la transacción`);
   }
@@ -707,8 +781,10 @@ function checkHandler(ctx: Ctx, method: string, handler: ts.Node): void {
 /**
  * Violaciones de un archivo. `methods`: handlers inventariados del archivo
  * (undefined = el archivo no puede escribir el contenido del período).
+ * `transitions`: cuáles de esos handlers son transiciones de estado del
+ * período (lockPeriodForStatusChange); el resto usa lockPeriodForWrite.
  */
-export function analyzeSource(file: string, src: string, methods?: readonly string[]): Violation[] {
+export function analyzeSource(file: string, src: string, methods?: readonly string[], transitions: readonly string[] = []): Violation[] {
   const sf = parse(file, src);
   const ctx: Ctx = { file, sf, v: [], modelAliases: new Map() };
   collectModelAliases(ctx);
@@ -728,7 +804,21 @@ export function analyzeSource(file: string, src: string, methods?: readonly stri
   checkNestedWrites(ctx);
   checkTransactions(ctx, handlerTx);
   checkBusyOutsideHelper(ctx);
-  if (file === "lib/period-lock.ts") checkLockHelper(ctx, raws);
+  if (file === "lib/period-lock.ts") {
+    checkLockHelper(ctx, raws);
+    checkClosedCheck(ctx);
+  }
+
+  // lockPeriodForStatusChange sólo dentro de handlers de transición inventariados.
+  if (file !== "lib/period-lock.ts") {
+    for (const c of calls(sf)) {
+      if (calleeName(c) !== STATUS_LOCK_FN) continue;
+      const owner = [...handlers.entries()].find(([, h]) => within(sf, c, h));
+      if (!owner || !methods?.includes(owner[0]) || !transitions.includes(owner[0])) {
+        add(ctx, "STATUS_LOCK_OUTSIDE_TRANSITION", c, `${STATUS_LOCK_FN} fuera de un handler de transición inventariado`);
+      }
+    }
+  }
   if (file === TAX_RECORD_LOCK_FILE) checkTaxRecordLockHelper(ctx);
 
   // lockTaxRecordForUpdate sólo dentro de handlers inventariados.
@@ -755,7 +845,7 @@ export function analyzeSource(file: string, src: string, methods?: readonly stri
   for (const m of methods) {
     const h = handlers.get(m);
     if (!h) add(ctx, "HANDLER_MISSING", null, `falta el handler inventariado ${m}`);
-    else checkHandler(ctx, m, h);
+    else checkHandler(ctx, m, h, transitions.includes(m));
   }
   return ctx.v;
 }

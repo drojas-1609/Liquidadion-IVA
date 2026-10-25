@@ -26,6 +26,12 @@ export const ROLES_EXPORT: readonly Role[] = ROLES_READ;
  */
 export const ROLES_CLIENT_MANAGE: readonly Role[] = ["OWNER", "ADMIN"];
 
+// ── Cierre y reapertura de períodos ────────────────────────────────────────
+/** Cerrar un período: OWNER, ADMIN y ACCOUNTANT. */
+export const ROLES_PERIOD_CLOSE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT"];
+/** Reabrir un período cerrado: sólo OWNER y ADMIN (más sensible que cerrar). */
+export const ROLES_PERIOD_REOPEN: readonly Role[] = ["OWNER", "ADMIN"];
+
 // ── Futuras (matriz preparada, sin implementar) ────────────────────────────
 export const ROLES_UPDATE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT"];
 export const ROLES_DELETE: readonly Role[] = ["OWNER", "ADMIN"];

@@ -6,9 +6,17 @@ import { join, relative, sep } from "node:path";
 vi.mock("@/lib/prisma", () => ({ default: {} }));
 
 import { Prisma } from "@prisma/client";
-import { lockPeriodForWrite } from "@/lib/period-lock";
+import { lockPeriodForStatusChange, lockPeriodForWrite } from "@/lib/period-lock";
 import { assertTurivaIncludedUnderLock } from "@/lib/invoice-write";
-import { AuthError, NotFoundError, PeriodBusyError, PERIOD_BUSY_MESSAGE, ValidationError } from "@/lib/auth/errors";
+import {
+  AuthError,
+  NotFoundError,
+  PeriodBusyError,
+  PeriodClosedError,
+  PERIOD_BUSY_MESSAGE,
+  PERIOD_CLOSED_MESSAGE,
+  ValidationError,
+} from "@/lib/auth/errors";
 import { TURIVA_NOT_INCLUDED_MESSAGE } from "@/lib/invoice-model";
 import { analyzeSource, codesOf } from "./_period-lock-structure";
 
@@ -58,7 +66,7 @@ describe("lockPeriodForWrite", () => {
   it.each([["0"], ["1500ms"]])(
     "éxito (lock_timeout previo %s): lee -> set 3000ms -> SELECT … FOR UPDATE parametrizado -> restaura EXACTAMENTE el previo; 4 consultas en orden",
     async (previous) => {
-      const { tx, calls } = rawTx([{ id: "p_a" }], { previous: [{ lockTimeout: previous }] });
+      const { tx, calls } = rawTx([{ id: "p_a", status: "OPEN" }], { previous: [{ lockTimeout: previous }] });
       await lockPeriodForWrite(tx, "p_a", "org_a");
       expect(calls).toHaveLength(4);
 
@@ -165,6 +173,73 @@ describe("lockPeriodForWrite", () => {
   });
 });
 
+describe("lockPeriodForWrite — período cerrado (estado leído en el MISMO FOR UPDATE)", () => {
+  it("el FOR UPDATE lee id y status (texto) del Period, parametrizado", async () => {
+    const { tx, calls } = rawTx([{ id: "p_a", status: "OPEN" }]);
+    await lockPeriodForWrite(tx, "p_a", "org_a");
+    expect(calls[2].sql).toBe(`SELECT "id", "status"::text AS "status" FROM "Period" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE`);
+    expect(calls[2].values).toEqual(["p_a", "org_a"]);
+  });
+
+  it.each([["0"], ["1500ms"]])(
+    "CLOSED (previo %s) -> PeriodClosedError (409 PERIOD_CLOSED) DESPUÉS de restaurar el lock_timeout; 4 consultas",
+    async (previous) => {
+      const { tx, calls } = rawTx([{ id: "p_a", status: "CLOSED" }], { previous: [{ lockTimeout: previous }] });
+      const err = await lockPeriodForWrite(tx, "p_a", "org_a").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(PeriodClosedError);
+      expect(err).toMatchObject({ code: "PERIOD_CLOSED", status: 409, message: PERIOD_CLOSED_MESSAGE });
+      expect(calls).toHaveLength(4);
+      expect(calls[3]).toEqual({ sql: RESTORE_TIMEOUT, values: [previous] });
+    },
+  );
+
+  it.each([
+    ["estado desconocido", [{ id: "p_a", status: "ARCHIVED" }]],
+    ["estado vacío", [{ id: "p_a", status: "" }]],
+    ["estado ausente", [{ id: "p_a" }]],
+    ["estado null", [{ id: "p_a", status: null }]],
+    ["minúsculas", [{ id: "p_a", status: "open" }]],
+  ])("falla cerrada: %s -> PeriodClosedError", async (_l, rows) => {
+    const { tx } = rawTx(rows);
+    await expect(lockPeriodForWrite(tx, "p_a", "org_a")).rejects.toBeInstanceOf(PeriodClosedError);
+  });
+
+  it("sin fila -> NotFoundError (no PeriodClosedError)", async () => {
+    const { tx } = rawTx([]);
+    await expect(lockPeriodForWrite(tx, "p_x", "org_a")).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+describe("lockPeriodForStatusChange — mismo bloqueo, NO rechaza el período cerrado", () => {
+  it.each([["OPEN"], ["CLOSED"]] as const)("%s -> devuelve el estado; misma secuencia de 4 consultas que lockPeriodForWrite", async (status) => {
+    const { tx, calls } = rawTx([{ id: "p_a", status }], { previous: [{ lockTimeout: "1500ms" }] });
+    await expect(lockPeriodForStatusChange(tx, "p_a", "org_a")).resolves.toBe(status);
+    expect(calls.map((c) => c.sql)).toEqual([
+      READ_TIMEOUT,
+      SET_TIMEOUT,
+      `SELECT "id", "status"::text AS "status" FROM "Period" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE`,
+      RESTORE_TIMEOUT,
+    ]);
+    expect(calls[3].values).toEqual(["1500ms"]);
+  });
+
+  it.each([
+    ["estado desconocido", [{ id: "p_a", status: "ARCHIVED" }]],
+    ["estado ausente", [{ id: "p_a" }]],
+  ])("%s -> Error genérico (500), nunca una transición ni un AuthError", async (_l, rows) => {
+    const { tx } = rawTx(rows);
+    const err = await lockPeriodForStatusChange(tx, "p_a", "org_a").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(AuthError);
+  });
+
+  it("sin fila -> NotFoundError; 55P03 -> PeriodBusyError", async () => {
+    await expect(lockPeriodForStatusChange(rawTx([]).tx, "p_x", "org_a")).rejects.toBeInstanceOf(NotFoundError);
+    const lockError = prismaError("P2010", { code: "55P03", message: "canceling statement due to lock timeout" });
+    await expect(lockPeriodForStatusChange(rawTx([], { lockError }).tx, "p_a", "org_a")).rejects.toBeInstanceOf(PeriodBusyError);
+  });
+});
+
 describe("assertTurivaIncludedUnderLock — requiere el lock previo y NO bloquea", () => {
   const txWith = (turivaIncluded: boolean | null) => {
     const { $queryRaw } = rawTx([{ id: "p_a" }]);
@@ -229,6 +304,17 @@ const WRITERS: Record<string, readonly string[]> = {
   "app/api/taxes/[id]/route.ts": ["PATCH", "DELETE"],
   "app/api/periods/[id]/vat-settings/route.ts": ["PATCH"],
   "app/api/periods/[id]/route.ts": ["DELETE"],
+  "app/api/periods/[id]/close/route.ts": ["POST"],
+  "app/api/periods/[id]/reopen/route.ts": ["POST"],
+};
+
+/**
+ * Handlers del inventario que son TRANSICIONES de estado del período (cerrar /
+ * reabrir): bloquean con lockPeriodForStatusChange y sólo modifican Period.
+ */
+const TRANSITIONS: Record<string, readonly string[]> = {
+  "app/api/periods/[id]/close/route.ts": ["POST"],
+  "app/api/periods/[id]/reopen/route.ts": ["POST"],
 };
 
 const productionFiles = [...walk(join(repo, "app")), ...walk(join(repo, "lib"))].map(rel).sort();
@@ -239,19 +325,29 @@ function mutate(src: string, from: string, to: string): string {
   return src.replace(from, to);
 }
 
-const codes = (file: string, src: string, methods?: readonly string[]) => codesOf(analyzeSource(file, src, methods));
+const codes = (file: string, src: string, methods?: readonly string[], transitions?: readonly string[]) =>
+  codesOf(analyzeSource(file, src, methods, transitions));
 const details = (file: string, src: string, methods?: readonly string[]) => analyzeSource(file, src, methods).map((v) => v.detail).join(" | ");
 
 describe("cobertura estructural — producción", () => {
-  it("el inventario es exacto: 8 handlers en 6 archivos", () => {
-    expect(Object.keys(WRITERS)).toHaveLength(6);
-    expect(Object.values(WRITERS).flat()).toHaveLength(8);
+  it("el inventario es exacto: 10 handlers en 8 archivos (8 writers del contenido + 2 transiciones de estado)", () => {
+    expect(Object.keys(WRITERS)).toHaveLength(8);
+    expect(Object.values(WRITERS).flat()).toHaveLength(10);
+    expect(Object.values(TRANSITIONS).flat()).toHaveLength(2);
+    for (const [f, ms] of Object.entries(TRANSITIONS)) for (const m of ms) expect(WRITERS[f], f).toContain(m);
     expect(productionFiles.length).toBeGreaterThan(20);
   });
 
   it("ningún archivo productivo (app/**, lib/**) tiene violaciones", () => {
-    const all = productionFiles.flatMap((f) => analyzeSource(f, read(f), WRITERS[f]));
+    const all = productionFiles.flatMap((f) => analyzeSource(f, read(f), WRITERS[f], TRANSITIONS[f]));
     expect(all).toEqual([]);
+  });
+
+  it("lockPeriodForStatusChange sólo se usa en los handlers de transición; PeriodClosedError sólo en lib/period-lock.ts", () => {
+    const statusUsers = productionFiles.filter((f) => f !== "lib/period-lock.ts" && /lockPeriodForStatusChange\(/.test(code(read(f))));
+    expect(statusUsers).toEqual(Object.keys(TRANSITIONS).sort());
+    const closedUsers = productionFiles.filter((f) => /new PeriodClosedError\(/.test(code(read(f))));
+    expect(closedUsers).toEqual(["lib/period-lock.ts"]);
   });
 
   it("lib/prisma.ts construye un único PrismaClient y lib/period-lock.ts / lib/invoice-lock.ts / lib/tax-record-lock.ts tienen el SQL inventariado", () => {
@@ -260,6 +356,54 @@ describe("cobertura estructural — producción", () => {
     expect(code(read("lib/period-lock.ts")).match(/\.\$queryRaw/g)).toHaveLength(4);
     expect(code(read("lib/invoice-lock.ts")).match(/\.\$queryRaw/g)).toHaveLength(1);
     expect(code(read("lib/tax-record-lock.ts")).match(/\.\$queryRaw/g)).toHaveLength(1);
+  });
+});
+
+// ── Fuentes sintéticas: transición de estado (cerrar / reabrir) ──────────
+
+const TRANSITION_OK = `export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
+    const { organizationId } = await resolveActiveOrganization(profileId);
+    const result = await prisma.$transaction(async (tx) => {
+        const status = await lockPeriodForStatusChange(tx, id, organizationId);
+        const period = await tx.period.findFirst({ where: { id, organizationId } });
+        if (status === "CLOSED") return period;
+        const updated = await tx.period.update({ where: { id_organizationId: { id, organizationId } }, data: { status: "CLOSED", closedById: profileId } });
+        await recordAudit(tx, {});
+        return updated;
+    }, { maxWait: 5000, timeout: 10000 });
+    return NextResponse.json(result);
+});`;
+const STATUS_LOCK_LINE = "const status = await lockPeriodForStatusChange(tx, id, organizationId);";
+const PERIOD_UPDATE_LINE = 'const updated = await tx.period.update({ where: { id_organizationId: { id, organizationId } }, data: { status: "CLOSED", closedById: profileId } });';
+const transitionCodes = (src: string) => codes("app/api/synthetic/route.ts", src, ["POST"], ["POST"]);
+
+describe("cobertura estructural — fuentes sintéticas: transición de estado", () => {
+  it("fuente correcta -> sin violaciones", () => {
+    expect(transitionCodes(TRANSITION_OK)).toEqual([]);
+  });
+
+  it("la misma fuente inventariada como writer del contenido -> LOCK_KIND, PERIOD_UPDATE_OUTSIDE_TRANSITION y STATUS_LOCK_OUTSIDE_TRANSITION", () => {
+    expect(codes("app/api/synthetic/route.ts", TRANSITION_OK, ["POST"])).toEqual([
+      "LOCK_KIND",
+      "PERIOD_UPDATE_OUTSIDE_TRANSITION",
+      "STATUS_LOCK_OUTSIDE_TRANSITION",
+    ]);
+  });
+
+  it.each([
+    ["lockPeriodForWrite en lugar de lockPeriodForStatusChange", () => mutate(TRANSITION_OK, STATUS_LOCK_LINE, "await lockPeriodForWrite(tx, id, organizationId);\n        const status = \"OPEN\";"), ["LOCK_KIND"]],
+    ["sin bloqueo del Period", () => mutate(TRANSITION_OK, STATUS_LOCK_LINE, 'const status = "OPEN";'), ["BEFORE_LOCK", "LOCK_COUNT", "LOCK_NOT_FIRST"]],
+    ["lectura antes del bloqueo", () => mutate(TRANSITION_OK, STATUS_LOCK_LINE, "const pre = await tx.period.count({});\n        " + STATUS_LOCK_LINE), ["BEFORE_LOCK", "LOCK_NOT_FIRST"]],
+    ["dos bloqueos (status + write)", () => mutate(TRANSITION_OK, STATUS_LOCK_LINE, STATUS_LOCK_LINE + "\n        await lockPeriodForWrite(tx, id, organizationId);"), ["LOCK_COUNT", "LOCK_KIND"]],
+    ["escritura del contenido en la transición", () => mutate(TRANSITION_OK, PERIOD_UPDATE_LINE, PERIOD_UPDATE_LINE + "\n        await tx.invoice.deleteMany({ where: { periodId: id } });"), ["TRANSITION_CONTENT_WRITE"]],
+    ["period.delete en la transición", () => mutate(TRANSITION_OK, PERIOD_UPDATE_LINE, PERIOD_UPDATE_LINE + "\n        await tx.period.delete({ where: { id } });"), ["TRANSITION_CONTENT_WRITE"]],
+    ["period.update con escritura anidada", () => mutate(TRANSITION_OK, 'data: { status: "CLOSED", closedById: profileId }', "data: { taxRecords: { deleteMany: {} } }"), ["NESTED_WRITE"]],
+    ["recordAudit antes del bloqueo", () => mutate(TRANSITION_OK, STATUS_LOCK_LINE, "await recordAudit(tx, {});\n        " + STATUS_LOCK_LINE), ["BEFORE_LOCK", "LOCK_NOT_FIRST"]],
+    ["opciones de la transacción distintas", () => mutate(TRANSITION_OK, "{ maxWait: 5000, timeout: 10000 }", "{ maxWait: 5000, timeout: 3000 }"), ["TX_TIMEOUT_INVALID"]],
+    ["lock con otra organización", () => mutate(TRANSITION_OK, STATUS_LOCK_LINE, "const status = await lockPeriodForStatusChange(tx, id, access.organizationId);"), ["LOCK_ARGS"]],
+    ["sin escrituras", () => mutate(mutate(TRANSITION_OK, PERIOD_UPDATE_LINE, "const updated = period;"), "await recordAudit(tx, {});\n", ""), ["NO_WRITES"]],
+  ] as const)("%s -> exactamente las violaciones previstas", (_l, src, expected) => {
+    expect(transitionCodes(src())).toEqual([...expected]);
   });
 });
 
@@ -295,8 +439,12 @@ describe("cobertura estructural — fuentes sintéticas: handler inventariado", 
   it.each([
     // #1 DML por $queryRaw (también dentro de un handler, después del lock).
     ["$queryRaw extra con UPDATE en el handler", mutate(HANDLER_OK, UPDATE_LINE, UPDATE_LINE + '\n        await tx.$queryRaw`UPDATE "Invoice" SET "number" = ${n} WHERE "id" = ${id}`;'), "RAW_NOT_INVENTORIED", /fuera de lib\/period-lock.ts/],
-    // #3 period.update con escritura anidada.
-    ["period.update con escritura anidada", mutate(HANDLER_OK, UPDATE_LINE, UPDATE_LINE + "\n        await tx.period.update({ where: { id: periodId }, data: { invoices: { create: {} } } });"), "NESTED_WRITE", /anida la relación invoices/],
+    // #3 period.create con escritura anidada (period.update: ver transiciones).
+    ["period.create con escritura anidada", mutate(HANDLER_OK, UPDATE_LINE, UPDATE_LINE + "\n        await tx.period.create({ data: { invoices: { create: {} } } });"), "NESTED_WRITE", /anida la relación invoices/],
+    // Un writer del contenido no puede modificar la fila Period (estado incluido).
+    ["period.update en un writer del contenido", mutate(HANDLER_OK, UPDATE_LINE, UPDATE_LINE + "\n        await tx.period.update({ where: { id: periodId }, data: { updatedById: profileId } });"), "PERIOD_UPDATE_OUTSIDE_TRANSITION", /fuera de una transición de estado/],
+    ["period.upsert en un writer del contenido", mutate(HANDLER_OK, UPDATE_LINE, UPDATE_LINE + "\n        await tx.period.upsert({ where: { id: periodId }, create: {}, update: { status: \"OPEN\" } });"), "PERIOD_UPDATE_OUTSIDE_TRANSITION", /fuera de una transición de estado/],
+    ["PeriodClosedError construido en el handler", mutate(HANDLER_OK, UPDATE_LINE, "if (closed) throw new PeriodClosedError();\n        " + UPDATE_LINE), "CLOSED_OUTSIDE_HELPER", /sólo lo construye lockPeriodForWrite/],
     // #4 acceso por corchetes.
     ["acceso por corchetes", mutate(HANDLER_OK, "tx.invoice.update({})", 'tx["invoice"].update({})'), "BRACKET_MODEL", /corchetes al modelo invoice/],
     ["acceso dinámico", mutate(HANDLER_OK, UPDATE_LINE, UPDATE_LINE + "\n        await tx[model].findFirst({});"), "DYNAMIC_ACCESS", /no inventariado sobre el cliente/],
@@ -313,7 +461,7 @@ describe("cobertura estructural — fuentes sintéticas: handler inventariado", 
     // #17 Invoice -> Period.
     ["Invoice -> Period", mutate(HANDLER_OK, LOCK_LINE, "const pending = lockInvoiceForUpdate(tx, id, organizationId);\n        " + LOCK_LINE), "BEFORE_LOCK", /lock de Invoice antes/],
     // #16 doble lock de Period.
-    ["doble lock de Period", mutate(HANDLER_OK, "return updated;", LOCK_LINE + "        return updated;"), "LOCK_COUNT", /2 llamadas a lockPeriodForWrite/],
+    ["doble lock de Period", mutate(HANDLER_OK, "return updated;", LOCK_LINE + "        return updated;"), "LOCK_COUNT", /2 bloqueos del Period/],
     ["el lock no es la primera operación awaited", mutate(HANDLER_OK, LOCK_LINE, "await tx.client.findFirst({});\n        " + LOCK_LINE), "LOCK_NOT_FIRST", /no es la primera operación awaited/],
     ["lock con otra organización", mutate(HANDLER_OK, "lockPeriodForWrite(tx, periodId, organizationId)", "lockPeriodForWrite(tx, periodId, access.organizationId)"), "LOCK_ARGS", /otros argumentos/],
     ["escritura después de la transacción", mutate(HANDLER_OK, "return NextResponse.json(saved);", "await prisma.taxRecord.create({});\n    return NextResponse.json(saved);"), "WRITE_OUTSIDE_TX", /fuera de la transacción/],
@@ -325,14 +473,28 @@ describe("cobertura estructural — fuentes sintéticas: handler inventariado", 
     expect(details(HANDLER_FILE, src, ["POST"])).toMatch(message);
   });
 
+  it("period.update con escritura anidada en un writer -> NESTED_WRITE y PERIOD_UPDATE_OUTSIDE_TRANSITION", () => {
+    const src = mutate(HANDLER_OK, UPDATE_LINE, UPDATE_LINE + "\n        await tx.period.update({ where: { id: periodId }, data: { invoices: { create: {} } } });");
+    expect(handler(src)).toEqual(["NESTED_WRITE", "PERIOD_UPDATE_OUTSIDE_TRANSITION"]);
+  });
+
+  it("lockPeriodForStatusChange en un writer del contenido -> LOCK_KIND y STATUS_LOCK_OUTSIDE_TRANSITION", () => {
+    const src = mutate(HANDLER_OK, LOCK_LINE, "await lockPeriodForStatusChange(tx, periodId, organizationId);\n");
+    expect(handler(src)).toEqual(["LOCK_KIND", "STATUS_LOCK_OUTSIDE_TRANSITION"]);
+  });
+
   it.each([
-    ["negativo #3: period.update sin relaciones del contenido", mutate(HANDLER_OK, UPDATE_LINE, UPDATE_LINE + "\n        await tx.period.update({ where: { id: periodId }, data: { updatedById: profileId } });")],
     ["negativo #5: `.period` de un objeto que no es un cliente", mutate(HANDLER_OK, UPDATE_LINE, "const p = access.period;\n        const c = access.period.clientId;\n        " + UPDATE_LINE)],
     ["negativo #6: pasar tx a un helper no es un alias", mutate(HANDLER_OK, "await recordAudit(tx, {});", "await recordAudit(tx, {});\n        await assertNoDuplicateVoucher(tx, where);")],
     ["negativo #8/#17: las mismas operaciones después del lock", mutate(HANDLER_OK, UPDATE_LINE, UPDATE_LINE + "\n        tx.taxRecord.create({});\n        recordAudit(tx, {});\n        lockInvoiceForUpdate(tx, id, organizationId);")],
     ["negativo #16: un lock, y lecturas antes de la transacción", mutate(HANDLER_OK, "const saved =", "const preload = await prisma.invoice.findFirst({});\n    const saved =")],
   ])("%s -> sin violaciones", (_l, src) => {
     expect(handler(src)).toEqual([]);
+  });
+
+  it("lockPeriodForStatusChange fuera de un handler inventariado (archivo no inventariado o preámbulo) -> STATUS_LOCK_OUTSIDE_TRANSITION", () => {
+    expect(codes("lib/synthetic.ts", "export async function f(tx) { await lockPeriodForStatusChange(tx, id, organizationId); }")).toEqual(["STATUS_LOCK_OUTSIDE_TRANSITION"]);
+    expect(codes(HANDLER_FILE, "async function helper(tx) { return lockPeriodForStatusChange(tx, id, organizationId); }\n" + TRANSITION_OK, ["POST"], ["POST"])).toEqual(["STATUS_LOCK_OUTSIDE_TRANSITION"]);
   });
 
   it("inventario: escritura en el preámbulo, en un handler no inventariado o handler inventariado ausente", () => {
@@ -623,6 +785,11 @@ describe("cobertura estructural — fuentes sintéticas: lockPeriodForWrite", ()
     ["traducción fuera del FOR UPDATE (set dentro del try)", () => mutate(mutate(helperSrc, SET_LINE, ""), "    try {\n", "    try {\n    " + SET_LINE), "BUSY_TRANSLATION"],
     ["$queryRaw extra en el helper", () => mutate(helperSrc, RESTORE_LINE, RESTORE_LINE + '    await tx.$queryRaw`UPDATE "Period" SET "month" = 1`;\n'), "RAW_NOT_INVENTORIED"],
     ["sin FOR UPDATE de Period", () => mutate(helperSrc, "FOR UPDATE`", "`"), "LOCK_QUERY_MISSING"],
+    // Cierre del período.
+    ["FOR UPDATE sin leer el estado", () => mutate(helperSrc, 'SELECT "id", "status"::text AS "status" FROM "Period"', 'SELECT "id" FROM "Period"'), "LOCK_QUERY_MISSING"],
+    ["sin rechazo del período cerrado", () => mutate(helperSrc, '    if (status !== "OPEN") throw new PeriodClosedError();\n', "    void status;\n"), "CLOSED_CHECK"],
+    ["rechazo del cerrado también en lockPeriodForStatusChange", () => mutate(helperSrc, "    return status;\n}\n", '    if (status === "CLOSED") throw new PeriodClosedError();\n    return status;\n}\n'), "CLOSED_CHECK"],
+    ["lockPeriodForWrite sin lockPeriodForUpdate", () => mutate(helperSrc, "    const status = await lockPeriodForUpdate(tx, periodId, organizationId);\n    if (status !== \"OPEN\")", '    const status = "OPEN";\n    if (status !== "OPEN")'), "CLOSED_CHECK"],
   ] as const)("%s -> exactamente la violación prevista", (_l, src, expected) => {
     expect(helper(src())).toEqual(expected === "LOCK_QUERY_MISSING" ? ["LOCK_QUERY_MISSING", "RAW_NOT_INVENTORIED"] : [expected]);
   });
@@ -643,7 +810,7 @@ describe("cobertura estructural — helpers de bloqueo", () => {
     for (const file of Object.keys(WRITERS)) {
       const { prelude } = splitHandlers(code(read(file)));
       const withoutImports = prelude.replace(/^import[\s\S]*?;$/gm, "");
-      expect(withoutImports, file).not.toMatch(/lockPeriodFor(Write|Update)\(/);
+      expect(withoutImports, file).not.toMatch(/lockPeriodFor(Write|Update|StatusChange)\(/);
     }
   });
 
@@ -657,6 +824,7 @@ describe("cobertura estructural — helpers de bloqueo", () => {
     expect(helper).not.toMatch(/export\s+(async\s+)?function\s+lockPeriodForUpdate/);
     expect(helper).not.toMatch(/export\s*\{[^}]*lockPeriodForUpdate/);
     expect(helper).toMatch(/export async function lockPeriodForWrite\(/);
+    expect(helper).toMatch(/export async function lockPeriodForStatusChange\(/);
     const offenders = productionFiles.filter((f) => f !== "lib/period-lock.ts" && read(f).includes("lockPeriodForUpdate"));
     expect(offenders).toEqual([]);
   });

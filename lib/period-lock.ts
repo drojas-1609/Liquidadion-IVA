@@ -1,6 +1,6 @@
 import "server-only";
-import { Prisma } from "@prisma/client";
-import { NotFoundError, PeriodBusyError } from "./auth/errors";
+import { Prisma, type PeriodStatus } from "@prisma/client";
+import { NotFoundError, PeriodBusyError, PeriodClosedError } from "./auth/errors";
 
 /**
  * Bloqueo de la fila Period (SELECT ... FOR UPDATE) dentro de una transacción
@@ -57,14 +57,23 @@ async function currentLockTimeout(tx: PeriodLockTx): Promise<string> {
     return value;
 }
 
-/** Implementación interna de `lockPeriodForWrite`: no se exporta. */
-async function lockPeriodForUpdate(tx: PeriodLockTx, periodId: string, organizationId: string): Promise<void> {
+/**
+ * Fila bloqueada: el estado viaja como texto (`::text`) para no depender de
+ * cómo deserializa el driver un enum de PostgreSQL en una consulta cruda.
+ */
+type LockedPeriodRow = { id: string; status: string };
+
+/**
+ * Implementación interna de `lockPeriodForWrite` y `lockPeriodForStatusChange`:
+ * no se exporta. Devuelve el estado del período leído BAJO el bloqueo.
+ */
+async function lockPeriodForUpdate(tx: PeriodLockTx, periodId: string, organizationId: string): Promise<string> {
     const previousLockTimeout = await currentLockTimeout(tx);
     await tx.$queryRaw`SELECT set_config('lock_timeout', '3000ms', true)`;
-    let rows: Array<{ id: string }>;
+    let rows: LockedPeriodRow[];
     try {
-        rows = await tx.$queryRaw<Array<{ id: string }>>`
-            SELECT "id" FROM "Period"
+        rows = await tx.$queryRaw<LockedPeriodRow[]>`
+            SELECT "id", "status"::text AS "status" FROM "Period"
             WHERE "id" = ${periodId} AND "organizationId" = ${organizationId}
             FOR UPDATE`;
     } catch (err) {
@@ -76,14 +85,27 @@ async function lockPeriodForUpdate(tx: PeriodLockTx, periodId: string, organizat
     // Restauración parametrizada del valor previo (nunca concatenado al SQL).
     await tx.$queryRaw`SELECT set_config('lock_timeout', ${previousLockTimeout}, true)`;
     if (rows.length !== 1) throw new NotFoundError();
+    return rows[0].status;
 }
 
 /**
  * ÚNICO punto de entrada para bloquear un período antes de modificar su
  * contenido (comprobantes y sus líneas, retenciones/percepciones,
  * configuración de IVA) o de eliminarlo. Toda escritura de ese contenido lo
- * llama como PRIMERA operación de su transacción. El futuro control de estado
- * del período (cerrado) se incorpora acá.
+ * llama como PRIMERA operación de su transacción.
+ *
+ * Cierre del período: el estado se lee en el MISMO `SELECT … FOR UPDATE`. Si
+ * no es OPEN (cerrado o cualquier valor desconocido: falla cerrada) ->
+ * PeriodClosedError (409 PERIOD_CLOSED) antes de cualquier lectura, escritura
+ * o AuditLog del llamador; la transacción hace rollback. Como cerrar y reabrir
+ * toman este mismo bloqueo (`lockPeriodForStatusChange`), una escritura y un
+ * cambio de estado del mismo período nunca se intercalan: la escritura que
+ * espera a un cierre ve CLOSED y se rechaza; el cierre que espera a una
+ * escritura se aplica después de que ésta confirme.
+ *
+ * El cierre NO congela la liquidación: se sigue calculando con la alícuota
+ * IIBB vigente del cliente (Client.defaultIibbRate), que no es contenido del
+ * período.
  *
  * Orden único de bloqueo dentro de una transacción:
  *   1. Period  — lockPeriodForWrite (una sola vez, un solo período)
@@ -96,5 +118,27 @@ async function lockPeriodForUpdate(tx: PeriodLockTx, periodId: string, organizat
  * (409 PERIOD_BUSY).
  */
 export async function lockPeriodForWrite(tx: PeriodLockTx, periodId: string, organizationId: string): Promise<void> {
-    await lockPeriodForUpdate(tx, periodId, organizationId);
+    const status = await lockPeriodForUpdate(tx, periodId, organizationId);
+    if (status !== "OPEN") throw new PeriodClosedError();
+}
+
+/**
+ * ÚNICO punto de entrada para bloquear un período antes de CAMBIAR SU ESTADO
+ * (cerrar / reabrir). Mismo bloqueo, misma espera acotada y mismos errores
+ * (404, 409 PERIOD_BUSY) que `lockPeriodForWrite`, pero NO rechaza un período
+ * cerrado: devuelve el estado leído bajo el bloqueo para que la transición lo
+ * evalúe. Sólo lo usan los handlers de transición inventariados
+ * (tests/_period-lock-structure.ts), que no escriben el contenido del período.
+ * Un estado desconocido es un error interno (500), nunca una transición.
+ */
+export async function lockPeriodForStatusChange(
+    tx: PeriodLockTx,
+    periodId: string,
+    organizationId: string,
+): Promise<PeriodStatus> {
+    const status = await lockPeriodForUpdate(tx, periodId, organizationId);
+    if (status !== "OPEN" && status !== "CLOSED") {
+        throw new Error("lockPeriodForStatusChange: estado de período desconocido");
+    }
+    return status;
 }

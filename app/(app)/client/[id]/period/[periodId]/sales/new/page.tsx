@@ -2,6 +2,7 @@ import { guardPage } from "@/lib/auth/authz";
 import { loadInvoiceFormContext } from "@/lib/invoice-form-context";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { InvoiceForm } from "../../_components/invoice-form";
+import { PeriodClosedNotice } from "../../_components/period-closed-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,9 @@ export default async function NewSalePage({ params }: { params: Promise<{ id: st
 
     const guard = await guardPage(() => loadInvoiceFormContext(id, periodId));
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
+    // Período cerrado: aviso en lugar del formulario (la API rechaza igual).
+    const { periodClosed, ...form } = guard.data;
+    if (periodClosed) return <PeriodClosedNotice clientId={id} periodId={periodId} />;
 
-    return <InvoiceForm direction="SALES" clientId={id} periodId={periodId} {...guard.data} />;
+    return <InvoiceForm direction="SALES" clientId={id} periodId={periodId} {...form} />;
 }

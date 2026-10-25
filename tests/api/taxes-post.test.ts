@@ -34,6 +34,9 @@ import {
   timeoutRestoreOrder,
   expectPeriodBusyResponse,
   expectBusyRollback,
+  closePeriodInWorld,
+  expectPeriodClosedResponse,
+  expectClosedRollback,
   loggedUnclassified,
 } from "./_harness";
 import { POST } from "@/app/api/taxes/route";
@@ -165,6 +168,22 @@ describe("POST /api/taxes — bloqueo del período (lockPeriodForWrite)", () => 
       expect(timeoutRestoreOrder(db)).toBeLessThan(db.auditLog.create.mock.invocationCallOrder[0]);
     },
   );
+
+  it("período CERRADO -> 409 PERIOD_CLOSED exacto, no-store, bajo el bloqueo; sin TaxRecord ni AuditLog", async () => {
+    closePeriodInWorld(world, "p_a");
+    const { result: res, unclassified } = await loggedUnclassified(() => post(jbody(valid)));
+    await expectPeriodClosedResponse(res);
+    expect(unclassified).toBe(false);
+    expectClosedRollback(db, rec);
+    expectNoTaxWrite();
+  });
+
+  it("cierre confirmado mientras el alta esperaba el bloqueo del Period -> 409 PERIOD_CLOSED (mismo lock)", async () => {
+    onPeriodLock(() => closePeriodInWorld(world, "p_a"));
+    await expectPeriodClosedResponse(await post(jbody(valid)));
+    expectClosedRollback(db, rec);
+    expectNoTaxWrite();
+  });
 
   it("período ocupado (55P03 en el lock de Period) -> 409 PERIOD_BUSY exacto, no-store, sin TaxRecord ni AuditLog, sin restaurar y rollback", async () => {
     rec.periodLockBusy = true;

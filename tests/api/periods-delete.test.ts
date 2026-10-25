@@ -40,6 +40,9 @@ import {
   timeoutRestoreOrder,
   expectPeriodBusyResponse,
   expectBusyRollback,
+  closePeriodInWorld,
+  expectPeriodClosedResponse,
+  expectClosedRollback,
   loggedUnclassified,
 } from "./_harness";
 import { DELETE } from "@/app/api/periods/[id]/route";
@@ -251,6 +254,25 @@ describe("DELETE /api/periods/[id] — bloqueo del período (lockPeriodForWrite)
     expect(restoreAt).toBeLessThan(order(db.period.findFirst));
     expect(restoreAt).toBeLessThan(order(db.invoice.count));
     expect(restoreAt).toBeLessThan(order(db.period.delete));
+  });
+
+  it("período CERRADO (aun vacío) -> 409 PERIOD_CLOSED exacto, no-store, sin relectura, conteos, borrado ni AuditLog", async () => {
+    closePeriodInWorld(world, "p_empty");
+    const { result: res, unclassified } = await loggedUnclassified(() => del("p_empty"));
+    await expectPeriodClosedResponse(res);
+    expect(unclassified).toBe(false);
+    expectClosedRollback(db, rec);
+    expect(db.period.findFirst).not.toHaveBeenCalled();
+    expect(db.invoice.count).not.toHaveBeenCalled();
+    expect(db.taxRecord.count).not.toHaveBeenCalled();
+    expect(exists("p_empty")).toBe(true);
+  });
+
+  it("cierre confirmado mientras la baja esperaba el bloqueo del Period -> 409 PERIOD_CLOSED (mismo lock), sin borrar", async () => {
+    onPeriodLock(() => closePeriodInWorld(world, "p_empty"));
+    await expectPeriodClosedResponse(await del("p_empty"));
+    expectClosedRollback(db, rec);
+    expect(exists("p_empty")).toBe(true);
   });
 
   it("período ocupado (55P03 en el lock de Period) -> 409 PERIOD_BUSY exacto, no-store, sin relectura, conteos, borrado ni AuditLog; rollback", async () => {

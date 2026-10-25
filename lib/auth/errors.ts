@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
  *
  * Bloqueo del período agrega:
  *  - 409 PERIOD_BUSY                      (el período está bloqueado por otra escritura)
+ *  - 409 PERIOD_CLOSED                    (el período está cerrado: no admite modificaciones)
  *
  * Toda respuesta de error lleva `Cache-Control: no-store, max-age=0`.
  */
@@ -30,6 +31,7 @@ export type AuthErrorCode =
   | "ORGANIZATION_SELECTION_REQUIRED"
   | "CONFLICT"
   | "PERIOD_BUSY"
+  | "PERIOD_CLOSED"
   | "BAD_REQUEST"
   | "UNPROCESSABLE_ENTITY"
   | "MISCONFIGURED"
@@ -119,6 +121,22 @@ export class PeriodBusyError extends AuthError {
   constructor() {
     super("PERIOD_BUSY", 409, PERIOD_BUSY_MESSAGE);
     this.name = "PeriodBusyError";
+  }
+}
+
+export const PERIOD_CLOSED_MESSAGE =
+  "El período está cerrado: no se pueden modificar ni eliminar sus datos. Para corregirlo, primero hay que reabrirlo.";
+
+/**
+ * El período está CERRADO y la operación modificaría o eliminaría el período o
+ * su contenido. Sólo lo lanza `lockPeriodForWrite` (lib/period-lock), BAJO el
+ * bloqueo del Period: ninguna escritura ni AuditLog llega a ejecutarse. Sin
+ * field, metadata ni detalle de la base.
+ */
+export class PeriodClosedError extends AuthError {
+  constructor() {
+    super("PERIOD_CLOSED", 409, PERIOD_CLOSED_MESSAGE);
+    this.name = "PeriodClosedError";
   }
 }
 

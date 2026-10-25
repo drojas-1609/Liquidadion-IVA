@@ -42,6 +42,9 @@ import {
   PERIOD_WRITE_TX_OPTIONS,
   expectPeriodBusyResponse,
   expectBusyRollback,
+  closePeriodInWorld,
+  expectPeriodClosedResponse,
+  expectClosedRollback,
   loggedUnclassified,
 } from "./_harness";
 import { DELETE, PATCH } from "@/app/api/taxes/[id]/route";
@@ -373,6 +376,23 @@ describe("PATCH /api/taxes/[id] — concurrencia (stale), período y bloqueo", (
     expect(rec.audits).toHaveLength(0);
   });
 
+  it("PATCH con el período CERRADO -> 409 PERIOD_CLOSED exacto, sin relectura, sin bloquear el TaxRecord ni escribir", async () => {
+    closePeriodInWorld(world, "p_a");
+    const { result: res, unclassified } = await loggedUnclassified(() => edit({ amount: "1.00" }));
+    await expectPeriodClosedResponse(res);
+    expect(unclassified).toBe(false);
+    expectClosedRollback(db, rec);
+    expect(db.period.findFirst).not.toHaveBeenCalled();
+    expectUnchanged();
+  });
+
+  it("PATCH con cierre confirmado mientras esperaba el bloqueo del Period -> 409 PERIOD_CLOSED (mismo lock)", async () => {
+    onPeriodLock(() => closePeriodInWorld(world, "p_a"));
+    await expectPeriodClosedResponse(await edit({ amount: "1.00" }));
+    expectClosedRollback(db, rec);
+    expectUnchanged();
+  });
+
   it("período ocupado (55P03) -> 409 PERIOD_BUSY exacto, sin bloquear el TaxRecord ni escribir; rollback", async () => {
     rec.periodLockBusy = true;
     const { result: res, unclassified } = await loggedUnclassified(() => edit({ amount: "1.00" }));
@@ -528,6 +548,15 @@ describe("DELETE /api/taxes/[id] — concurrencia, bloqueo y atomicidad", () => 
     expect((await del()).status).toBe(404);
     expect(db.taxRecord.deleteMany).not.toHaveBeenCalled();
     expect(rec.audits).toHaveLength(0);
+  });
+
+  it("DELETE con el período CERRADO -> 409 PERIOD_CLOSED exacto; sin bloquear el TaxRecord ni borrar", async () => {
+    closePeriodInWorld(world, "p_a");
+    const { result: res, unclassified } = await loggedUnclassified(() => del());
+    await expectPeriodClosedResponse(res);
+    expect(unclassified).toBe(false);
+    expectClosedRollback(db, rec);
+    expectNotDeleted();
   });
 
   it("período ocupado (55P03) -> 409 PERIOD_BUSY exacto; rollback sin borrar", async () => {

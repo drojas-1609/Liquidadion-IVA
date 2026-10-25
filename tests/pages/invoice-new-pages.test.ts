@@ -44,7 +44,9 @@ import {
   ORG_A,
   ORG_B,
   type World,
+  closePeriodInWorld,
 } from "../api/_harness";
+import { PeriodClosedNotice } from "@/app/(app)/client/[id]/period/[periodId]/_components/period-closed-notice";
 import NewSalePage from "@/app/(app)/client/[id]/period/[periodId]/sales/new/page";
 import NewPurchasePage from "@/app/(app)/client/[id]/period/[periodId]/purchases/new/page";
 import { InvoiceForm, type InvoiceFormProps } from "@/app/(app)/client/[id]/period/[periodId]/_components/invoice-form";
@@ -258,3 +260,26 @@ describe("fuentes de UI del formulario compartido", () => {
     }
   });
 });
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+describe.each(PAGES)("página servidor de alta (%s) — período cerrado", (_name, Page) => {
+  const call = () => Page({ params: Promise.resolve({ id: "c_a", periodId: "p_a" }) });
+
+  it.each([
+    ["OWNER", SUB_OWNER_A],
+    ["ACCOUNTANT", SUB_ACCOUNTANT_A],
+  ])("%s -> aviso de período cerrado, sin formulario", async (_r, sub) => {
+    H.claims.value = claimsFor(sub);
+    setWorld((w) => closePeriodInWorld(w, "p_a"));
+    const el: any = await call();
+    expect(el.type).toBe(PeriodClosedNotice);
+    expect(el.props).toEqual({ clientId: "c_a", periodId: "p_a" });
+  });
+
+  it("VIEWER -> aviso de permisos (el rol se evalúa primero)", async () => {
+    H.claims.value = claimsFor(SUB_VIEWER_A);
+    setWorld((w) => closePeriodInWorld(w, "p_a"));
+    expect(noticeOf(await call())).toBe("forbidden");
+  });
+});
+/* eslint-enable @typescript-eslint/no-explicit-any */

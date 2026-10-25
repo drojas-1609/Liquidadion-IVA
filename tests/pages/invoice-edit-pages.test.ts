@@ -44,7 +44,9 @@ import {
   ORG_A,
   ORG_B,
   type World,
+  closePeriodInWorld,
 } from "../api/_harness";
+import { PeriodClosedNotice } from "@/app/(app)/client/[id]/period/[periodId]/_components/period-closed-notice";
 import EditSalePage from "@/app/(app)/client/[id]/period/[periodId]/sales/[invoiceId]/edit/page";
 import EditPurchasePage from "@/app/(app)/client/[id]/period/[periodId]/purchases/[invoiceId]/edit/page";
 import SalesPage from "@/app/(app)/client/[id]/period/[periodId]/sales/page";
@@ -622,6 +624,70 @@ describe("regresión del alta", () => {
     expect(h).toContain("Nueva venta");
     expect(h).toContain("Guardar venta");
     expect(h).not.toMatch(/Editar venta|Guardar cambios|sin la condición|sin la variante/);
+  });
+});
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+// ── Período cerrado ─────────────────────────────────────────────────────────
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** Todos los elementos de un árbol (sin renderizar). */
+function allNodes(node: any, out: any[] = []): any[] {
+  if (Array.isArray(node)) for (const n of node) allNodes(n, out);
+  else if (node && typeof node === "object" && "props" in node) {
+    out.push(node);
+    allNodes(node.props?.children, out);
+  }
+  return out;
+}
+const newLinks = (el: any) => allNodes(el).filter((n) => typeof n.props?.href === "string" && n.props.href.endsWith("/new"));
+
+describe.each([
+  ["ventas", SalesPage, "sales"],
+  ["compras", PurchasesPage, "purchases"],
+] as const)("lista de %s — período cerrado", (_name, Page, dir) => {
+  const call = async () => (await Page({ params: Promise.resolve({ id: "c_a", periodId: "p_a" }) })) as any;
+
+  it("abierto (referencia): alta y acciones por fila visibles", async () => {
+    const el = await call();
+    expect(newLinks(el).map((n) => n.props.href)).toEqual([`/client/c_a/period/p_a/${dir}/new`]);
+    expect(findAll(el, InvoiceRowActions).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["OWNER", SUB_OWNER_A],
+    ["ACCOUNTANT", SUB_ACCOUNTANT_A],
+  ])("%s, cerrado: sin alta ni acciones por fila; las filas se siguen consultando", async (_r, sub) => {
+    as(sub);
+    closePeriodInWorld(world, "p_a");
+    const el = await call();
+    expect(newLinks(el)).toHaveLength(0);
+    expect(findAll(el, InvoiceRowActions)).toHaveLength(0);
+    expect(allNodes(el).some((n) => n.props?.role === "status" && /Período cerrado/.test(String(n.props.children)))).toBe(true);
+    expect(findAll(el, DeletableInvoiceRow).length).toBeGreaterThan(0);
+  });
+});
+
+describe.each(EDIT_PAGES)("página de edición (%s) — período cerrado", (_name, Page, _direction, ownId) => {
+  const call = (invoiceId: string = ownId) => Page({ params: Promise.resolve({ id: "c_a", periodId: "p_a", invoiceId }) });
+
+  it("comprobante editable de un período cerrado -> aviso de período cerrado, sin formulario", async () => {
+    closePeriodInWorld(world, "p_a");
+    const el: any = await call();
+    expect(el.type).toBe(PeriodClosedNotice);
+    expect(el.props).toEqual({ clientId: "c_a", periodId: "p_a" });
+  });
+
+  it("comprobante inexistente en un período cerrado -> notFound() (no revela nada)", async () => {
+    closePeriodInWorld(world, "p_a");
+    await expect(call("inv_missing")).rejects.toThrow("NOTFOUND_PAGE");
+  });
+
+  it("VIEWER en un período cerrado -> aviso de permisos (el rol se evalúa primero)", async () => {
+    as(SUB_VIEWER_A);
+    closePeriodInWorld(world, "p_a");
+    expect(noticeOf(await call())).toBe("forbidden");
   });
 });
 /* eslint-enable @typescript-eslint/no-explicit-any */

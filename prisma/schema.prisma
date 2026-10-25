@@ -26,6 +26,7 @@ model Profile {
   updatedClients           Client[]            @relation("ClientUpdatedBy")
   createdPeriods           Period[]            @relation("PeriodCreatedBy")
   updatedPeriods           Period[]            @relation("PeriodUpdatedBy")
+  closedPeriods            Period[]            @relation("PeriodClosedBy")
   createdInvoices          Invoice[]           @relation("InvoiceCreatedBy")
   updatedInvoices          Invoice[]           @relation("InvoiceUpdatedBy")
   createdTaxRecords        TaxRecord[]         @relation("TaxRecordCreatedBy")
@@ -122,6 +123,12 @@ model Client {
   @@index([organizationId])
 }
 
+/// Estado del período fiscal. Todo período nace OPEN.
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
 model Period {
   id             String @id @default(cuid())
   month          Int
@@ -146,6 +153,19 @@ model Period {
   updatedById String?  @db.Uuid
   createdBy   Profile? @relation("PeriodCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy   Profile? @relation("PeriodUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  // Cierre del período: bloquea en el servidor el alta, la edición y la baja
+  // de su contenido (comprobantes, retenciones/percepciones, configuración de
+  // IVA) y la baja del propio período (lib/period-lock). Consulta y
+  // exportación siguen disponibles. NO congela la liquidación: se sigue
+  // calculando con la alícuota IIBB vigente del cliente (Client.defaultIibbRate).
+  // CHECK en la base: status = CLOSED <=> closedAt NOT NULL. closedById puede
+  // quedar NULL aun cerrado (onDelete: SetNull del Profile). La reapertura
+  // limpia closedAt y closedById.
+  status     PeriodStatus @default(OPEN)
+  closedAt   DateTime?
+  closedById String?      @db.Uuid
+  closedBy   Profile?     @relation("PeriodClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
 
   @@unique([month, year, clientId])
   // Tarea 3B: destino de FK compuesta desde Invoice / TaxRecord.

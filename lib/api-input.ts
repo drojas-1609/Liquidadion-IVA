@@ -474,6 +474,28 @@ export interface TurivaSettingData {
   turivaIncluded: boolean;
 }
 
+// ── Period: cierre y reapertura (concurrencia optimista) ───────────────────
+
+export const PERIOD_EXPECTED_UPDATED_AT_ERROR =
+  "expectedUpdatedAt inválido: debe ser la fecha ISO exacta del período (AAAA-MM-DDTHH:mm:ss.sssZ)";
+
+export interface PeriodTransitionData {
+  /** `Period.updatedAt` que vio la pantalla: versión del ESTADO del período. */
+  expectedUpdatedAt: Date;
+}
+
+/**
+ * POST /api/periods/[id]/close y /reopen: `{ "expectedUpdatedAt": "<ISO>" }`,
+ * obligatorio, con la misma regla estricta que la edición de comprobantes.
+ * Otras claves se ignoran (el destino lo define la ruta, nunca el cuerpo).
+ */
+export function buildPeriodTransitionInput(body: unknown): InputResult<PeriodTransitionData> {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return fail("body", "cuerpo inválido");
+  const expected = parseExpectedUpdatedAt((body as Record<string, unknown>).expectedUpdatedAt);
+  if (!expected.ok) return fail("expectedUpdatedAt", PERIOD_EXPECTED_UPDATED_AT_ERROR);
+  return { ok: true, data: { expectedUpdatedAt: expected.data } };
+}
+
 /**
  * `{ "turivaIncluded": true | false }`. Sólo se acepta un booleano JSON: los
  * strings ("true"), números, null o la ausencia de la clave son 422. Otras

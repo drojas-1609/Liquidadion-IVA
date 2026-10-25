@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { redirect, notFound } from "next/navigation";
-import { Prisma, type Role } from "@prisma/client";
+import { Prisma, type PeriodStatus, type Role } from "@prisma/client";
 
 import prisma from "@/lib/prisma";
 import { getAuthClaims } from "@/lib/auth/claims";
@@ -184,6 +184,11 @@ export interface PeriodAccessRow {
   id: string;
   clientId: string;
   organizationId: string;
+  /**
+   * Estado leído SIN bloqueo: sólo decide qué ofrece la UI. La autoridad es
+   * `lockPeriodForWrite` (lib/period-lock), que lo relee bajo el FOR UPDATE.
+   */
+  status: PeriodStatus;
 }
 
 export interface PeriodAccess extends ActiveOrg {
@@ -208,7 +213,7 @@ export async function requirePeriodAccess(
   const db = opts.db ?? defaultDb();
   const period = await db.period.findUnique({
     where: { id: periodId },
-    select: { id: true, clientId: true, organizationId: true },
+    select: { id: true, clientId: true, organizationId: true, status: true },
   });
   if (!period) throw new NotFoundError();
   if (opts.expectClientId !== undefined && period.clientId !== opts.expectClientId) {

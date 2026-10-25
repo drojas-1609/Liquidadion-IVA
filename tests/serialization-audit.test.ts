@@ -41,6 +41,9 @@ const EXPECTED = {
   "app/api/periods/[id]/route.ts": { models: [], serializer: null },
   // PATCH de la inclusión TurIVA: responde { periodId, turivaIncluded } (sin Decimal).
   "app/api/periods/[id]/vat-settings/route.ts": { models: [], serializer: null },
+  // Cierre / reapertura: responden { periodId, status, updatedAt } (sin Decimal ni la fila cruda).
+  "app/api/periods/[id]/close/route.ts": { models: [], serializer: null },
+  "app/api/periods/[id]/reopen/route.ts": { models: [], serializer: null },
   // Devuelve XLSX binario (no JSON); internamente serializeLiquidation -> strings.
   "app/api/client/[id]/period/[periodId]/export/route.ts": { models: ["Invoice", "TaxRecord", "Client"], serializer: "serializeLiquidation" },
 } as const;

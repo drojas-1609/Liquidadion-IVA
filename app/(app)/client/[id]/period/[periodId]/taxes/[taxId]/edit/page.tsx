@@ -7,6 +7,8 @@ import { serializeTaxRecord } from "@/lib/serializers";
 import { isTaxRecordType } from "@/lib/tax-types";
 import { formatPeriodLabel, periodFirstDayIso, periodLastDayIso } from "@/lib/period";
 import { TaxForm } from "../../_components/tax-form";
+import { PeriodClosedNotice } from "../../../_components/period-closed-notice";
+import { isPeriodClosed } from "@/lib/period-status";
 
 export const dynamic = "force-dynamic";
 
@@ -20,14 +22,18 @@ export default async function EditTaxPage({ params }: { params: Promise<{ id: st
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
-        const { organizationId } = await requirePeriodAccess(profileId, periodId, ROLES_UPDATE, { expectClientId: id });
+        const access = await requirePeriodAccess(profileId, periodId, ROLES_UPDATE, { expectClientId: id });
+        const organizationId = access.organizationId;
         const period = await prisma.period.findFirst({ where: { id: periodId, organizationId }, select: { month: true, year: true } });
         if (!period) throw new NotFoundError();
         const tax = await prisma.taxRecord.findFirst({ where: { id: taxId, periodId, organizationId } });
         if (!tax) throw new NotFoundError();
+        // Período cerrado (registro existente): aviso en lugar del formulario (la API rechaza igual).
+        if (isPeriodClosed(access.period.status)) return null;
         return { period, tax: serializeTaxRecord(tax) };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
+    if (guard.data === null) return <PeriodClosedNotice clientId={id} periodId={periodId} />;
     const { period, tax } = guard.data;
 
     const known = isTaxRecordType(tax.type);

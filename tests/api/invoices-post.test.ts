@@ -37,6 +37,9 @@ import {
   timeoutRestoreOrder,
   expectPeriodBusyResponse,
   expectBusyRollback,
+  closePeriodInWorld,
+  expectPeriodClosedResponse,
+  expectClosedRollback,
   loggedUnclassified,
 } from "./_harness";
 import { Prisma } from "@prisma/client";
@@ -751,6 +754,27 @@ describe("POST /api/invoices — bloqueo del período (lockPeriodForWrite)", () 
     expect(restoreAt).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
     expect(restoreAt).toBeLessThan(db.invoice.create.mock.invocationCallOrder[0]);
     expect(restoreAt).toBeLessThan(db.auditLog.create.mock.invocationCallOrder[0]);
+  });
+
+  it.each([
+    ["no T", () => sale],
+    ["T", () => (turivaIncluded(true), saleT)],
+  ])("período CERRADO (%s) -> 409 PERIOD_CLOSED exacto, no-store, bajo el bloqueo; sin lectura TurIVA, comprobante ni AuditLog", async (_l, bodyOf) => {
+    const body = bodyOf();
+    closePeriodInWorld(world, "p_a");
+    const { result: res, unclassified } = await loggedUnclassified(() => post(jbody(body)));
+    await expectPeriodClosedResponse(res);
+    expect(unclassified).toBe(false);
+    expectClosedRollback(db, rec);
+    expect(db.periodVatSettings.findUnique).not.toHaveBeenCalled();
+    expectNoWrite();
+  });
+
+  it("cierre confirmado mientras el alta esperaba el bloqueo del Period -> 409 PERIOD_CLOSED (mismo lock), sin comprobante ni AuditLog", async () => {
+    onPeriodLock(() => closePeriodInWorld(world, "p_a"));
+    await expectPeriodClosedResponse(await post(jbody(sale)));
+    expectClosedRollback(db, rec);
+    expectNoWrite();
   });
 
   it.each([
