@@ -37,7 +37,12 @@ Migración: `prisma/migrations/20261025120000_client_profile_iibb_contacts`. Es 
 
 Integridad:
 - **Aislamiento entre organizaciones:** todas las FK son compuestas con `organizationId`, así que no puede haber relaciones entre organizaciones.
-- **Borrado de jurisdicciones:** la FK de la alícuota a la jurisdicción es `NO ACTION`; una jurisdicción con alícuotas no se borra en la base.
+- **Borrado en cascada:**
+  - Borrar un cliente elimina toda su ficha (jurisdicciones, actividades y alícuotas).
+  - Borrar una jurisdicción elimina sus alícuotas. La FK de la alícuota a la jurisdicción es `ON DELETE CASCADE` y `ON UPDATE NO ACTION`.
+  - Antes era `NO ACTION`, y PostgreSQL rechazaba el borrado de un cliente con alícuotas, porque verificaba esa FK antes de que la cascada desde la actividad las eliminara.
+  - Desde la aplicación nada se borra en silencio: el servidor exige la [confirmación exacta](#quitas-confirmadas) de lo que se pierde, con la fila del cliente bloqueada y la versión verificada.
+  - Un borrado directo en la base (fuera de la app) ya no está frenado por esta FK.
 - **CHECKs:** códigos de jurisdicción, rango de la alícuota (0..100), textos no vacíos y coherencia del nomenclador provincial.
 
 **Vigencias.** Las alícuotas viven en su propia tabla (actividad × jurisdicción). Para agregar vigencias más adelante basta con sumar `validFrom`/`validTo` y ampliar la unicidad, sin tocar `Client`.
@@ -204,7 +209,7 @@ Alta y edición comparten `app/(app)/clients/_components/client-profile-form.tsx
     - dos ediciones simultáneas del mismo cliente: espera del `FOR UPDATE` y 409 de la segunda;
     - formulario viejo tras un cambio de ficha;
     - avance de `updatedAt` al cambiar sólo la ficha;
-    - las CHECK y la FK `NO ACTION` de la migración.
+    - las CHECK y la FK en cascada de la migración (ya probadas contra PostgreSQL 17 local: `scripts/pg-local-regression.sh`).
   - **Prueba visual del formulario:**
     - opciones de inscripción;
     - sede en CM;

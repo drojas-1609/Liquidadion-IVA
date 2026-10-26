@@ -569,7 +569,12 @@ model ClientActivityRate {
   updatedAt        DateTime @updatedAt
 
   activity     ClientActivity     @relation(fields: [activityId, clientId, organizationId], references: [id, clientId, organizationId], onDelete: Cascade, onUpdate: Cascade)
-  jurisdiction ClientJurisdiction @relation(fields: [clientId, organizationId, jurisdictionCode], references: [clientId, organizationId, jurisdictionCode], onDelete: NoAction, onUpdate: NoAction)
+  // onDelete Cascade: al borrar un cliente, sus jurisdicciones y alícuotas se
+  // eliminan juntas (con NoAction PostgreSQL verificaba esta FK antes de que la
+  // cascada desde la actividad borrara las alícuotas y el borrado fallaba). La
+  // protección contra quitas silenciosas está en el servidor: confirmación
+  // exacta bajo bloqueo de la fila del cliente (app/api/clients/[id]).
+  jurisdiction ClientJurisdiction @relation(fields: [clientId, organizationId, jurisdictionCode], references: [clientId, organizationId, jurisdictionCode], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([activityId, jurisdictionCode])
   @@index([clientId])

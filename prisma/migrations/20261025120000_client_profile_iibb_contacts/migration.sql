@@ -20,6 +20,10 @@
 --     0 y 100 (mismo rango que defaultIibbRate).
 --   - La sede única de Convenio Multilateral y la coherencia con la
 --     inscripción se validan en la aplicación (lib/client-profile.ts).
+--   - Borrar una jurisdicción borra en cascada sus alícuotas (y borrar un
+--     cliente, toda su ficha). Nunca en silencio desde la aplicación: el
+--     servidor exige la confirmación EXACTA de lo que se pierde, con la fila
+--     del cliente bloqueada y la versión verificada.
 --
 -- TRANSACCIÓN Y LÍMITES
 --   Todo en una transacción EXPLÍCITA; lock_timeout acota la espera de CADA
@@ -120,7 +124,7 @@ ALTER TABLE "ClientActivity" ADD CONSTRAINT "ClientActivity_clientId_organizatio
 ALTER TABLE "ClientActivityRate" ADD CONSTRAINT "ClientActivityRate_activityId_clientId_organizationId_fkey" FOREIGN KEY ("activityId", "clientId", "organizationId") REFERENCES "ClientActivity"("id", "clientId", "organizationId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "ClientActivityRate" ADD CONSTRAINT "ClientActivityRate_clientId_organizationId_jurisdictionCod_fkey" FOREIGN KEY ("clientId", "organizationId", "jurisdictionCode") REFERENCES "ClientJurisdiction"("clientId", "organizationId", "jurisdictionCode") ON DELETE NO ACTION ON UPDATE NO ACTION;
+ALTER TABLE "ClientActivityRate" ADD CONSTRAINT "ClientActivityRate_clientId_organizationId_jurisdictionCod_fkey" FOREIGN KEY ("clientId", "organizationId", "jurisdictionCode") REFERENCES "ClientJurisdiction"("clientId", "organizationId", "jurisdictionCode") ON DELETE CASCADE ON UPDATE NO ACTION;
 
 
 -- AddCheckConstraint

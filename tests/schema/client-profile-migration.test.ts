@@ -79,8 +79,11 @@ describe(`migración ${MIGRATION} — revisión estática`, () => {
     expect(code).toMatch(/ALTER TABLE "ClientJurisdiction" ADD CONSTRAINT "\w+" FOREIGN KEY \("clientId", "organizationId"\) REFERENCES "Client"\("id", "organizationId"\) ON DELETE CASCADE/);
     expect(code).toMatch(/ALTER TABLE "ClientActivity" ADD CONSTRAINT "\w+" FOREIGN KEY \("clientId", "organizationId"\) REFERENCES "Client"\("id", "organizationId"\) ON DELETE CASCADE/);
     expect(code).toMatch(/ALTER TABLE "ClientActivityRate" ADD CONSTRAINT "\w+" FOREIGN KEY \("activityId", "clientId", "organizationId"\) REFERENCES "ClientActivity"\("id", "clientId", "organizationId"\) ON DELETE CASCADE/);
-    // Una jurisdicción con alícuotas no puede borrarse en silencio.
-    expect(code).toMatch(/ALTER TABLE "ClientActivityRate" ADD CONSTRAINT "\w+" FOREIGN KEY \("clientId", "organizationId", "jurisdictionCode"\) REFERENCES "ClientJurisdiction"\("clientId", "organizationId", "jurisdictionCode"\) ON DELETE NO ACTION/);
+    // Alícuota -> jurisdicción: ON DELETE CASCADE (borrar un cliente elimina toda
+    // su ficha; con NO ACTION PostgreSQL rechazaba el borrado). ON UPDATE sin
+    // cambios (NO ACTION). Las quitas desde la app exigen confirmación exacta.
+    expect(code).toMatch(/ALTER TABLE "ClientActivityRate" ADD CONSTRAINT "\w+" FOREIGN KEY \("clientId", "organizationId", "jurisdictionCode"\) REFERENCES "ClientJurisdiction"\("clientId", "organizationId", "jurisdictionCode"\) ON DELETE CASCADE ON UPDATE NO ACTION;/);
+    expect(code).not.toMatch(/ON DELETE (NO ACTION|RESTRICT|SET NULL)/);
   });
 
   it("sin duplicados", () => {

@@ -465,6 +465,11 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       throw knownError("P2003", "Foreign key constraint failed");
     }
     world.clients.splice(idx, 1);
+    // ON DELETE CASCADE: la ficha IIBB del cliente se elimina con él.
+    const own = (r: { clientId: string; organizationId: string }) => r.clientId === current.id && r.organizationId === current.organizationId;
+    for (const table of [world.clientActivityRates, world.clientActivities, world.clientJurisdictions]) {
+      if (table) table.splice(0, table.length, ...table.filter((r) => !own(r)));
+    }
     rec.created.clientDelete = where.id_organizationId;
     return current;
   });
@@ -797,10 +802,10 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   });
   db.clientJurisdiction.deleteMany.mockImplementation(async ({ where }: AnyArgs) => {
     const doomed = world.clientJurisdictions!.filter((r) => matches(r, where));
-    // FK NO ACTION desde ClientActivityRate.
-    if (doomed.some((j) => world.clientActivityRates!.some((r) => r.clientId === j.clientId && r.jurisdictionCode === j.jurisdictionCode))) {
-      throw fkError();
-    }
+    // FK ON DELETE CASCADE desde ClientActivityRate (como la base).
+    const gone = (r: { clientId: string; organizationId: string; jurisdictionCode: string }) =>
+      doomed.some((j) => j.clientId === r.clientId && j.organizationId === r.organizationId && j.jurisdictionCode === r.jurisdictionCode);
+    world.clientActivityRates!.splice(0, world.clientActivityRates!.length, ...world.clientActivityRates!.filter((r) => !gone(r)));
     return removeWhere(world.clientJurisdictions!, where);
   });
   db.clientJurisdiction.createMany.mockImplementation(async ({ data }: AnyArgs) => {
