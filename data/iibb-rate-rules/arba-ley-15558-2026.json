@@ -1,0 +1,4518 @@
+{
+ "manifest": {
+  "id": "arba-ley-15558-2026",
+  "jurisdiction": "902",
+  "nomenclator": "PROVINCIAL",
+  "catalogIds": [
+   "arba-naiibb18-2026-10-27"
+  ],
+  "organism": "Legislatura de la Provincia de Buenos Aires / ARBA",
+  "norm": "Ley 15.558 (Impositiva 2026), art. 20",
+  "sourceUrl": "https://www.arba.gov.ar/archivos/Publicaciones/leyimpositiva2026.pdf",
+  "publishedAt": "2025-12-15",
+  "consultedAt": "2026-10-27",
+  "version": "Ley 15.558, tabla del art. 20, contrastada con la exportación alicuotaria de ARBA",
+  "validFrom": "2026-01-01",
+  "validTo": "2026-12-31",
+  "sourceSha256": "84c434d75eb8e7bcfa40a5c0ef01db6b32bbd6db68c6400a56de6975f102834e",
+  "review": {
+   "status": "PENDIENTE_REVISION",
+   "reviewedBy": null,
+   "reviewedAt": null,
+   "notes": null,
+   "levels": {
+    "technical": {
+     "status": "PENDIENTE",
+     "reviewedBy": null,
+     "reviewedAt": null,
+     "notes": null,
+     "checks": [
+      {
+       "kind": "AUTOMATICO",
+       "result": "CON_DIFERENCIAS",
+       "at": "2026-10-27",
+       "summary": "Tramos 2026 de la exportación oficial contrastados con la tabla del art. 20 de la Ley 15.558 (523 filas por clase/código, lectura por posición): los 1022 códigos coinciden en las 8 columnas (general y tramos 1 a 7) y todos los topes son los del art. 20 incs. a) a g). Diferencias de la exportación: 32 filas duplicadas del último tramo (desde el tope y desde el tope + /bin/zsh,01, misma alícuota), descartadas.",
+       "evidence": [
+        "2026-10-27-arba-pba/fuentes/leyimpositiva2026.pdf",
+        "2026-10-27-arba-pba/extraidos/leyimpositiva2026.lines",
+        "2026-10-27-arba-pba/cotejos/arba-2026-vs-ley-15558.log"
+       ]
+      }
+     ]
+    },
+    "validity": {
+     "status": "PENDIENTE",
+     "reviewedBy": null,
+     "reviewedAt": null,
+     "notes": null,
+     "checks": [
+      {
+       "kind": "INVESTIGACION",
+       "result": "INFORMATIVO",
+       "at": "2026-10-27",
+       "summary": "Ley 15.558 (Impositiva 2026), BO PBA 15/12/2025 (N° 30.139, suplemento de leyes). El conjunto cubre sólo 2026; no se extienden períodos anteriores ni posteriores. No se verificaron modificaciones de la Ley 15.558 posteriores a su publicación. Errata del BO: el umbral de inicio de actividades del tramo 6 figura «.226.00» (en letras: cinco millones doscientos veintiséis mil).",
+       "evidence": [
+        "2026-10-27-arba-pba/fuentes/leyimpositiva2026.pdf"
+       ]
+      }
+     ]
+    },
+    "interpretation": {
+     "status": "PENDIENTE",
+     "reviewedBy": null,
+     "reviewedAt": null,
+     "notes": null,
+     "checks": [
+      {
+       "kind": "INVESTIGACION",
+       "result": "INFORMATIVO",
+       "at": "2026-10-27",
+       "summary": "Reglas: tramos reducidos por ingresos del período anterior (todas las actividades, dentro o fuera de la Provincia); hechos declarados obligatorios: sin exención y sin inicio de actividades en el ejercicio (umbrales de 2 meses no modelados). Inscripción LOCAL o CONVENIO_MULTILATERAL (no Régimen Simplificado). Retenidos 222 códigos: bonif_actiba = S o AlicuotaSUS (sin definición normativa verificada) y tratamientos especiales Art. 22 (390000, 812090: servicios a municipios) y Art. 134 (631201 a 631204: art. 184 bis del Código Fiscal). No modelados: límite de ingresos atribuidos a PBA en Convenio Multilateral, montos mínimos, régimen simplificado. Por condicionadas, ninguna regla puede guardarse como sugerencia de la norma: sólo como decisión del estudio.",
+       "evidence": [
+        "2026-10-27-arba-pba/cotejos/arba-2026-vs-ley-15558.log"
+       ]
+      }
+     ]
+    }
+   }
+  }
+ },
+ "rules": [
+  {
+   "id": "t0-0-163364760",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "163364760",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $163364760 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 4,5,6 y 7)",
+   "activityCodes": [
+    "011111",
+    "011112",
+    "011119",
+    "011121",
+    "011129",
+    "011130",
+    "011211",
+    "011291",
+    "011299",
+    "012608",
+    "014113",
+    "014114",
+    "014115",
+    "014121",
+    "014211",
+    "014221",
+    "014300",
+    "014410",
+    "014420",
+    "014430",
+    "014440",
+    "014510",
+    "014520"
+   ]
+  },
+  {
+   "id": "t0_75-163364760-max",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0.75",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "163364760",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $163364760 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "activityCodes": [
+    "011111",
+    "011112",
+    "011119",
+    "011121",
+    "011129",
+    "011130",
+    "011211",
+    "011291",
+    "011299",
+    "012608",
+    "014113",
+    "014114",
+    "014115",
+    "014121",
+    "014211",
+    "014221",
+    "014300",
+    "014410",
+    "014420",
+    "014430",
+    "014440",
+    "014510",
+    "014520"
+   ]
+  },
+  {
+   "id": "t0-0-1834326000",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "1834326000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $1834326000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 1 al 7)",
+   "activityCodes": [
+    "011310",
+    "011321",
+    "011329",
+    "011331",
+    "011341",
+    "011342",
+    "011400",
+    "011501",
+    "011509",
+    "011990",
+    "012110",
+    "012121",
+    "012200",
+    "012311",
+    "012319",
+    "012320",
+    "012410",
+    "012420",
+    "012490",
+    "012510",
+    "012590",
+    "012602",
+    "012701",
+    "012709",
+    "012800",
+    "012900",
+    "013011",
+    "013012",
+    "013013",
+    "013019",
+    "013020",
+    "014610",
+    "014620",
+    "014710",
+    "014720",
+    "014810",
+    "014820",
+    "014910",
+    "014920",
+    "014930",
+    "014990",
+    "016111",
+    "016112",
+    "016113",
+    "016119",
+    "016120",
+    "016130",
+    "016141",
+    "016149",
+    "016150",
+    "016190",
+    "016210",
+    "016220",
+    "016230",
+    "016291",
+    "016292",
+    "016299",
+    "017020",
+    "021010",
+    "021020",
+    "021030",
+    "022010",
+    "022020",
+    "024010",
+    "024020",
+    "031110",
+    "031120",
+    "031130",
+    "031200",
+    "031300",
+    "032000",
+    "051000",
+    "052000",
+    "061000",
+    "062000",
+    "071000",
+    "072100",
+    "072910",
+    "072990",
+    "081100",
+    "081200",
+    "081300",
+    "081400",
+    "089110",
+    "089120",
+    "089200",
+    "089300",
+    "089900",
+    "091000",
+    "099000",
+    "101011",
+    "101012",
+    "101013",
+    "101020",
+    "101030",
+    "101041",
+    "101042",
+    "101091",
+    "101099",
+    "102001",
+    "102002",
+    "102003",
+    "103011",
+    "103012",
+    "103020",
+    "103030",
+    "103091",
+    "103099",
+    "104011",
+    "104012",
+    "104013",
+    "104020",
+    "105010",
+    "105020",
+    "105030",
+    "105090",
+    "106110",
+    "106120",
+    "106131",
+    "106139",
+    "106200",
+    "107110",
+    "107121",
+    "107129",
+    "107200",
+    "107301",
+    "107309",
+    "107410",
+    "107420",
+    "107500",
+    "107911",
+    "107912",
+    "107920",
+    "107930",
+    "107991",
+    "107992",
+    "107999",
+    "108000",
+    "109001",
+    "109003",
+    "109009",
+    "110411",
+    "110412",
+    "110420",
+    "110491",
+    "110492",
+    "131110",
+    "131120",
+    "131131",
+    "131132",
+    "131139",
+    "131201",
+    "131202",
+    "131209",
+    "131300",
+    "139100",
+    "139201",
+    "139202",
+    "139203",
+    "139204",
+    "139209",
+    "139300",
+    "139400",
+    "139900",
+    "141110",
+    "141120",
+    "141130",
+    "141140",
+    "141191",
+    "141199",
+    "141201",
+    "141202",
+    "142000",
+    "143010",
+    "143020",
+    "149000",
+    "151100",
+    "151200",
+    "152011",
+    "152021",
+    "152031",
+    "152040",
+    "161001",
+    "161002",
+    "162100",
+    "162201",
+    "162202",
+    "162300",
+    "162901",
+    "162902",
+    "162903",
+    "162909",
+    "181101",
+    "181109",
+    "181200",
+    "191000",
+    "192001",
+    "201110",
+    "201120",
+    "201130",
+    "201140",
+    "201180",
+    "201191",
+    "201199",
+    "201220",
+    "201300",
+    "201401",
+    "201409",
+    "202101",
+    "202200",
+    "202311",
+    "202312",
+    "202320",
+    "202906",
+    "202907",
+    "202908",
+    "203000",
+    "204000",
+    "210010",
+    "210020",
+    "210030",
+    "210090",
+    "221110",
+    "221120",
+    "221901",
+    "221909",
+    "222010",
+    "222090",
+    "231010",
+    "231020",
+    "231090",
+    "239100",
+    "239201",
+    "239202",
+    "239209",
+    "239310",
+    "239391",
+    "239399",
+    "239410",
+    "239421",
+    "239422",
+    "239510",
+    "239591",
+    "239592",
+    "239593",
+    "239600",
+    "239900",
+    "241001",
+    "241009",
+    "242010",
+    "242090",
+    "243100",
+    "243200",
+    "251101",
+    "251102",
+    "251200",
+    "251300",
+    "252000",
+    "259100",
+    "259200",
+    "259301",
+    "259302",
+    "259309",
+    "259910",
+    "259991",
+    "259992",
+    "259993",
+    "259999",
+    "261000",
+    "262000",
+    "263000",
+    "264000",
+    "265101",
+    "265102",
+    "265200",
+    "266010",
+    "266090",
+    "267001",
+    "267002",
+    "268000",
+    "271010",
+    "271020",
+    "272000",
+    "273110",
+    "273190",
+    "274000",
+    "275010",
+    "275020",
+    "275091",
+    "275092",
+    "275099",
+    "279000",
+    "281100",
+    "281201",
+    "281301",
+    "281400",
+    "281500",
+    "281600",
+    "281700",
+    "281900",
+    "282110",
+    "282120",
+    "282130",
+    "282200",
+    "282300",
+    "282400",
+    "282500",
+    "282600",
+    "282901",
+    "282909",
+    "291000",
+    "292000",
+    "293011",
+    "293090",
+    "301100",
+    "301200",
+    "302000",
+    "303000",
+    "309100",
+    "309200",
+    "309900",
+    "310010",
+    "310020",
+    "310030",
+    "321011",
+    "321012",
+    "321020",
+    "323001",
+    "324000",
+    "329010",
+    "329020",
+    "329030",
+    "329040",
+    "329091",
+    "329099",
+    "331101",
+    "331210",
+    "331220",
+    "331290",
+    "331301",
+    "331400",
+    "331900",
+    "332000",
+    "382010",
+    "382020",
+    "581200",
+    "581300",
+    "581900",
+    "813000",
+    "951200"
+   ]
+  },
+  {
+   "id": "t0_75-1834326000-max",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0.75",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "1834326000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $1834326000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "activityCodes": [
+    "011310",
+    "011321",
+    "011329",
+    "011331",
+    "011341",
+    "011342",
+    "011400",
+    "011501",
+    "011509",
+    "011990",
+    "012110",
+    "012121",
+    "012200",
+    "012311",
+    "012319",
+    "012320",
+    "012410",
+    "012420",
+    "012490",
+    "012510",
+    "012590",
+    "012602",
+    "012701",
+    "012709",
+    "012800",
+    "012900",
+    "013011",
+    "013012",
+    "013013",
+    "013019",
+    "013020",
+    "014610",
+    "014620",
+    "014710",
+    "014720",
+    "014810",
+    "014820",
+    "014910",
+    "014920",
+    "014930",
+    "014990",
+    "016111",
+    "016112",
+    "016113",
+    "016119",
+    "016120",
+    "016130",
+    "016141",
+    "016149",
+    "016150",
+    "016190",
+    "016210",
+    "016220",
+    "016230",
+    "016291",
+    "016292",
+    "016299",
+    "017020",
+    "021010",
+    "021020",
+    "021030",
+    "022010",
+    "022020",
+    "024010",
+    "024020",
+    "031110",
+    "031120",
+    "031130",
+    "031200",
+    "031300",
+    "032000",
+    "051000",
+    "052000",
+    "061000",
+    "062000",
+    "071000",
+    "072100",
+    "072910",
+    "072990",
+    "081100",
+    "081200",
+    "081300",
+    "081400",
+    "089110",
+    "089120",
+    "089200",
+    "089300",
+    "089900",
+    "091000",
+    "099000",
+    "813000"
+   ]
+  },
+  {
+   "id": "t0-0-1834326000-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "1834326000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $1834326000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 1 al 7)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "011911",
+    "011912",
+    "017010",
+    "182000",
+    "322001",
+    "581100",
+    "591110",
+    "591120",
+    "592000"
+   ]
+  },
+  {
+   "id": "t0_75-1834326000-max-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0.75",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "1834326000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $1834326000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "011911",
+    "011912",
+    "017010"
+   ]
+  },
+  {
+   "id": "t0_5-1834326000-max",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "1834326000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $1834326000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "activityCodes": [
+    "101011",
+    "101012",
+    "101041",
+    "109001",
+    "109003"
+   ]
+  },
+  {
+   "id": "t1_5-1834326000-max",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "1.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "1834326000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $1834326000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "activityCodes": [
+    "101013",
+    "101020",
+    "101030",
+    "101042",
+    "101091",
+    "101099",
+    "102001",
+    "102002",
+    "102003",
+    "103011",
+    "103012",
+    "103020",
+    "103030",
+    "103091",
+    "103099",
+    "104011",
+    "104012",
+    "104013",
+    "104020",
+    "105010",
+    "105020",
+    "105030",
+    "105090",
+    "106110",
+    "106120",
+    "106131",
+    "106139",
+    "106200",
+    "107110",
+    "107121",
+    "107129",
+    "107200",
+    "107301",
+    "107309",
+    "107410",
+    "107420",
+    "107500",
+    "107911",
+    "107912",
+    "107920",
+    "107930",
+    "107991",
+    "107992",
+    "107999",
+    "108000",
+    "109009",
+    "110411",
+    "110412",
+    "110420",
+    "110491",
+    "110492",
+    "131110",
+    "131120",
+    "131131",
+    "131132",
+    "131139",
+    "131201",
+    "131202",
+    "131209",
+    "131300",
+    "139100",
+    "139201",
+    "139202",
+    "139203",
+    "139204",
+    "139209",
+    "139300",
+    "139400",
+    "139900",
+    "141110",
+    "141120",
+    "141130",
+    "141140",
+    "141191",
+    "141199",
+    "141201",
+    "141202",
+    "142000",
+    "143010",
+    "143020",
+    "149000",
+    "151100",
+    "151200",
+    "152011",
+    "152021",
+    "152031",
+    "152040",
+    "161001",
+    "161002",
+    "162100",
+    "162201",
+    "162202",
+    "162300",
+    "162901",
+    "162902",
+    "162903",
+    "162909",
+    "181101",
+    "181109",
+    "181200",
+    "191000",
+    "192001",
+    "201110",
+    "201120",
+    "201130",
+    "201140",
+    "201180",
+    "201191",
+    "201199",
+    "201220",
+    "201300",
+    "201401",
+    "201409",
+    "202101",
+    "202200",
+    "202311",
+    "202312",
+    "202320",
+    "202906",
+    "202907",
+    "202908",
+    "203000",
+    "204000",
+    "210010",
+    "210020",
+    "210030",
+    "210090",
+    "221110",
+    "221120",
+    "221901",
+    "221909",
+    "222010",
+    "222090",
+    "231010",
+    "231020",
+    "231090",
+    "239100",
+    "239201",
+    "239202",
+    "239209",
+    "239310",
+    "239391",
+    "239399",
+    "239410",
+    "239421",
+    "239422",
+    "239510",
+    "239591",
+    "239592",
+    "239593",
+    "239600",
+    "239900",
+    "241001",
+    "241009",
+    "242010",
+    "242090",
+    "243100",
+    "243200",
+    "251101",
+    "251102",
+    "251200",
+    "251300",
+    "252000",
+    "259100",
+    "259200",
+    "259301",
+    "259302",
+    "259309",
+    "259910",
+    "259991",
+    "259992",
+    "259993",
+    "259999",
+    "261000",
+    "262000",
+    "263000",
+    "264000",
+    "265101",
+    "265102",
+    "265200",
+    "266010",
+    "266090",
+    "267001",
+    "267002",
+    "268000",
+    "271010",
+    "271020",
+    "272000",
+    "273110",
+    "273190",
+    "274000",
+    "275010",
+    "275020",
+    "275091",
+    "275092",
+    "275099",
+    "279000",
+    "281100",
+    "281201",
+    "281301",
+    "281400",
+    "281500",
+    "281600",
+    "281700",
+    "281900",
+    "282110",
+    "282120",
+    "282130",
+    "282200",
+    "282300",
+    "282400",
+    "282500",
+    "282600",
+    "282901",
+    "282909",
+    "291000",
+    "292000",
+    "293011",
+    "293090",
+    "301100",
+    "301200",
+    "302000",
+    "303000",
+    "309100",
+    "309200",
+    "309900",
+    "310010",
+    "310020",
+    "310030",
+    "321011",
+    "321012",
+    "321020",
+    "323001",
+    "324000",
+    "329010",
+    "329020",
+    "329030",
+    "329040",
+    "329091",
+    "329099",
+    "331101",
+    "331210",
+    "331220",
+    "331290",
+    "331301",
+    "331400",
+    "331900",
+    "332000",
+    "382010",
+    "382020",
+    "581200",
+    "581300",
+    "581900",
+    "951200"
+   ]
+  },
+  {
+   "id": "t5-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "109002",
+    "110100",
+    "110211",
+    "110290",
+    "120010",
+    "120091",
+    "120099",
+    "201210",
+    "611090",
+    "631111",
+    "681020",
+    "681097",
+    "682010",
+    "773091"
+   ]
+  },
+  {
+   "id": "t4-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "110212"
+   ]
+  },
+  {
+   "id": "t3_5-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "3.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "110300",
+    "462131",
+    "473002",
+    "477462"
+   ]
+  },
+  {
+   "id": "t2_5-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "2.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "170101",
+    "170102",
+    "170201",
+    "170202",
+    "170910",
+    "170990",
+    "410021",
+    "421000",
+    "422200",
+    "431100",
+    "431210",
+    "431220",
+    "432110",
+    "439100",
+    "439910",
+    "462110",
+    "462120",
+    "462132",
+    "462190",
+    "477311",
+    "477312",
+    "477442",
+    "477443",
+    "477444"
+   ]
+  },
+  {
+   "id": "t1_5-1834326000-max-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "1.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "1834326000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $1834326000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "182000",
+    "322001",
+    "581100",
+    "592000"
+   ]
+  },
+  {
+   "id": "t0_1-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0.1",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "192002"
+   ]
+  },
+  {
+   "id": "t1-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "1",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "351110",
+    "351120",
+    "351130",
+    "351191",
+    "351199",
+    "352010",
+    "464310",
+    "469091"
+   ]
+  },
+  {
+   "id": "t3_75-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "3.75",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "351201",
+    "351320",
+    "352021",
+    "353001",
+    "360010",
+    "360020",
+    "370000"
+   ]
+  },
+  {
+   "id": "t8-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "8",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "351310",
+    "451112",
+    "451192",
+    "451212",
+    "451292",
+    "461031",
+    "461032",
+    "461039",
+    "461040",
+    "461092",
+    "461093",
+    "461094",
+    "461095",
+    "461099",
+    "463300",
+    "471192",
+    "472300",
+    "731002",
+    "920001",
+    "920009"
+   ]
+  },
+  {
+   "id": "t3_4-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "3.4",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "352022",
+    "466112",
+    "466123",
+    "473003",
+    "477461"
+   ]
+  },
+  {
+   "id": "t1_5-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "1.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "381100",
+    "381200",
+    "491110",
+    "491120",
+    "491201",
+    "491209",
+    "492110",
+    "492160",
+    "492170",
+    "492190",
+    "492210",
+    "492221",
+    "492229",
+    "492230",
+    "492240",
+    "492250",
+    "492280",
+    "492291",
+    "492299",
+    "512000",
+    "523011",
+    "523019",
+    "523031",
+    "523032",
+    "523039",
+    "523090",
+    "861010",
+    "861020",
+    "863111",
+    "863120",
+    "863190",
+    "863200",
+    "864000",
+    "869010"
+   ]
+  },
+  {
+   "id": "t3_5-0-15286053-hm4s8em",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "3.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "15286053",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 7)",
+   "pendingInterpretation": "Además de los tramos, ARBA publica un tratamiento especial (Art.22 1.5 %): confirmar cómo se excluyen mutuamente.",
+   "activityCodes": [
+    "390000",
+    "812090"
+   ]
+  },
+  {
+   "id": "t4-15286053-917163000-hm4s8em",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "15286053",
+     "maxInclusive": "917163000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $917163000 y mayor a $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 6)",
+   "pendingInterpretation": "Además de los tramos, ARBA publica un tratamiento especial (Art.22 1.5 %): confirmar cómo se excluyen mutuamente.",
+   "activityCodes": [
+    "390000",
+    "812090"
+   ]
+  },
+  {
+   "id": "t4_5-917163000-max-hm4s8em",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "917163000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $917163000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "pendingInterpretation": "Además de los tramos, ARBA publica un tratamiento especial (Art.22 1.5 %): confirmar cómo se excluyen mutuamente.",
+   "activityCodes": [
+    "390000",
+    "812090"
+   ]
+  },
+  {
+   "id": "t2_5-unica-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "2.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "410011",
+    "422100",
+    "429010",
+    "429090",
+    "432190",
+    "432200",
+    "432910",
+    "432920",
+    "432990",
+    "433010",
+    "433020",
+    "433030",
+    "433040",
+    "433090",
+    "439998",
+    "439999",
+    "711001"
+   ]
+  },
+  {
+   "id": "t2_3-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "2.3",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "451111",
+    "451191"
+   ]
+  },
+  {
+   "id": "t0-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "451211",
+    "451291",
+    "466111",
+    "466122",
+    "641932",
+    "641949"
+   ]
+  },
+  {
+   "id": "t3_5-0-15286053-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "3.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "15286053",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 7)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "452101",
+    "454020",
+    "524290",
+    "524330",
+    "524390",
+    "551010",
+    "551021",
+    "551022",
+    "551023",
+    "551090",
+    "552000",
+    "561011",
+    "561012",
+    "561013",
+    "561014",
+    "561019",
+    "561020",
+    "561030",
+    "561040",
+    "562010",
+    "562091",
+    "562099",
+    "591200",
+    "591300",
+    "601002",
+    "602320",
+    "620101",
+    "620102",
+    "620103",
+    "620104",
+    "620300",
+    "631201",
+    "631202",
+    "631203",
+    "631204",
+    "681096",
+    "742000",
+    "772010",
+    "772091",
+    "773030",
+    "791101",
+    "791901",
+    "791909",
+    "811000",
+    "829901",
+    "851010",
+    "851020",
+    "852100",
+    "852200",
+    "853100",
+    "853201",
+    "853300",
+    "854910",
+    "854920",
+    "854930",
+    "854940",
+    "854950",
+    "854960",
+    "854990",
+    "855000",
+    "862200",
+    "900011",
+    "900021",
+    "900030",
+    "900040",
+    "900091",
+    "910100",
+    "910200",
+    "910300",
+    "931010",
+    "931020",
+    "931030",
+    "931041",
+    "931042",
+    "931050",
+    "931090",
+    "939010",
+    "939030",
+    "939092",
+    "951100",
+    "960101",
+    "960102",
+    "960201",
+    "960202",
+    "960910",
+    "960990"
+   ]
+  },
+  {
+   "id": "t4-15286053-917163000-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "15286053",
+     "maxInclusive": "917163000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $917163000 y mayor a $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 6)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "452101",
+    "454020",
+    "524290",
+    "524330",
+    "524390",
+    "551010",
+    "551021",
+    "551022",
+    "551023",
+    "551090",
+    "552000",
+    "561011",
+    "561012",
+    "561013",
+    "561014",
+    "561019",
+    "561020",
+    "561030",
+    "561040",
+    "562010",
+    "562091",
+    "562099",
+    "681096",
+    "742000",
+    "772010",
+    "772091",
+    "773030",
+    "791101",
+    "791901",
+    "791909",
+    "811000",
+    "829901",
+    "851010",
+    "851020",
+    "852100",
+    "852200",
+    "853100",
+    "853201",
+    "853300",
+    "854910",
+    "854920",
+    "854930",
+    "854940",
+    "854950",
+    "854960",
+    "854990",
+    "855000",
+    "862200",
+    "900011",
+    "900021",
+    "900030",
+    "900040",
+    "900091",
+    "910100",
+    "910200",
+    "910300",
+    "931010",
+    "931020",
+    "931030",
+    "931041",
+    "931042",
+    "931050",
+    "931090",
+    "939010",
+    "939030",
+    "939092",
+    "951100",
+    "960101",
+    "960102",
+    "960201",
+    "960202",
+    "960910",
+    "960990"
+   ]
+  },
+  {
+   "id": "t4_5-917163000-max-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "917163000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $917163000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "452101",
+    "454020",
+    "524290",
+    "524330",
+    "524390",
+    "551010",
+    "551021",
+    "551022",
+    "551023",
+    "551090",
+    "552000",
+    "561011",
+    "561012",
+    "561013",
+    "561014",
+    "561019",
+    "561020",
+    "561030",
+    "561040",
+    "562010",
+    "562091",
+    "562099",
+    "681096",
+    "741000",
+    "742000",
+    "749009",
+    "772010",
+    "772091",
+    "773030",
+    "791101",
+    "791201",
+    "791901",
+    "791909",
+    "811000",
+    "829901",
+    "851010",
+    "851020",
+    "852100",
+    "852200",
+    "853100",
+    "853201",
+    "853300",
+    "854910",
+    "854920",
+    "854930",
+    "854940",
+    "854950",
+    "854960",
+    "854990",
+    "855000",
+    "862200",
+    "900011",
+    "900021",
+    "900030",
+    "900040",
+    "900091",
+    "910100",
+    "910200",
+    "910300",
+    "931010",
+    "931020",
+    "931030",
+    "931041",
+    "931042",
+    "931050",
+    "931090",
+    "939010",
+    "939030",
+    "939092",
+    "951100",
+    "960101",
+    "960102",
+    "960201",
+    "960202",
+    "960910",
+    "960990"
+   ]
+  },
+  {
+   "id": "t3_5-0-15286053",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "3.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "15286053",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 7)",
+   "activityCodes": [
+    "452210",
+    "452220",
+    "452300",
+    "452401",
+    "452500",
+    "452600",
+    "452700",
+    "452800",
+    "452910",
+    "452990",
+    "466121",
+    "521010",
+    "521020",
+    "521030",
+    "522010",
+    "522020",
+    "522091",
+    "522092",
+    "522099",
+    "524210",
+    "524220",
+    "524310",
+    "530010",
+    "530091",
+    "530099",
+    "620200",
+    "620900",
+    "631112",
+    "631119",
+    "631121",
+    "631122",
+    "631123",
+    "631129",
+    "631199",
+    "639100",
+    "639900",
+    "651112",
+    "651310",
+    "651320",
+    "653000",
+    "691001",
+    "691002",
+    "692000",
+    "702010",
+    "711002",
+    "721010",
+    "721020",
+    "721030",
+    "721090",
+    "722010",
+    "722020",
+    "749001",
+    "750000",
+    "773099",
+    "780009",
+    "812010",
+    "812020",
+    "829200",
+    "862110",
+    "862120",
+    "862130",
+    "863112",
+    "863300",
+    "869090",
+    "870100",
+    "870210",
+    "870220",
+    "870910",
+    "870920",
+    "870990",
+    "880000",
+    "941100",
+    "941200",
+    "942000",
+    "949100",
+    "949200",
+    "949920",
+    "949930",
+    "949990",
+    "952100",
+    "952200",
+    "952300",
+    "952910",
+    "952920",
+    "952990",
+    "960300"
+   ]
+  },
+  {
+   "id": "t4-15286053-917163000",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "15286053",
+     "maxInclusive": "917163000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $917163000 y mayor a $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 6)",
+   "activityCodes": [
+    "452210",
+    "452220",
+    "452300",
+    "452401",
+    "452500",
+    "452600",
+    "452700",
+    "452800",
+    "452910",
+    "452990",
+    "466121",
+    "521010",
+    "521020",
+    "521030",
+    "522010",
+    "522020",
+    "522091",
+    "522092",
+    "522099",
+    "524210",
+    "524220",
+    "524310",
+    "530010",
+    "530091",
+    "530099",
+    "651112",
+    "651310",
+    "651320",
+    "653000",
+    "691001",
+    "691002",
+    "692000",
+    "702010",
+    "711002",
+    "721010",
+    "721020",
+    "721030",
+    "721090",
+    "722010",
+    "722020",
+    "749001",
+    "750000",
+    "773099",
+    "780009",
+    "812010",
+    "812020",
+    "829200",
+    "862110",
+    "862120",
+    "862130",
+    "863112",
+    "863300",
+    "869090",
+    "870100",
+    "870210",
+    "870220",
+    "870910",
+    "870920",
+    "870990",
+    "880000",
+    "941100",
+    "941200",
+    "942000",
+    "949100",
+    "949200",
+    "949920",
+    "949930",
+    "949990",
+    "952100",
+    "952200",
+    "952300",
+    "952910",
+    "952920",
+    "952990",
+    "960300"
+   ]
+  },
+  {
+   "id": "t4_5-917163000-max",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "917163000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $917163000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "activityCodes": [
+    "452210",
+    "452220",
+    "452300",
+    "452401",
+    "452500",
+    "452600",
+    "452700",
+    "452800",
+    "452910",
+    "452990",
+    "466121",
+    "521010",
+    "521020",
+    "521030",
+    "522010",
+    "522020",
+    "522091",
+    "522092",
+    "522099",
+    "524210",
+    "524220",
+    "524310",
+    "530010",
+    "530091",
+    "530099",
+    "651112",
+    "651310",
+    "651320",
+    "653000",
+    "691001",
+    "691002",
+    "692000",
+    "702010",
+    "711002",
+    "721010",
+    "721020",
+    "721030",
+    "721090",
+    "722010",
+    "722020",
+    "749001",
+    "750000",
+    "773099",
+    "780009",
+    "812010",
+    "812020",
+    "829200",
+    "862110",
+    "862120",
+    "862130",
+    "863112",
+    "863300",
+    "869090",
+    "870100",
+    "870210",
+    "870220",
+    "870910",
+    "870920",
+    "870990",
+    "880000",
+    "941100",
+    "941200",
+    "942000",
+    "949100",
+    "949200",
+    "949920",
+    "949930",
+    "949990",
+    "952100",
+    "952200",
+    "952300",
+    "952910",
+    "952920",
+    "952990",
+    "960300"
+   ]
+  },
+  {
+   "id": "t2_5-0-47034000",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "2.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "47034000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $47034000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 5 al 7)",
+   "activityCodes": [
+    "453100",
+    "453210",
+    "461011",
+    "461012",
+    "461013",
+    "461014",
+    "461018",
+    "461019",
+    "461023",
+    "462201",
+    "462209",
+    "463111",
+    "463112",
+    "463121",
+    "463129",
+    "463130",
+    "463140",
+    "463151",
+    "463152",
+    "463153",
+    "463154",
+    "463159",
+    "463160",
+    "463170",
+    "463180",
+    "463191",
+    "463199",
+    "463211",
+    "463212",
+    "463219",
+    "463220",
+    "464111",
+    "464112",
+    "464113",
+    "464114",
+    "464119",
+    "464121",
+    "464122",
+    "464129",
+    "464130",
+    "464141",
+    "464142",
+    "464149",
+    "464150",
+    "464211",
+    "464212",
+    "464221",
+    "464222",
+    "464223",
+    "464320",
+    "464330",
+    "464340",
+    "464410",
+    "464420",
+    "464501",
+    "464502",
+    "464610",
+    "464620",
+    "464631",
+    "464632",
+    "464910",
+    "464920",
+    "464930",
+    "464940",
+    "464950",
+    "464991",
+    "464999",
+    "465100",
+    "465210",
+    "465220",
+    "465310",
+    "465320",
+    "465330",
+    "465340",
+    "465350",
+    "465360",
+    "465390",
+    "465400",
+    "465500",
+    "465610",
+    "465690",
+    "465910",
+    "465920",
+    "465930",
+    "465990",
+    "466119",
+    "466129",
+    "466200",
+    "466310",
+    "466320",
+    "466330",
+    "466340",
+    "466350",
+    "466360",
+    "466370",
+    "466391",
+    "466399",
+    "466910",
+    "466920",
+    "466931",
+    "466939",
+    "466940",
+    "466990",
+    "469010",
+    "469090",
+    "471110",
+    "471120",
+    "471900",
+    "472172",
+    "472190",
+    "472200",
+    "473001",
+    "473009",
+    "475230",
+    "475250",
+    "477450",
+    "477469",
+    "477470",
+    "478010",
+    "478090",
+    "479101",
+    "479109",
+    "479900"
+   ]
+  },
+  {
+   "id": "t3_5-47034000-1222884000",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "3.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "47034000",
+     "maxInclusive": "1222884000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $1222884000 y mayor a $47034000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 2 al 4)",
+   "activityCodes": [
+    "453100",
+    "453210",
+    "461011",
+    "461012",
+    "461013",
+    "461014",
+    "461018",
+    "461019",
+    "461023",
+    "462201",
+    "462209",
+    "463111",
+    "463112",
+    "463121",
+    "463129",
+    "463130",
+    "463140",
+    "463151",
+    "463152",
+    "463153",
+    "463154",
+    "463159",
+    "463160",
+    "463170",
+    "463180",
+    "463191",
+    "463199",
+    "463211",
+    "463212",
+    "463219",
+    "463220",
+    "464111",
+    "464112",
+    "464113",
+    "464114",
+    "464119",
+    "464121",
+    "464122",
+    "464129",
+    "464130",
+    "464141",
+    "464142",
+    "464149",
+    "464150",
+    "464211",
+    "464212",
+    "464221",
+    "464222",
+    "464223",
+    "464320",
+    "464330",
+    "464340",
+    "464410",
+    "464420",
+    "464501",
+    "464502",
+    "464610",
+    "464620",
+    "464631",
+    "464632",
+    "464910",
+    "464920",
+    "464930",
+    "464940",
+    "464950",
+    "464991",
+    "464999",
+    "465100",
+    "465210",
+    "465220",
+    "465310",
+    "465320",
+    "465330",
+    "465340",
+    "465350",
+    "465360",
+    "465390",
+    "465400",
+    "465500",
+    "465610",
+    "465690",
+    "465910",
+    "465920",
+    "465930",
+    "465990",
+    "466119",
+    "466129",
+    "466200",
+    "466310",
+    "466320",
+    "466330",
+    "466340",
+    "466350",
+    "466360",
+    "466370",
+    "466391",
+    "466399",
+    "466910",
+    "466920",
+    "466931",
+    "466939",
+    "466940",
+    "466990",
+    "469010",
+    "469090",
+    "471110",
+    "471120",
+    "471130",
+    "471191",
+    "471900",
+    "472111",
+    "472112",
+    "472120",
+    "472140",
+    "472150",
+    "472160",
+    "472171",
+    "472172",
+    "472190",
+    "472200",
+    "473001",
+    "473009",
+    "475230",
+    "475250",
+    "477450",
+    "477469",
+    "477470",
+    "478010",
+    "478090",
+    "479101",
+    "479109",
+    "479900"
+   ]
+  },
+  {
+   "id": "t5-1222884000-max",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "1222884000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $1222884000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "activityCodes": [
+    "453100",
+    "453210",
+    "461011",
+    "461012",
+    "461013",
+    "461014",
+    "461018",
+    "461019",
+    "461023",
+    "462201",
+    "462209",
+    "463111",
+    "463112",
+    "463121",
+    "463129",
+    "463130",
+    "463140",
+    "463151",
+    "463152",
+    "463153",
+    "463154",
+    "463159",
+    "463160",
+    "463170",
+    "463180",
+    "463191",
+    "463199",
+    "463211",
+    "463212",
+    "463219",
+    "463220",
+    "464111",
+    "464112",
+    "464113",
+    "464114",
+    "464119",
+    "464121",
+    "464122",
+    "464129",
+    "464130",
+    "464141",
+    "464142",
+    "464149",
+    "464150",
+    "464211",
+    "464212",
+    "464221",
+    "464222",
+    "464223",
+    "464320",
+    "464330",
+    "464340",
+    "464410",
+    "464420",
+    "464501",
+    "464502",
+    "464610",
+    "464620",
+    "464631",
+    "464632",
+    "464910",
+    "464920",
+    "464930",
+    "464940",
+    "464950",
+    "464991",
+    "464999",
+    "465100",
+    "465210",
+    "465220",
+    "465310",
+    "465320",
+    "465330",
+    "465340",
+    "465350",
+    "465360",
+    "465390",
+    "465400",
+    "465500",
+    "465610",
+    "465690",
+    "465910",
+    "465920",
+    "465930",
+    "465990",
+    "466119",
+    "466129",
+    "466200",
+    "466310",
+    "466320",
+    "466330",
+    "466340",
+    "466350",
+    "466360",
+    "466370",
+    "466391",
+    "466399",
+    "466910",
+    "466920",
+    "466931",
+    "466939",
+    "466940",
+    "466990",
+    "469010",
+    "469090",
+    "471110",
+    "471120",
+    "471130",
+    "471191",
+    "471900",
+    "472111",
+    "472112",
+    "472120",
+    "472130",
+    "472140",
+    "472150",
+    "472160",
+    "472171",
+    "472172",
+    "472190",
+    "472200",
+    "473001",
+    "473009",
+    "475230",
+    "475250",
+    "477450",
+    "477469",
+    "477470",
+    "478010",
+    "478090",
+    "479101",
+    "479109",
+    "479900"
+   ]
+  },
+  {
+   "id": "t2_5-0-47034000-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "2.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "47034000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $47034000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 5 al 7)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "453220",
+    "453291",
+    "453292",
+    "454011",
+    "474010",
+    "474020",
+    "475110",
+    "475120",
+    "475190",
+    "475210",
+    "475220",
+    "475240",
+    "475260",
+    "475270",
+    "475290",
+    "475300",
+    "475410",
+    "475420",
+    "475430",
+    "475440",
+    "475490",
+    "476110",
+    "476120",
+    "476130",
+    "476200",
+    "476310",
+    "476320",
+    "476400",
+    "477110",
+    "477120",
+    "477130",
+    "477140",
+    "477150",
+    "477190",
+    "477210",
+    "477220",
+    "477230",
+    "477290",
+    "477320",
+    "477330",
+    "477410",
+    "477420",
+    "477430",
+    "477441",
+    "477480",
+    "477490",
+    "477810",
+    "477820",
+    "477830",
+    "477840",
+    "477890"
+   ]
+  },
+  {
+   "id": "t3_5-47034000-1222884000-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "3.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "47034000",
+     "maxInclusive": "1222884000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $1222884000 y mayor a $47034000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 2 al 4)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "453220",
+    "453291",
+    "453292",
+    "454011",
+    "474010",
+    "474020",
+    "475110",
+    "475120",
+    "475190",
+    "475210",
+    "475220",
+    "475240",
+    "475260",
+    "475270",
+    "475290",
+    "475300",
+    "475410",
+    "475420",
+    "475430",
+    "475440",
+    "475490",
+    "476110",
+    "476120",
+    "476130",
+    "476200",
+    "476310",
+    "476320",
+    "476400",
+    "477110",
+    "477120",
+    "477130",
+    "477140",
+    "477150",
+    "477190",
+    "477210",
+    "477220",
+    "477230",
+    "477290",
+    "477320",
+    "477330",
+    "477410",
+    "477420",
+    "477430",
+    "477441",
+    "477480",
+    "477490",
+    "477810",
+    "477820",
+    "477830",
+    "477840",
+    "477890"
+   ]
+  },
+  {
+   "id": "t5-1222884000-max-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "1222884000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $1222884000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "453220",
+    "453291",
+    "453292",
+    "454011",
+    "474010",
+    "474020",
+    "475110",
+    "475120",
+    "475190",
+    "475210",
+    "475220",
+    "475240",
+    "475260",
+    "475270",
+    "475290",
+    "475300",
+    "475410",
+    "475420",
+    "475430",
+    "475440",
+    "475490",
+    "476110",
+    "476120",
+    "476130",
+    "476200",
+    "476310",
+    "476320",
+    "476400",
+    "477110",
+    "477120",
+    "477130",
+    "477140",
+    "477150",
+    "477190",
+    "477210",
+    "477220",
+    "477230",
+    "477290",
+    "477320",
+    "477330",
+    "477410",
+    "477420",
+    "477430",
+    "477441",
+    "477480",
+    "477490",
+    "477810",
+    "477820",
+    "477830",
+    "477840",
+    "477890"
+   ]
+  },
+  {
+   "id": "t8-unica-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "8",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "454012",
+    "461091",
+    "791102",
+    "791202",
+    "910900",
+    "939020",
+    "939099"
+   ]
+  },
+  {
+   "id": "t0_2-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0.2",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "461015"
+   ]
+  },
+  {
+   "id": "t6-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "6",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "461021",
+    "461022",
+    "461029",
+    "524120"
+   ]
+  },
+  {
+   "id": "t0_5-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "461033"
+   ]
+  },
+  {
+   "id": "t3-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "3",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "466932"
+   ]
+  },
+  {
+   "id": "t1_5-0-31356000",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "1.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "31356000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $31356000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 6 y 7)",
+   "activityCodes": [
+    "471130",
+    "471191",
+    "472111",
+    "472112",
+    "472120",
+    "472140",
+    "472150",
+    "472160",
+    "472171"
+   ]
+  },
+  {
+   "id": "t2_5-31356000-47034000",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "2.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "31356000",
+     "maxInclusive": "47034000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $47034000 y mayor a $31356000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 5)",
+   "activityCodes": [
+    "471130",
+    "471191",
+    "472111",
+    "472112",
+    "472120",
+    "472140",
+    "472150",
+    "472160",
+    "472171"
+   ]
+  },
+  {
+   "id": "t2_5-0-1222884000",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "2.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "1222884000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $1222884000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 2 al 7)",
+   "activityCodes": [
+    "472130"
+   ]
+  },
+  {
+   "id": "t2-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "2",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "492120",
+    "492140",
+    "493110",
+    "493120",
+    "493200",
+    "501201",
+    "501209",
+    "502200",
+    "523020",
+    "524110",
+    "524130",
+    "524320"
+   ]
+  },
+  {
+   "id": "t1_5-unica-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "1.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "492130",
+    "492150",
+    "502102",
+    "511001"
+   ]
+  },
+  {
+   "id": "t2-unica-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "2",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "492180",
+    "501100",
+    "502101",
+    "511002",
+    "511003",
+    "511009",
+    "524190",
+    "524230"
+   ]
+  },
+  {
+   "id": "t5-1834326000-max-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "1834326000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $1834326000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "591110",
+    "591120"
+   ]
+  },
+  {
+   "id": "t5-15286053-max-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "15286053",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "591200",
+    "591300",
+    "601002",
+    "602320",
+    "620101",
+    "620102",
+    "620103",
+    "620104",
+    "620300",
+    "631201",
+    "631202",
+    "631203",
+    "631204"
+   ]
+  },
+  {
+   "id": "t5-unica-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "601001",
+    "602100",
+    "602200",
+    "602310",
+    "602900",
+    "611010",
+    "613000",
+    "614010",
+    "614090",
+    "619009",
+    "631191",
+    "681010",
+    "681098",
+    "681099",
+    "682091",
+    "682099"
+   ]
+  },
+  {
+   "id": "t6_5-unica-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "6.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "612000",
+    "619001"
+   ]
+  },
+  {
+   "id": "t5-15286053-max",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "15286053",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "activityCodes": [
+    "620200",
+    "620900",
+    "631112",
+    "631119",
+    "631121",
+    "631122",
+    "631123",
+    "631129",
+    "631199",
+    "639100",
+    "639900"
+   ]
+  },
+  {
+   "id": "t9-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "9",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "641910",
+    "641920",
+    "641931",
+    "641941",
+    "641942",
+    "641943",
+    "641944",
+    "642000",
+    "643001",
+    "643009",
+    "649100",
+    "649210",
+    "649220",
+    "649291",
+    "649292",
+    "649299",
+    "649910",
+    "649991",
+    "649992",
+    "649999",
+    "661910",
+    "661920",
+    "661930",
+    "661991",
+    "661992",
+    "661993",
+    "661994",
+    "661999",
+    "663000"
+   ]
+  },
+  {
+   "id": "t5_5-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "651111",
+    "651120",
+    "651130",
+    "651210",
+    "651220",
+    "652000"
+   ]
+  },
+  {
+   "id": "t4_5-0-15286053",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "15286053",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 7)",
+   "activityCodes": [
+    "661111",
+    "661121",
+    "661131",
+    "662010",
+    "662090"
+   ]
+  },
+  {
+   "id": "t5-15286053-917163000",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "15286053",
+     "maxInclusive": "917163000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $917163000 y mayor a $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 6)",
+   "activityCodes": [
+    "661111",
+    "661121",
+    "661131",
+    "662010",
+    "662090"
+   ]
+  },
+  {
+   "id": "t5_5-917163000-max",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "917163000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $917163000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "activityCodes": [
+    "661111",
+    "661121",
+    "661131",
+    "662010",
+    "662090"
+   ]
+  },
+  {
+   "id": "t7-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "7",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "662020"
+   ]
+  },
+  {
+   "id": "t4-0-15286053",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "15286053",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 7)",
+   "activityCodes": [
+    "702091",
+    "702092",
+    "702099",
+    "731001",
+    "731003",
+    "731009",
+    "732000",
+    "749002",
+    "749003",
+    "773010",
+    "773020",
+    "774000",
+    "801010",
+    "801020",
+    "801090",
+    "821100",
+    "829100",
+    "829909"
+   ]
+  },
+  {
+   "id": "t4_5-15286053-917163000",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "15286053",
+     "maxInclusive": "917163000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $917163000 y mayor a $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 6)",
+   "activityCodes": [
+    "702091",
+    "702092",
+    "702099",
+    "731001",
+    "731003",
+    "731009",
+    "732000",
+    "749002",
+    "749003",
+    "773010",
+    "773020",
+    "774000",
+    "801010",
+    "801020",
+    "801090",
+    "821100",
+    "829100",
+    "829909"
+   ]
+  },
+  {
+   "id": "t5-917163000-max",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "917163000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $917163000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "activityCodes": [
+    "702091",
+    "702092",
+    "702099",
+    "731001",
+    "731003",
+    "731009",
+    "732000",
+    "749002",
+    "749003",
+    "773010",
+    "773020",
+    "774000",
+    "801010",
+    "801020",
+    "801090",
+    "821100",
+    "829100",
+    "829909"
+   ]
+  },
+  {
+   "id": "t4-0-15286053-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "15286053",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 7)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "711003",
+    "711009",
+    "712000",
+    "771110",
+    "771190",
+    "771210",
+    "771220",
+    "771290",
+    "772099",
+    "773040",
+    "821900",
+    "822001",
+    "823000",
+    "829902"
+   ]
+  },
+  {
+   "id": "t4_5-15286053-917163000-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "15286053",
+     "maxInclusive": "917163000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $917163000 y mayor a $15286053 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 6)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "711003",
+    "711009",
+    "712000",
+    "771110",
+    "771190",
+    "771210",
+    "771220",
+    "771290",
+    "772099",
+    "773040",
+    "821900",
+    "822001",
+    "823000",
+    "829902"
+   ]
+  },
+  {
+   "id": "t5-917163000-max-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "917163000",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $917163000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "711003",
+    "711009",
+    "712000",
+    "771110",
+    "771190",
+    "771210",
+    "771220",
+    "771290",
+    "772099",
+    "773040",
+    "821900",
+    "822001",
+    "823000",
+    "829902"
+   ]
+  },
+  {
+   "id": "t4-0-917163000-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "917163000",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $917163000 (art. 20, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 7)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "741000",
+    "749009",
+    "791201"
+   ]
+  },
+  {
+   "id": "t1_75-unica-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "1.75",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "780001"
+   ]
+  },
+  {
+   "id": "t1-unica-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "1",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "822009"
+   ]
+  },
+  {
+   "id": "t15-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "15",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "920002",
+    "920003",
+    "920004"
+   ]
+  },
+  {
+   "id": "t0-unica-hsv438p",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
+   "activityCodes": [
+    "939091"
+   ]
+  },
+  {
+   "id": "t4_75-unica",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "4.75",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
+   "activityCodes": [
+    "949910"
+   ]
+  }
+ ]
+}

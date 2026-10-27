@@ -4,6 +4,7 @@ import { D, moneyInRange, MONEY_MAX } from "./decimal";
 import { parseMoney, parseRate } from "./validation/decimal";
 import { normalizeCuit } from "./cuit";
 import { CLIENT_CONDITION_ERROR, isClientCondition } from "./client-condition";
+import { LEGACY_INITIAL_IIBB_RATE } from "./legacy-iibb-rate";
 import { normalizeContactEmail, normalizeContactPhone, validateIibbProfile, type IibbProfileData } from "./client-profile";
 import { isValidPeriodMonth, isValidPeriodYear, periodYearRange } from "./period";
 import type { InvoiceCategory, InvoiceModelData } from "./invoice-model";
@@ -420,7 +421,7 @@ export function buildClientInput(body: unknown): InputResult<ClientCreateData> {
 
   let defaultIibbRate: Prisma.Decimal;
   if (b.defaultIibbRate === undefined || b.defaultIibbRate === null || b.defaultIibbRate === "") {
-    defaultIibbRate = D("3");
+    defaultIibbRate = D(LEGACY_INITIAL_IIBB_RATE);
   } else {
     const parsed = parseRate(b.defaultIibbRate);
     if (!parsed.ok) return fail("defaultIibbRate", parsed.error);

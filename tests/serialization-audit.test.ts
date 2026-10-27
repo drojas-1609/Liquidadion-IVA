@@ -47,6 +47,11 @@ const EXPECTED = {
   // Consulta de CUIT en ARCA: responde la propuesta normalizada (strings), sin
   // modelos de la base ni Decimal; no lee ni escribe Client.
   "app/api/arca/cuit-lookup/route.ts": { models: [], serializer: null },
+  // Catálogos y reglas son archivos públicos versionados (sin Prisma ni Decimal);
+  // las tasas viajan como strings decimales.
+  "app/api/activity-catalogs/route.ts": { models: [], serializer: null },
+  "app/api/activity-catalogs/search/route.ts": { models: [], serializer: null },
+  "app/api/iibb-rates/suggest/route.ts": { models: [], serializer: null },
   // Devuelve XLSX binario (no JSON); internamente serializeLiquidation -> strings.
   "app/api/client/[id]/period/[periodId]/export/route.ts": { models: ["Invoice", "TaxRecord", "Client"], serializer: "serializeLiquidation" },
 } as const;

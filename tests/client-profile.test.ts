@@ -144,11 +144,12 @@ describe("validateIibbProfile — actividades y alícuotas", () => {
         });
         expect(r.ok).toBe(true);
         if (r.ok) {
+            // Sin tratamiento ni origen en la entrada: RATE y sin origen registrado.
             expect(r.value.activities[0].rates).toEqual([
-                { jurisdiction: "901", rate: "3.5" },
-                { jurisdiction: "902", rate: "4" },
+                { jurisdiction: "901", rate: "3.5", treatment: "RATE", origin: null, ruleRef: null },
+                { jurisdiction: "902", rate: "4", treatment: "RATE", origin: null, ruleRef: null },
             ]);
-            expect(r.value.activities[1].rates).toEqual([{ jurisdiction: "901", rate: "5" }]);
+            expect(r.value.activities[1].rates).toEqual([{ jurisdiction: "901", rate: "5", treatment: "RATE", origin: null, ruleRef: null }]);
         }
     });
     it("distingue 0 explícito de sin informar", () => {
@@ -157,8 +158,8 @@ describe("validateIibbProfile — actividades y alícuotas", () => {
             activities: [act({ rates: [{ jurisdiction: "901", rate: "0" }, { jurisdiction: "902", rate: null }] })],
         });
         expect(r.ok && r.value.activities[0].rates).toEqual([
-            { jurisdiction: "901", rate: "0" },
-            { jurisdiction: "902", rate: null },
+            { jurisdiction: "901", rate: "0", treatment: "RATE", origin: null, ruleRef: null },
+            { jurisdiction: "902", rate: null, treatment: "RATE", origin: null, ruleRef: null },
         ]);
         const empty = validateIibbProfile({ ...base, activities: [act({ rates: [{ jurisdiction: "901", rate: "" }] })] });
         expect(empty.ok && empty.value.activities[0].rates[0].rate).toBeNull();

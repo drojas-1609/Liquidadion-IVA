@@ -45,7 +45,18 @@ export function newClientErrorMessage(body: unknown): string {
     return field ? `${profileFieldLabel(field) ?? field}: ${apiError.message}` : apiError.message;
 }
 
-export type NewClientSubmitResult = { ok: true } | { ok: false; message: string };
+/**
+ * Campo señalado por la API y su mensaje SIN prefijo, para mostrar el error
+ * junto al campo. null si el error no corresponde a un campo.
+ */
+export function readApiFieldError(body: unknown): { field: string; fieldMessage: string } | null {
+    const apiError = readApiError(body);
+    const field = typeof body === "object" && body !== null ? nonEmptyString((body as { field?: unknown }).field) : null;
+    if (!apiError?.message || !field || field === "body") return null;
+    return { field, fieldMessage: apiError.message };
+}
+
+export type NewClientSubmitResult = { ok: true } | { ok: false; message: string; field?: string; fieldMessage?: string };
 
 export async function submitNewClient(
     data: Record<string, unknown>,
@@ -65,5 +76,5 @@ export async function submitNewClient(
     if (res.ok) return { ok: true };
 
     const body: unknown = await res.json().catch(() => null);
-    return { ok: false, message: newClientErrorMessage(body) };
+    return { ok: false, message: newClientErrorMessage(body), ...(readApiFieldError(body) ?? {}) };
 }

@@ -37,7 +37,7 @@ const schema = readFileSync(repo + "prisma/schema.prisma", "utf8");
 describe(`migración ${MIGRATION} — revisión estática`, () => {
   it("se apila tras las previas sin cambiarlas (checksum); sólo la siguen migraciones posteriores conocidas", () => {
     // Migraciones posteriores, revisadas en su propio test (tests/schema/*).
-    const LATER = ["20261025120000_client_profile_iibb_contacts"];
+    const LATER = ["20261025120000_client_profile_iibb_contacts", "20261027120000_activity_catalog_rate_origin"];
     const dirs = readdirSync(migrationsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)

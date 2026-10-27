@@ -194,6 +194,8 @@ describe("liquidation — sección IIBB", () => {
     expect(r).toContainEqual(["Base Imponible IIBB", `$${formatMoney("120000.00")}`]);
     expect(r).toContainEqual(["Impuesto Determinado (3%)", `$${formatMoney("3600.00")}`]);
     expect(labels.indexOf("Impuesto Determinado (3%)")).toBe(labels.indexOf("Base Imponible IIBB") + 1);
+    // Aclaración de alcance junto a la alícuota (sólo texto).
+    expect(text(await call(LiquidationPage as PageFn, "c_a", "p_a"))).toContain("No se obtiene automáticamente de las actividades y no representa una liquidación por jurisdicción.");
     expect(labels).not.toContain("Ventas Netas");
     expect(r.map(([, v]) => v)).not.toContain(`$${formatMoney("150000.00")}`);
   });

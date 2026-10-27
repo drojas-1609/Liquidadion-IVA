@@ -21,6 +21,7 @@ Fuera de alcance:
 **Nada de esto cambia la liquidación.**
 - El cálculo y las exportaciones siguen usando `Client.defaultIibbRate`.
 - En el formulario, `defaultIibbRate` aparece en la sección secundaria «Alícuota usada por el cálculo actual».
+  - Desde la rama de catálogos (`docs/catalogos-actividades/README.md`) se rotula «Alícuota del cálculo actual (%)», sigue editable en la ficha y se envía sólo si cambió.
 - Las alícuotas por actividad no se combinan con `defaultIibbRate`: no se toma una actividad principal, ni un promedio, ni un máximo.
 
 ## Modelo de datos

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
 import { Prisma } from "@prisma/client";
+import { LIQUIDATION_RATE_NOTE } from "@/lib/legacy-iibb-rate";
 import { generateLiquidationExcel, toXlsxNumber } from "@/lib/excel";
 import { roundMoney } from "@/lib/decimal";
 
@@ -52,7 +53,10 @@ describe("lib/excel", () => {
     const ws = XLSX.read(generateLiquidationExcel(sampleData), { type: "buffer" }).Sheets["Liquidacion"];
     const row = (r: number) => [ws[`A${r}`]?.v, ws[`B${r}`]?.v, ws[`B${r}`]?.t];
 
-    expect(ws["!ref"]).toBe("A1:B19");
+    // La columna C sólo lleva la aclaración de alcance junto a la alícuota (texto); fórmulas y valores no cambian.
+    expect(ws["!ref"]).toBe("A1:C19");
+    expect(ws["C17"].v).toBe(LIQUIDATION_RATE_NOTE);
+    expect(Object.keys(ws).filter((k) => /^C\d+$/.test(k))).toEqual(["C17"]);
     expect(ws["A14"].v).toBe("RESUMEN IIBB");
     expect(row(15)).toEqual(["Concepto", "Importe", "s"]);
     expect(row(16)).toEqual(["Base Imponible IIBB", 120000, "n"]);

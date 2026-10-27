@@ -35,9 +35,13 @@ const statements = code.split(";").map((s) => s.trim()).filter(Boolean);
 const schema = readFileSync(repo + "prisma/schema.prisma", "utf8");
 
 describe(`migración ${MIGRATION} — revisión estática`, () => {
-  it("es la última y no cambia las previas", () => {
+  it("no cambia las previas, ella misma no cambia (aplicada en PROD) y sólo la siguen migraciones posteriores conocidas", () => {
+    // Posteriores, revisadas en su propio test (tests/schema/*).
+    const LATER = ["20261027120000_activity_catalog_rate_origin"];
     const dirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-    expect(dirs).toEqual([...Object.keys(PRIOR_SHA256), MIGRATION]);
+    expect(dirs).toEqual([...Object.keys(PRIOR_SHA256), MIGRATION, ...LATER]);
+    const own = createHash("sha256").update(readFileSync(migrationsDir + MIGRATION + "/migration.sql")).digest("hex");
+    expect(own).toBe("9a8be750cc3f6e73b508b02b3087678c4d201c461181558db4cd7b1d07e71293");
     for (const [name, sha] of Object.entries(PRIOR_SHA256)) {
       const got = createHash("sha256").update(readFileSync(migrationsDir + name + "/migration.sql")).digest("hex");
       expect(got, name).toBe(sha);
@@ -112,11 +116,12 @@ describe(`migración ${MIGRATION} — revisión estática`, () => {
 describe("formulario de la ficha — revisión estática", () => {
   const form = readFileSync(repo + "app/(app)/clients/_components/client-profile-form.tsx", "utf8");
   it("ninguna inscripción IIBB preseleccionada: la primera opción es 'Sin clasificar' (valor vacío)", () => {
-    const select = form.slice(form.indexOf('id={id("iibbRegistration")}'));
+    const select = form.slice(form.indexOf('{...a11y("iibbRegistration")}'));
+    expect(select.length).toBeLessThan(form.length);
     expect(select.match(/<option[^>]*>[^<]*<\/option>/)?.[0]).toBe('<option value="">Sin clasificar</option>');
   });
   it("la alícuota legada se muestra en la sección secundaria rotulada", () => {
-    expect(form).toContain("Alícuota usada por el cálculo actual");
+    expect(form).toContain("Alícuota del cálculo actual (%)");
   });
   it("versión obsoleta: conserva el borrador, bloquea el reenvío y ofrece recuperación explícita", () => {
     expect(form).toContain("expectedUpdatedAt: initial.expectedUpdatedAt");

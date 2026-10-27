@@ -13,6 +13,9 @@ import {
 import { recordAudit } from "@/lib/auth/audit";
 import { iibbProfileChanged, loadIibbProfile, replaceIibbProfile } from "@/lib/client-iibb-store";
 import { lockClientForUpdate, nextClientVersion } from "@/lib/client-lock";
+import { verifyProfileSources } from "@/lib/iibb-profile-sources";
+import { activityCatalogs } from "@/lib/activity-catalog/registry";
+import { usableRateRuleSets } from "@/lib/iibb-rates/registry";
 import { summarizeStoredProfile, unconfirmedRemovals } from "@/lib/client-profile";
 import { jurisdictionLabel } from "@/lib/iibb/jurisdictions";
 import { ROLES_CLIENT_MANAGE, ROLES_DELETE } from "@/lib/auth/roles";
@@ -106,6 +109,9 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
             if (iibb !== undefined) {
                 const stored = await loadIibbProfile(tx, id, organizationId);
                 if (iibbProfileChanged(current.iibbRegistration, stored, iibb)) {
+                    // Procedencia de lo NUEVO o modificado (lo guardado sin cambios no se reverifica).
+                    const source = verifyProfileSources(iibb, stored, activityCatalogs(), usableRateRuleSets());
+                    if (source) throw new ValidationError(source.error, source.field);
                     const pending = unconfirmedRemovals(summarizeStoredProfile(stored), iibb);
                     if (pending.jurisdictions.length > 0) {
                         throw new ValidationError(

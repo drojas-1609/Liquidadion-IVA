@@ -543,6 +543,12 @@ model ClientActivity {
   nomenclatorReference    String?
   code                    String
   description             String
+  /// CATALOG: copia fija de una entrada de un catálogo oficial versionado
+  /// (catalogId + catalogVersion); MANUAL: carga manual o histórica no
+  /// catalogada. Una versión nueva del catálogo nunca modifica esta fila.
+  origin                  ActivityOrigin      @default(MANUAL)
+  catalogId               String?
+  catalogVersion          String?
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
 
@@ -564,9 +570,17 @@ model ClientActivityRate {
   clientId         String
   activityId       String
   jurisdictionCode String
-  rate             Decimal? @db.Decimal(9, 6)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  rate             Decimal?      @db.Decimal(9, 6)
+  /// RATE con rate NULL = sin informar; RATE con rate = alícuota (0 = 0 %
+  /// explícito); EXEMPT = exención (rate NULL). Informativo: no se usa en la
+  /// liquidación.
+  treatment        RateTreatment @default(RATE)
+  /// Origen del dato: tasa manual del estudio o sugerencia de norma confirmada
+  /// (con ruleRef). NULL = sin origen registrado (cargas previas) o sin dato.
+  rateOrigin       RateOrigin?
+  ruleRef          String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   activity     ClientActivity     @relation(fields: [activityId, clientId, organizationId], references: [id, clientId, organizationId], onDelete: Cascade, onUpdate: Cascade)
   // onDelete Cascade: al borrar un cliente, sus jurisdicciones y alícuotas se
@@ -579,4 +593,22 @@ model ClientActivityRate {
   @@unique([activityId, jurisdictionCode])
   @@index([clientId])
   @@index([organizationId])
+}
+
+/// Origen de una actividad de la ficha.
+enum ActivityOrigin {
+  CATALOG
+  MANUAL
+}
+
+/// Tratamiento informativo de una actividad en una jurisdicción.
+enum RateTreatment {
+  RATE
+  EXEMPT
+}
+
+/// Origen de una alícuota informativa.
+enum RateOrigin {
+  STUDIO_MANUAL
+  CONFIRMED_SUGGESTION
 }

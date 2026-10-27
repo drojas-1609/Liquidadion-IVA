@@ -19,14 +19,14 @@ import {
 import {
     ACTIVITY_NOMENCLATOR_LABEL,
     ACTIVITY_NOMENCLATORS,
+    ACTIVITY_ORIGIN_LABEL,
     CONTACT_PENDING_NOTICE,
     activityKey,
-    normalizeContactEmail,
-    normalizeContactPhone,
     summarizeStoredProfile,
     unconfirmedRemovals,
     validateIibbProfile,
     type ActivityNomenclator,
+    type ActivityOrigin,
 } from "@/lib/client-profile";
 import {
     activityLabel,
@@ -36,6 +36,19 @@ import {
     storedActivityIndex,
 } from "@/lib/client-profile-removal";
 import {
+    activityFieldKey,
+    activityPayload,
+    collectFormErrors,
+    domIdFor,
+    rateFieldKey,
+    serverErrorToForm,
+    snapshotOf,
+    type DraftActivity,
+    type DraftRate,
+    type FormError,
+    type FormErrorKind,
+} from "@/lib/client-form-errors";
+import {
     applyArcaProposal,
     buildArcaProposal,
     createLookupSequencer,
@@ -43,26 +56,35 @@ import {
     type ArcaProposal,
     type ProposableFields,
 } from "@/lib/arca-lookup-client";
+import { fetchPublishedCatalogs, type PublishedCatalog } from "@/lib/activity-catalog/client";
+import type { CatalogSelection } from "@/lib/activity-catalog/types";
+import { RATE_ORIGIN_LABEL, type RateOrigin, type RateTreatment } from "@/lib/iibb-rates/types";
+import type { RateAlternative } from "@/lib/iibb-rates/suggest";
+import { ErrorSummary, FieldError, fieldA11y, fieldStyle } from "./form-errors";
+import { ActivityCatalogSearch } from "./activity-catalog-search";
+import { RateSuggestionPanel } from "./rate-suggestion-panel";
 
 /**
  * Formulario de alta y edición de clientes (ficha completa).
  *
  * - Contactos confirmados por el estudio (obligatorios en altas).
- * - Inscripción en Ingresos Brutos SIN opción preseleccionada; jurisdicciones,
- *   actividades y alícuotas informativas (no se usan en el cálculo).
- * - "Alícuota usada por el cálculo actual" (defaultIibbRate) en una sección
- *   aparte: nunca se modifica al editar la ficha IIBB.
- * - Consulta de CUIT en ARCA: propuesta revisable; nada se aplica sin elegirlo.
+ * - Inscripción en Ingresos Brutos SIN opción preseleccionada; jurisdicciones.
+ * - Actividades: búsqueda en catálogos oficiales publicados (copia fija con
+ *   versión y referencia) o carga manual/histórica identificada como tal. Nada
+ *   ya guardado cambia en silencio.
+ * - Alícuotas informativas por actividad y jurisdicción: tasa, exención o sin
+ *   informar; tasa manual del estudio o sugerencia de norma confirmada. No se
+ *   usan en el cálculo.
+ * - "Alícuota del cálculo actual (%)" (defaultIibbRate): editable en la ficha y
+ *   enviada SÓLO si cambió (el alta sin cambios usa el valor predeterminado del
+ *   contrato, 3; la edición sin cambios conserva el guardado). Se rotula como
+ *   predeterminada pendiente de confirmación (alta) o «Sin constancia de
+ *   revisión» (edición): no se registra si el estudio la revisó.
+ * - Errores: resumen con enlaces, mensaje junto a cada campo, aria-invalid y
+ *   aria-describedby, foco en el primero. Claves estables por fila.
  *
- * Nada se elimina en silencio: quitar una jurisdicción con actividades o
- * alícuotas asociadas, o una actividad ya guardada, pide confirmación. El aviso
- * enumera exactamente lo que se pierde, calculado sobre lo GUARDADO al abrir el
- * formulario además de lo visible (lib/client-profile-removal).
- *
- * Edición: envía `expectedUpdatedAt` (versión que se vio al abrir). Si otra
- * persona guardó antes, el servidor responde 409: el borrador queda en
- * pantalla, el envío se bloquea y se ofrece abrir la versión actual o
- * descartar y recargar. El token nunca se renueva solo.
+ * Quitas confirmadas y concurrencia: sin cambios respecto del protocolo de la
+ * ficha (lib/client-profile-removal, expectedUpdatedAt y 409 con borrador).
  */
 
 export interface ClientProfileActivity {
@@ -71,7 +93,10 @@ export interface ClientProfileActivity {
     nomenclatorReference: string | null;
     code: string;
     description: string;
-    rates: Array<{ jurisdiction: string; rate: string | null }>;
+    origin: ActivityOrigin;
+    catalogId: string | null;
+    catalogVersion: string | null;
+    rates: Array<{ jurisdiction: string; rate: string | null; treatment: RateTreatment; origin: RateOrigin | null; ruleRef: string | null }>;
 }
 
 export interface ClientProfileInitial {
@@ -82,6 +107,7 @@ export interface ClientProfileInitial {
     cuit: string;
     condition: string;
     address: string;
+    /** Sólo lectura: alícuota del cálculo heredado. */
     defaultIibbRate: string;
     phone: string;
     contactEmail: string;
@@ -90,17 +116,11 @@ export interface ClientProfileInitial {
     activities: ClientProfileActivity[];
 }
 
-interface ActivityRow {
-    uid: number;
+interface ActivityRow extends DraftActivity {
     /** activityKey de la actividad guardada; null si es nueva. */
     storedKey: string | null;
-    nomenclator: ActivityNomenclator;
-    nomenclatorJurisdiction: string;
-    nomenclatorReference: string;
-    code: string;
-    description: string;
-    /** jurisdicción -> asociada y alícuota ("" = sin informar). */
-    rates: Record<string, { associated: boolean; rate: string }>;
+    /** Sólo filas nuevas: buscar en catálogo o cargar a mano. */
+    entry: "search" | "manual";
 }
 
 /** Quita pendiente de confirmar: `stored` es el conjunto exacto que se confirma; `lines`, el detalle. */
@@ -119,17 +139,26 @@ const HINT = { color: "var(--secondary)", fontSize: "0.875rem", marginTop: "var(
 const NOTICE = { padding: "var(--spacing-sm)", borderRadius: "var(--radius-sm)", backgroundColor: "rgba(234, 179, 8, 0.12)" } as const;
 const ERROR_BOX = { padding: "var(--spacing-sm)", backgroundColor: "rgba(239, 68, 68, 0.1)", color: "var(--error)", borderRadius: "var(--radius-sm)" } as const;
 const SECTION = { display: "flex", flexDirection: "column", gap: "var(--spacing-md)", borderTop: "1px solid var(--border, rgba(127,127,127,0.25))", paddingTop: "var(--spacing-md)" } as const;
+const BADGE = { fontSize: "0.75rem", padding: "1px 6px", borderRadius: "999px", border: "1px solid currentColor", color: "var(--secondary)" } as const;
+
+const EMPTY_RATE: DraftRate = { associated: false, rate: "", treatment: "RATE", origin: null, ruleRef: null };
 
 function rowFromActivity(a: ClientProfileActivity, uid: number): ActivityRow {
     return {
         uid,
         storedKey: activityKey(a),
+        entry: "manual",
         nomenclator: a.nomenclator,
         nomenclatorJurisdiction: a.nomenclatorJurisdiction,
         nomenclatorReference: a.nomenclatorReference ?? "",
         code: a.code,
         description: a.description,
-        rates: Object.fromEntries(a.rates.map((r) => [r.jurisdiction, { associated: true, rate: r.rate ?? "" }])),
+        origin: a.origin,
+        catalogId: a.catalogId,
+        catalogVersion: a.catalogVersion,
+        rates: Object.fromEntries(
+            a.rates.map((r) => [r.jurisdiction, { associated: true, rate: r.rate ?? "", treatment: r.treatment, origin: r.origin, ruleRef: r.ruleRef }]),
+        ),
     };
 }
 
@@ -138,15 +167,16 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
     const baseId = useId();
     const nextUid = useRef(initial.activities.length + 1);
     const sequencer = useRef(createLookupSequencer());
+    const summaryRef = useRef<HTMLDivElement>(null);
 
     const [fields, setFields] = useState({
         name: initial.name,
         cuit: initial.cuit,
         condition: initial.condition,
         address: initial.address,
-        defaultIibbRate: initial.defaultIibbRate,
         phone: initial.phone,
         contactEmail: initial.contactEmail,
+        defaultIibbRate: initial.defaultIibbRate,
     });
     const [registration, setRegistration] = useState<string>(initial.iibbRegistration ?? "");
     const [jurisdictions, setJurisdictions] = useState(initial.jurisdictions);
@@ -154,7 +184,6 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
     // Lo guardado al abrir el formulario: base fija de las confirmaciones.
     const storedSummary = useMemo(() => summarizeStoredProfile(initial), [initial]);
     const storedIndex = useMemo(() => storedActivityIndex(initial.activities), [initial]);
-    // Confirmaciones dadas: jurisdicción -> activityKey guardadas; actividad -> jurisdicciones guardadas.
     const [confirmedJurisdictions, setConfirmedJurisdictions] = useState<Record<string, string[]>>({});
     const [confirmedActivities, setConfirmedActivities] = useState<Record<string, string[]>>({});
     const [stale, setStale] = useState(false);
@@ -166,10 +195,41 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
         activityCodes: [],
     });
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
+    // Errores: tipo (validación / conflicto / general), lista por campo y mensaje general.
+    const [errorKind, setErrorKind] = useState<FormErrorKind | null>(null);
+    const [formErrors, setFormErrors] = useState<FormError[]>([]);
+    const [errorMessage, setErrorMessage] = useState("");
+    const [focusRequest, setFocusRequest] = useState(0);
+    const [catalogs, setCatalogs] = useState<PublishedCatalog[] | null>(null);
+    const [catalogsError, setCatalogsError] = useState("");
+    const [suggestFor, setSuggestFor] = useState<{ uid: number; code: string } | null>(null);
 
-    // Valores vigentes al resolver la consulta a ARCA (la respuesta llega
-    // después de varios renders): se sincronizan tras cada commit.
+    const errorMap = useMemo(() => new Map(formErrors.map((e) => [e.key, e])), [formErrors]);
+
+    // Catálogos publicados (revisados) para el buscador; sin ellos queda la carga manual.
+    useEffect(() => {
+        let active = true;
+        fetchPublishedCatalogs().then((out) => {
+            if (!active) return;
+            if (out.ok) setCatalogs(out.data.catalogs);
+            else {
+                setCatalogs([]);
+                setCatalogsError(out.message);
+            }
+        });
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    // Foco en el primer error (o en el resumen si el campo ya no existe) tras cada envío fallido.
+    useEffect(() => {
+        if (focusRequest === 0) return;
+        const first = formErrors[0];
+        const el = first ? document.getElementById(domIdFor(baseId, first.key)) : null;
+        (el ?? summaryRef.current)?.focus();
+    }, [focusRequest, formErrors, baseId]);
+
     const fieldsRef = useRef(fields);
     const activitiesRef = useRef(activities);
     useEffect(() => {
@@ -185,18 +245,22 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
     const selectedCodes = jurisdictions.map((j) => j.code);
     const backHref = mode === "edit" && initial.id ? `/client/${initial.id}/dashboard` : "/clients";
 
+    /** Corregir un campo quita su marca de error (el resumen se recalcula al enviar). */
+    function clearError(key: string) {
+        setFormErrors((errs) => (errs.some((e) => e.key === key) ? errs.filter((e) => e.key !== key) : errs));
+    }
+
     const set = (k: keyof typeof fields) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const value = e.target.value;
         setFields((f) => ({ ...f, [k]: value }));
+        clearError(k);
         if (k === "cuit") {
-            // Cambiar el CUIT descarta cualquier consulta en curso o propuesta anterior.
             sequencer.current.cancel();
             setLookup({ phase: "idle" });
         }
     };
 
     // ── Jurisdicciones ──────────────────────────────────────────────────────
-    /** Volver a agregar una jurisdicción invalida su confirmación de quita. */
     function forgetJurisdictionConfirmation(code: string) {
         setConfirmedJurisdictions((c) => {
             if (!(code in c)) return c;
@@ -209,6 +273,7 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
     function addJurisdiction(code: string) {
         setJurisdictions((js) => (js.some((j) => j.code === code) ? js : [...js, { code, headquarters: false }]));
         forgetJurisdictionConfirmation(code);
+        clearError("jurisdictions");
     }
 
     function removeJurisdiction(code: string, replacement: string | null) {
@@ -224,6 +289,7 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
                 return { ...a, rates };
             }),
         );
+        clearError("jurisdictions");
     }
 
     function requestRemoveJurisdiction(code: string, replacement: string | null = null) {
@@ -247,18 +313,17 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
             addJurisdiction(code);
             return;
         }
-        // Reemplazo: cada jurisdicción anterior se quita (con confirmación si tiene asociaciones).
         for (const c of current) if (c !== code) requestRemoveJurisdiction(c, code);
     }
 
     function setHeadquarters(code: string) {
         setJurisdictions((js) => js.map((j) => ({ ...j, headquarters: j.code === code })));
+        clearError("headquarters");
     }
 
     function changeRegistration(value: string) {
         setRegistration(value);
-        // La sede sólo existe en Convenio Multilateral; nada más se modifica: si la
-        // cantidad de jurisdicciones no corresponde, la validación lo indica.
+        clearError("iibbRegistration");
         if (value !== "CONVENIO_MULTILATERAL") setJurisdictions((js) => js.map((j) => ({ ...j, headquarters: false })));
     }
 
@@ -270,11 +335,15 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
             {
                 uid,
                 storedKey: null,
+                entry: catalogs && catalogs.length > 0 ? "search" : "manual",
                 nomenclator: "ARCA",
                 nomenclatorJurisdiction: "",
                 nomenclatorReference: "",
                 code: "",
                 description: "",
+                origin: "MANUAL",
+                catalogId: null,
+                catalogVersion: null,
                 rates: {},
                 ...seed,
             },
@@ -283,16 +352,61 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
 
     function updateActivity(uid: number, patch: Partial<ActivityRow>) {
         setActivities((rows) => rows.map((a) => (a.uid === uid ? { ...a, ...patch } : a)));
+        for (const k of Object.keys(patch)) {
+            if (k === "nomenclator" || k === "nomenclatorJurisdiction" || k === "nomenclatorReference" || k === "code" || k === "description" || k === "origin") {
+                clearError(activityFieldKey(uid, k));
+            }
+        }
     }
 
-    function setRate(uid: number, code: string, patch: Partial<{ associated: boolean; rate: string }>) {
+    /** Elegir del catálogo propone una copia fija; el estudio ve y confirma al guardar. */
+    function applyCatalogSelection(uid: number, s: CatalogSelection) {
+        updateActivity(uid, {
+            origin: "CATALOG",
+            catalogId: s.catalogId,
+            catalogVersion: s.catalogVersion,
+            nomenclator: s.nomenclator,
+            nomenclatorJurisdiction: s.nomenclatorJurisdiction,
+            nomenclatorReference: s.reference,
+            code: s.code,
+            description: s.description,
+        });
+    }
+
+    /** Pasar a carga manual: se conservan los textos, se quita el vínculo con el catálogo. */
+    function switchToManual(uid: number) {
+        updateActivity(uid, { origin: "MANUAL", catalogId: null, catalogVersion: null, entry: "manual" });
+    }
+
+    function setRate(uid: number, code: string, patch: Partial<DraftRate>) {
         setActivities((rows) =>
             rows.map((a) => {
                 if (a.uid !== uid) return a;
-                const prev = a.rates[code] ?? { associated: false, rate: "" };
+                const prev = a.rates[code] ?? EMPTY_RATE;
                 return { ...a, rates: { ...a.rates, [code]: { ...prev, ...patch } } };
             }),
         );
+        clearError(rateFieldKey(uid, code));
+    }
+
+    /** Edición manual de la tasa o del tratamiento: origen "manual del estudio" (o sin origen si queda vacía). */
+    function setManualRate(uid: number, code: string, patch: Partial<Pick<DraftRate, "rate" | "treatment">>) {
+        const row = activities.find((a) => a.uid === uid);
+        const prev = row?.rates[code] ?? EMPTY_RATE;
+        const next = { ...prev, ...patch };
+        const absent = next.treatment === "RATE" && next.rate.trim() === "";
+        setRate(uid, code, { ...patch, origin: absent ? null : "STUDIO_MANUAL", ruleRef: null });
+    }
+
+    function confirmSuggestion(uid: number, code: string, alt: RateAlternative) {
+        setRate(uid, code, { associated: true, treatment: alt.treatment, rate: alt.rate ?? "", origin: "CONFIRMED_SUGGESTION", ruleRef: alt.ruleRef });
+        setSuggestFor(null);
+    }
+
+    /** Alternativa no acreditable: queda como decisión del estudio, sin referencia a la regla. */
+    function recordAsStudioDecision(uid: number, code: string, alt: Pick<RateAlternative, "treatment" | "rate">) {
+        setRate(uid, code, { associated: true, treatment: alt.treatment, rate: alt.rate ?? "", origin: "STUDIO_MANUAL", ruleRef: null });
+        setSuggestFor(null);
     }
 
     function requestRemoveActivity(row: ActivityRow) {
@@ -304,7 +418,6 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
         }
     }
 
-    /** Registra EXACTAMENTE el conjunto guardado que mostró el aviso. */
     function confirmPending() {
         const p = pending;
         if (!p) return;
@@ -325,7 +438,6 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
         const ticket = sequencer.current.start();
         setLookup({ phase: "loading" });
         const outcome = await requestCuitLookup(queried);
-        // Respuesta vieja o de otro CUIT: se descarta.
         if (!sequencer.current.accepts(ticket, queried, fieldsRef.current.cuit)) return;
         if (outcome.status === "FOUND") {
             const existing = activitiesRef.current.filter((a) => a.nomenclator === "ARCA").map((a) => a.code);
@@ -343,31 +455,19 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
     function applyProposal(proposal: ArcaProposal) {
         const applied = applyArcaProposal(proposal, selection);
         setFields((f) => ({ ...f, ...applied.fields }));
+        // Actividades informadas por ARCA: carga manual identificada (sin vínculo
+        // automático con CLAE ni equivalencia provincial; ver docs).
         for (const a of applied.activities) {
-            addActivity({ nomenclator: "ARCA", code: a.code, description: a.description, nomenclatorReference: a.nomenclatorReference ?? "" });
+            addActivity({ entry: "manual", nomenclator: "ARCA", code: a.code, description: a.description, nomenclatorReference: a.nomenclatorReference ?? "" });
         }
         setLookup({ phase: "idle" });
     }
 
     // ── Envío ───────────────────────────────────────────────────────────────
     function buildIibbDraft() {
-        return {
-            registration: reg,
-            jurisdictions,
-            activities: activities.map((a) => ({
-                nomenclator: a.nomenclator,
-                nomenclatorJurisdiction: a.nomenclator === "PROVINCIAL" ? a.nomenclatorJurisdiction : null,
-                nomenclatorReference: a.nomenclatorReference.trim() === "" ? null : a.nomenclatorReference,
-                code: a.code,
-                description: a.description,
-                rates: Object.entries(a.rates)
-                    .filter(([code, r]) => r.associated && selectedCodes.includes(code))
-                    .map(([jurisdiction, r]) => ({ jurisdiction, rate: r.rate.trim() === "" ? null : r.rate.trim() })),
-            })),
-        };
+        return { registration: reg, jurisdictions, activities: activities.map((a) => activityPayload(a, selectedCodes)) };
     }
 
-    /** Vuelve a pedir la primera quita sin confirmación exacta (misma regla que el servidor). */
     function askPendingRemoval(pendingRemovals: { jurisdictions: string[]; activities: string[] }) {
         const code = pendingRemovals.jurisdictions[0];
         if (code) {
@@ -382,51 +482,76 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
         setPending({ kind: "activity", uid: row?.uid ?? null, storedKey: key, label: storedIndex[key]?.label ?? key, ...loss });
     }
 
+    function showErrors(kind: FormErrorKind, errors: FormError[], message: string) {
+        setErrorKind(kind);
+        setFormErrors(errors);
+        setErrorMessage(message);
+        setFocusRequest((n) => n + 1);
+    }
+
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
-        setError("");
         if (stale) return; // formulario obsoleto: nunca se reenvía
+        setErrorKind(null);
+        setErrorMessage("");
+
+        const draft = {
+            mode,
+            fields,
+            initialContacts: { phone: initial.phone, contactEmail: initial.contactEmail },
+            registration,
+            jurisdictions,
+            activities,
+        };
+        const errors = collectFormErrors(draft, jurisdictionLabel);
+        if (errors.length > 0) {
+            showErrors("validation", errors, "");
+            return;
+        }
+        setFormErrors([]);
         const check = validateIibbProfile(buildIibbDraft());
         if (!check.ok) {
-            setError(`Ingresos Brutos: ${check.error}`);
+            // Red de seguridad: el validador por campo no debería dejar pasar nada.
+            showErrors("general", [], `Ingresos Brutos: ${check.error}`);
             return;
         }
         const iibb = { ...check.value, ...confirmationsPayload(confirmedJurisdictions, confirmedActivities, check.value) };
         const unconfirmed = unconfirmedRemovals(storedSummary, iibb);
         if (unconfirmed.jurisdictions.length > 0 || unconfirmed.activities.length > 0) {
             askPendingRemoval(unconfirmed);
-            setError("Confirmá las quitas pendientes antes de guardar.");
+            showErrors("general", [], "Confirmá las quitas pendientes antes de guardar.");
             return;
         }
-        for (const [k, normalize, label] of [
-            ["phone", normalizeContactPhone, "Teléfono"],
-            ["contactEmail", normalizeContactEmail, "Email de contacto"],
-        ] as const) {
-            const value = fields[k];
-            // Edición de un cliente histórico sin contacto: puede seguir pendiente.
-            if (mode === "edit" && value.trim() === "" && initial[k].trim() === "") continue;
-            const r = normalize(value);
-            if (!r.ok) {
-                setError(`${label}: ${r.error}`);
-                return;
-            }
-        }
+
+        const snap = snapshotOf(activities, selectedCodes);
+        // Alícuota del cálculo actual: se envía SÓLO si el usuario la cambió. Sin cambios, el alta
+        // usa el valor predeterminado del contrato (3) y la edición conserva el valor guardado.
+        const { name, cuit, condition, address, phone, contactEmail } = fields;
+        const legacyRate = fields.defaultIibbRate.trim();
+        const legacyChanged = legacyRate !== initial.defaultIibbRate;
+        const payload = { name, cuit, condition, address, phone, contactEmail, iibb, ...(legacyChanged ? { defaultIibbRate: legacyRate } : {}) };
         setLoading(true);
         try {
             const result =
                 mode === "create"
-                    ? await submitNewClient({ ...fields, iibb })
-                    : await submitClientUpdate(initial.id!, { ...fields, iibb, expectedUpdatedAt: initial.expectedUpdatedAt });
+                    ? await submitNewClient(payload)
+                    : await submitClientUpdate(initial.id!, { ...payload, expectedUpdatedAt: initial.expectedUpdatedAt });
             if (!result.ok) {
-                // Conflicto de versión: se conserva el borrador y se bloquea el reenvío.
-                if ("stale" in result && result.stale) setStale(true);
-                setError(result.message);
+                const mapped = serverErrorToForm(result, snap, activities, jurisdictionLabel);
+                if (mapped.kind === "conflict") {
+                    // Conflicto de versión: se conserva el borrador y se bloquea el reenvío.
+                    setStale(true);
+                    setErrorKind("conflict");
+                    setErrorMessage(mapped.message);
+                    return;
+                }
+                showErrors(mapped.kind, mapped.errors, mapped.message);
                 return;
             }
             router.push(mode === "create" ? "/clients" : backHref);
             router.refresh();
         } catch {
-            setError("Ocurrió un error al guardar el cliente.");
+            showErrors("general", [], "Ocurrió un error al guardar el cliente.");
         } finally {
             setLoading(false);
         }
@@ -434,6 +559,7 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
 
     const id = (s: string) => `${baseId}-${s}`;
     const contactPending = mode === "edit" && (initial.phone.trim() === "" || initial.contactEmail.trim() === "");
+    const a11y = (key: string, describedBy?: string) => fieldA11y(baseId, key, errorMap, describedBy);
 
     return (
         <div className="container" style={{ maxWidth: "760px" }}>
@@ -446,15 +572,14 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
                 {mode === "create" ? "Nuevo Cliente" : "Editar Cliente"}
             </h1>
 
-            <form onSubmit={handleSubmit} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
-                {error && !stale && (
-                    <div role="alert" style={ERROR_BOX}>
-                        {error}
-                    </div>
-                )}
+            <form onSubmit={handleSubmit} noValidate className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
+                <ErrorSummary ref={summaryRef} baseId={baseId} kind={errorKind} errors={formErrors} message={errorMessage} />
                 {stale && (
                     <div role="alert" style={{ ...ERROR_BOX, display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
-                        <span>{error}</span>
+                        <span>
+                            <span aria-hidden="true">⚠ </span>
+                            Conflicto de versión: {errorMessage}
+                        </span>
                         <span>
                             Para no sobrescribir lo que guardó la otra persona, este formulario ya no se puede enviar. Abrí la versión actual,
                             compará y volvé a aplicar tus cambios sobre ella.
@@ -473,18 +598,20 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
                 )}
 
                 <div>
-                    <label htmlFor={id("name")} style={LABEL}>Nombre / Razón Social</label>
-                    <input id={id("name")} name="name" type="text" required className="input" placeholder="Ej. Empresa S.A." value={fields.name} onChange={set("name")} />
+                    <label htmlFor={a11y("name").id} style={LABEL}>Nombre / Razón Social</label>
+                    <input {...a11y("name")} name="name" type="text" className="input" style={fieldStyle("name", errorMap)} placeholder="Ej. Empresa S.A." value={fields.name} onChange={set("name")} />
+                    <FieldError baseId={baseId} fieldKey="name" errors={errorMap} />
                 </div>
 
                 <div>
-                    <label htmlFor={id("cuit")} style={LABEL}>CUIT</label>
+                    <label htmlFor={a11y("cuit").id} style={LABEL}>CUIT</label>
                     <div style={{ display: "flex", gap: "var(--spacing-sm)" }}>
-                        <input id={id("cuit")} name="cuit" type="text" required className="input" placeholder="20-12345678-9" value={fields.cuit} onChange={set("cuit")} />
+                        <input {...a11y("cuit")} name="cuit" type="text" className="input" style={fieldStyle("cuit", errorMap)} placeholder="20-12345678-9" value={fields.cuit} onChange={set("cuit")} />
                         <button type="button" className="btn btn-secondary" onClick={consultArca} disabled={lookup.phase === "loading" || fields.cuit.trim() === ""}>
                             {lookup.phase === "loading" ? "Consultando..." : "Consultar CUIT en ARCA"}
                         </button>
                     </div>
+                    <FieldError baseId={baseId} fieldKey="cuit" errors={errorMap} />
                     {lookup.phase === "message" && (
                         <p role={lookup.tone === "error" ? "alert" : "status"} style={{ ...HINT, color: lookup.tone === "error" ? "var(--error)" : "var(--secondary)" }}>
                             {lookup.text}
@@ -503,51 +630,55 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
                 )}
 
                 <div>
-                    <label htmlFor={id("condition")} style={LABEL}>Condición Fiscal (IVA)</label>
-                    <select id={id("condition")} name="condition" className="input" required value={fields.condition} onChange={set("condition")}>
+                    <label htmlFor={a11y("condition").id} style={LABEL}>Condición Fiscal (IVA)</label>
+                    <select {...a11y("condition")} name="condition" className="input" style={fieldStyle("condition", errorMap)} value={fields.condition} onChange={set("condition")}>
                         {conditions.map((c) => (
                             <option key={c} value={c}>{c}</option>
                         ))}
                     </select>
+                    <FieldError baseId={baseId} fieldKey="condition" errors={errorMap} />
                 </div>
 
                 <div>
-                    <label htmlFor={id("address")} style={LABEL}>Dirección</label>
-                    <input id={id("address")} name="address" type="text" className="input" placeholder="Calle Falsa 123" value={fields.address} onChange={set("address")} />
+                    <label htmlFor={a11y("address").id} style={LABEL}>Dirección</label>
+                    <input {...a11y("address")} name="address" type="text" className="input" style={fieldStyle("address", errorMap)} placeholder="Calle Falsa 123" value={fields.address} onChange={set("address")} />
+                    <FieldError baseId={baseId} fieldKey="address" errors={errorMap} />
                 </div>
 
                 {/* Contactos */}
                 <div style={SECTION}>
                     <h2 style={{ fontSize: "1.125rem", fontWeight: 600 }}>Contacto</h2>
-                    {contactPending && (
-                        <p role="status" style={NOTICE}>{CONTACT_PENDING_NOTICE}</p>
-                    )}
+                    {contactPending && <p role="status" style={NOTICE}>{CONTACT_PENDING_NOTICE}</p>}
                     <div>
-                        <label htmlFor={id("phone")} style={LABEL}>Teléfono</label>
+                        <label htmlFor={a11y("phone").id} style={LABEL}>Teléfono</label>
                         <input
-                            id={id("phone")}
+                            {...a11y("phone")}
                             name="phone"
                             type="tel"
                             className="input"
+                            style={fieldStyle("phone", errorMap)}
                             placeholder="+54 11 5555-0000"
-                            required={mode === "create" || initial.phone.trim() !== ""}
+                            aria-required={mode === "create" || initial.phone.trim() !== ""}
                             value={fields.phone}
                             onChange={set("phone")}
                         />
+                        <FieldError baseId={baseId} fieldKey="phone" errors={errorMap} />
                     </div>
                     <div>
-                        <label htmlFor={id("contactEmail")} style={LABEL}>Email de contacto</label>
+                        <label htmlFor={a11y("contactEmail").id} style={LABEL}>Email de contacto</label>
                         <input
-                            id={id("contactEmail")}
+                            {...a11y("contactEmail", id("contactEmail-hint"))}
                             name="contactEmail"
                             type="email"
                             className="input"
+                            style={fieldStyle("contactEmail", errorMap)}
                             placeholder="contacto@ejemplo.com"
-                            required={mode === "create" || initial.contactEmail.trim() !== ""}
+                            aria-required={mode === "create" || initial.contactEmail.trim() !== ""}
                             value={fields.contactEmail}
                             onChange={set("contactEmail")}
                         />
-                        <p style={HINT}>Dato de contacto confirmado por el estudio. No es el domicilio fiscal electrónico.</p>
+                        <FieldError baseId={baseId} fieldKey="contactEmail" errors={errorMap} />
+                        <p id={id("contactEmail-hint")} style={HINT}>Dato de contacto confirmado por el estudio. No es el domicilio fiscal electrónico.</p>
                     </div>
                 </div>
 
@@ -556,29 +687,48 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
                     <h2 style={{ fontSize: "1.125rem", fontWeight: 600 }}>Ingresos Brutos</h2>
                     <p style={HINT}>{IIBB_INFORMATIVE_NOTICE}</p>
                     <div>
-                        <label htmlFor={id("iibbRegistration")} style={LABEL}>Inscripción en Ingresos Brutos</label>
-                        <select id={id("iibbRegistration")} className="input" value={registration} onChange={(e) => changeRegistration(e.target.value)}>
+                        <label htmlFor={a11y("iibbRegistration").id} style={LABEL}>Inscripción en Ingresos Brutos</label>
+                        <select
+                            {...a11y("iibbRegistration")}
+                            className="input"
+                            style={fieldStyle("iibbRegistration", errorMap)}
+                            value={registration}
+                            onChange={(e) => changeRegistration(e.target.value)}
+                        >
                             <option value="">Sin clasificar</option>
                             {IIBB_REGISTRATIONS.map((r) => (
                                 <option key={r} value={r}>{IIBB_REGISTRATION_LABEL[r]}</option>
                             ))}
                         </select>
+                        <FieldError baseId={baseId} fieldKey="iibbRegistration" errors={errorMap} />
                         {reg === null && <p role="status" style={{ ...NOTICE, marginTop: "var(--spacing-xs)" }}>{IIBB_UNCLASSIFIED_NOTICE}</p>}
                     </div>
 
                     {rule && (
                         <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
                             <legend style={LABEL}>{IIBB_JURISDICTION_KIND_LABEL[rule.kind]}</legend>
-                            {/* Con más jurisdicciones que las admitidas se muestra la lista para poder quitarlas (con confirmación). */}
                             {rule.max === 1 && selectedCodes.length <= 1 ? (
-                                <select className="input" aria-label="Jurisdicción" value={selectedCodes[0] ?? ""} onChange={(e) => setSingleJurisdiction(e.target.value)}>
+                                <select
+                                    {...a11y("jurisdictions")}
+                                    className="input"
+                                    style={fieldStyle("jurisdictions", errorMap)}
+                                    aria-label="Jurisdicción"
+                                    value={selectedCodes[0] ?? ""}
+                                    onChange={(e) => setSingleJurisdiction(e.target.value)}
+                                >
                                     <option value="">Seleccionar jurisdicción</option>
                                     {JURISDICTIONS.map((j) => (
                                         <option key={j.code} value={j.code}>{jurisdictionLabel(j.code)}</option>
                                     ))}
                                 </select>
                             ) : (
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: "var(--spacing-xs)" }}>
+                                <div
+                                    {...a11y("jurisdictions")}
+                                    role="group"
+                                    tabIndex={-1}
+                                    aria-label="Jurisdicciones"
+                                    style={fieldStyle("jurisdictions", errorMap, { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: "var(--spacing-xs)", padding: "2px" })}
+                                >
                                     {JURISDICTIONS.map((j) => {
                                         const checked = selectedCodes.includes(j.code);
                                         return (
@@ -602,8 +752,15 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
                                     })}
                                 </div>
                             )}
+                            <FieldError baseId={baseId} fieldKey="jurisdictions" errors={errorMap} />
                             {rule.headquarters === "required" && (
-                                <p style={HINT}>Marcá una jurisdicción sede entre las seleccionadas. Se admite una sola jurisdicción en situaciones de transición.</p>
+                                <>
+                                    {/* Destino estable del error de sede (enlace del resumen). */}
+                                    <p {...a11y("headquarters")} tabIndex={-1} style={fieldStyle("headquarters", errorMap, HINT)}>
+                                        Marcá una jurisdicción sede entre las seleccionadas. Se admite una sola jurisdicción en situaciones de transición.
+                                    </p>
+                                    <FieldError baseId={baseId} fieldKey="headquarters" errors={errorMap} />
+                                </>
                             )}
                             {rule.kind === "ACTIVIDAD" && (
                                 <p style={HINT}>Para No Inscripto, las jurisdicciones registradas son de actividad: no indican una inscripción vigente.</p>
@@ -631,117 +788,268 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
                     )}
 
                     {/* Actividades */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
+                    <div {...a11y("activities")} tabIndex={-1} style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
                         <h3 style={{ fontSize: "1rem", fontWeight: 600 }}>Actividades y alícuotas por jurisdicción</h3>
                         <p style={HINT}>
-                            Las alícuotas por actividad y jurisdicción son informativas: todavía no se usan en la liquidación. Dejá la alícuota vacía si no está informada (distinto de 0 %).
-                            Los códigos de nomencladores distintos no son equivalentes entre sí.
+                            Buscá la actividad en un catálogo oficial o registrala como carga manual. Los códigos de nomencladores distintos no son equivalentes entre sí. Las alícuotas son
+                            informativas: todavía no se usan en la liquidación. Sin informar, 0 % y exento son datos distintos.
                         </p>
+                        {catalogsError && <p role="status" style={HINT}>Catálogos no disponibles ({catalogsError}): podés seguir con carga manual.</p>}
+                        <FieldError baseId={baseId} fieldKey="activities" errors={errorMap} />
                         {activities.length === 0 && <p style={HINT}>Sin actividades registradas.</p>}
-                        {activities.map((a, idx) => (
-                            <div key={a.uid} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--spacing-sm)" }}>
-                                    <label>
-                                        <span style={LABEL}>Nomenclador</span>
-                                        <select
-                                            className="input"
-                                            value={a.nomenclator}
-                                            disabled={a.storedKey !== null}
-                                            onChange={(e) => updateActivity(a.uid, { nomenclator: e.target.value as ActivityNomenclator })}
-                                        >
-                                            {ACTIVITY_NOMENCLATORS.map((n) => (
-                                                <option key={n} value={n}>{ACTIVITY_NOMENCLATOR_LABEL[n]}</option>
-                                            ))}
-                                        </select>
-                                    </label>
-                                    {a.nomenclator === "PROVINCIAL" && (
-                                        <label>
-                                            <span style={LABEL}>Jurisdicción del nomenclador</span>
-                                            <select
-                                                className="input"
-                                                value={a.nomenclatorJurisdiction}
-                                                disabled={a.storedKey !== null}
-                                                onChange={(e) => updateActivity(a.uid, { nomenclatorJurisdiction: e.target.value })}
-                                            >
-                                                <option value="">Seleccionar</option>
-                                                {JURISDICTIONS.map((j) => (
-                                                    <option key={j.code} value={j.code}>{jurisdictionLabel(j.code)}</option>
-                                                ))}
-                                            </select>
-                                        </label>
-                                    )}
-                                    <label>
-                                        <span style={LABEL}>Código</span>
-                                        <input className="input" value={a.code} disabled={a.storedKey !== null} onChange={(e) => updateActivity(a.uid, { code: e.target.value })} />
-                                    </label>
-                                    <label>
-                                        <span style={LABEL}>Referencia del nomenclador{a.nomenclator === "OTRO" ? "" : " (opcional)"}</span>
-                                        <input className="input" value={a.nomenclatorReference} onChange={(e) => updateActivity(a.uid, { nomenclatorReference: e.target.value })} />
-                                    </label>
-                                </div>
-                                <label>
-                                    <span style={LABEL}>Descripción</span>
-                                    <input className="input" value={a.description} onChange={(e) => updateActivity(a.uid, { description: e.target.value })} />
-                                </label>
-                                {selectedCodes.length > 0 ? (
-                                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
-                                        {selectedCodes.map((code) => {
-                                            const r = a.rates[code] ?? { associated: false, rate: "" };
-                                            return (
-                                                <div key={code} style={{ display: "flex", gap: "var(--spacing-sm)", alignItems: "center", flexWrap: "wrap" }}>
-                                                    <label style={{ display: "flex", gap: "var(--spacing-xs)", alignItems: "center", minWidth: "260px" }}>
-                                                        <input type="checkbox" checked={r.associated} onChange={(e) => setRate(a.uid, code, { associated: e.target.checked })} />
-                                                        {jurisdictionLabel(code)}
-                                                    </label>
-                                                    {r.associated && (
-                                                        <input
-                                                            className="input"
-                                                            style={{ maxWidth: "160px" }}
-                                                            inputMode="decimal"
-                                                            aria-label={`Alícuota ${a.code || `actividad ${idx + 1}`} en ${jurisdictionLabel(code)} (%)`}
-                                                            placeholder="sin informar"
-                                                            value={r.rate}
-                                                            onChange={(e) => setRate(a.uid, code, { rate: e.target.value })}
-                                                        />
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
+                        {activities.map((a, idx) => {
+                            const k = (f: Parameters<typeof activityFieldKey>[1]) => activityFieldKey(a.uid, f);
+                            const locked = a.storedKey !== null; // identidad de una actividad guardada
+                            const fromCatalog = a.origin === "CATALOG";
+                            const searching = !locked && !fromCatalog && a.entry === "search";
+                            return (
+                                <div key={a.uid} className="card" role="group" aria-label={`Actividad ${idx + 1}`} style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
+                                    <div style={{ display: "flex", gap: "var(--spacing-xs)", alignItems: "center", flexWrap: "wrap" }}>
+                                        <strong>Actividad {idx + 1}</strong>
+                                        <span {...a11y(k("origin"))} tabIndex={-1} style={BADGE}>
+                                            {searching ? "Sin elegir" : ACTIVITY_ORIGIN_LABEL[a.origin]}
+                                            {fromCatalog && a.catalogVersion ? ` · ${a.catalogVersion}` : ""}
+                                        </span>
                                     </div>
-                                ) : (
-                                    <p style={HINT}>Registrá jurisdicciones para asociar alícuotas a esta actividad.</p>
-                                )}
-                                <div>
-                                    <button type="button" className="btn btn-secondary" onClick={() => requestRemoveActivity(a)}>Quitar actividad</button>
+                                    <FieldError baseId={baseId} fieldKey={k("origin")} errors={errorMap} />
+
+                                    {searching && catalogs !== null && (
+                                        <>
+                                            <ActivityCatalogSearch idPrefix={id(`act-${a.uid}-search`)} catalogs={catalogs} onSelect={(s) => applyCatalogSelection(a.uid, s)} />
+                                            <div>
+                                                <button type="button" className="btn btn-secondary" onClick={() => updateActivity(a.uid, { entry: "manual" })}>
+                                                    No está en el catálogo: registrar como carga manual
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {!searching && (
+                                        <>
+                                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--spacing-sm)" }}>
+                                                <div>
+                                                    <label htmlFor={a11y(k("nomenclator")).id} style={LABEL}>Nomenclador</label>
+                                                    <select
+                                                        {...a11y(k("nomenclator"))}
+                                                        className="input"
+                                                        style={fieldStyle(k("nomenclator"), errorMap)}
+                                                        value={a.nomenclator}
+                                                        disabled={locked || fromCatalog}
+                                                        onChange={(e) => updateActivity(a.uid, { nomenclator: e.target.value as ActivityNomenclator })}
+                                                    >
+                                                        {ACTIVITY_NOMENCLATORS.map((n) => (
+                                                            <option key={n} value={n}>{ACTIVITY_NOMENCLATOR_LABEL[n]}</option>
+                                                        ))}
+                                                    </select>
+                                                    <FieldError baseId={baseId} fieldKey={k("nomenclator")} errors={errorMap} />
+                                                </div>
+                                                {a.nomenclator === "PROVINCIAL" && (
+                                                    <div>
+                                                        <label htmlFor={a11y(k("nomenclatorJurisdiction")).id} style={LABEL}>Jurisdicción del nomenclador</label>
+                                                        <select
+                                                            {...a11y(k("nomenclatorJurisdiction"))}
+                                                            className="input"
+                                                            style={fieldStyle(k("nomenclatorJurisdiction"), errorMap)}
+                                                            value={a.nomenclatorJurisdiction}
+                                                            disabled={locked || fromCatalog}
+                                                            onChange={(e) => updateActivity(a.uid, { nomenclatorJurisdiction: e.target.value })}
+                                                        >
+                                                            <option value="">Seleccionar</option>
+                                                            {JURISDICTIONS.map((j) => (
+                                                                <option key={j.code} value={j.code}>{jurisdictionLabel(j.code)}</option>
+                                                            ))}
+                                                        </select>
+                                                        <FieldError baseId={baseId} fieldKey={k("nomenclatorJurisdiction")} errors={errorMap} />
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <label htmlFor={a11y(k("code")).id} style={LABEL}>Código</label>
+                                                    <input
+                                                        {...a11y(k("code"))}
+                                                        className="input"
+                                                        style={fieldStyle(k("code"), errorMap)}
+                                                        value={a.code}
+                                                        readOnly={locked || fromCatalog}
+                                                        onChange={(e) => updateActivity(a.uid, { code: e.target.value })}
+                                                    />
+                                                    <FieldError baseId={baseId} fieldKey={k("code")} errors={errorMap} />
+                                                </div>
+                                                <div>
+                                                    <label htmlFor={a11y(k("nomenclatorReference")).id} style={LABEL}>
+                                                        Referencia{fromCatalog ? " oficial" : a.nomenclator === "OTRO" ? " del nomenclador" : " (opcional)"}
+                                                    </label>
+                                                    <input
+                                                        {...a11y(k("nomenclatorReference"))}
+                                                        className="input"
+                                                        style={fieldStyle(k("nomenclatorReference"), errorMap)}
+                                                        value={a.nomenclatorReference}
+                                                        readOnly={fromCatalog}
+                                                        onChange={(e) => updateActivity(a.uid, { nomenclatorReference: e.target.value })}
+                                                    />
+                                                    <FieldError baseId={baseId} fieldKey={k("nomenclatorReference")} errors={errorMap} />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label htmlFor={a11y(k("description")).id} style={LABEL}>Descripción</label>
+                                                <input
+                                                    {...a11y(k("description"))}
+                                                    className="input"
+                                                    style={fieldStyle(k("description"), errorMap)}
+                                                    value={a.description}
+                                                    readOnly={fromCatalog}
+                                                    onChange={(e) => updateActivity(a.uid, { description: e.target.value })}
+                                                />
+                                                <FieldError baseId={baseId} fieldKey={k("description")} errors={errorMap} />
+                                            </div>
+                                            {fromCatalog ? (
+                                                <p style={HINT}>
+                                                    Copia fija del catálogo oficial ({a.nomenclatorReference || a.catalogId}). Una versión nueva del catálogo no la modifica.{" "}
+                                                    {!locked && (
+                                                        <button type="button" className="btn btn-secondary" onClick={() => switchToManual(a.uid)}>
+                                                            Editar como carga manual
+                                                        </button>
+                                                    )}
+                                                </p>
+                                            ) : (
+                                                !locked &&
+                                                catalogs !== null &&
+                                                catalogs.length > 0 && (
+                                                    <div>
+                                                        <button type="button" className="btn btn-secondary" onClick={() => updateActivity(a.uid, { entry: "search" })}>
+                                                            Buscar en un catálogo oficial
+                                                        </button>
+                                                    </div>
+                                                )
+                                            )}
+                                        </>
+                                    )}
+
+                                    {selectedCodes.length > 0 ? (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+                                            {selectedCodes.map((code) => {
+                                                const r = a.rates[code] ?? EMPTY_RATE;
+                                                const rk = rateFieldKey(a.uid, code);
+                                                const originId = id(`act-${a.uid}-rate-${code}-origin`);
+                                                return (
+                                                    <div key={code} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                                        <div style={{ display: "flex", gap: "var(--spacing-sm)", alignItems: "center", flexWrap: "wrap" }}>
+                                                            <label style={{ display: "flex", gap: "var(--spacing-xs)", alignItems: "center", minWidth: "240px" }}>
+                                                                <input type="checkbox" checked={r.associated} onChange={(e) => setRate(a.uid, code, { associated: e.target.checked })} />
+                                                                {jurisdictionLabel(code)}
+                                                            </label>
+                                                            {r.associated && (
+                                                                <>
+                                                                    <select
+                                                                        className="input"
+                                                                        style={{ maxWidth: "150px" }}
+                                                                        aria-label={`Tratamiento en ${jurisdictionLabel(code)}`}
+                                                                        value={r.treatment}
+                                                                        onChange={(e) => setManualRate(a.uid, code, { treatment: e.target.value as RateTreatment, rate: e.target.value === "EXEMPT" ? "" : r.rate })}
+                                                                    >
+                                                                        <option value="RATE">Alícuota (%)</option>
+                                                                        <option value="EXEMPT">Exento</option>
+                                                                    </select>
+                                                                    {r.treatment === "RATE" && (
+                                                                        <input
+                                                                            {...a11y(rk, originId)}
+                                                                            className="input"
+                                                                            style={fieldStyle(rk, errorMap, { maxWidth: "140px" })}
+                                                                            inputMode="decimal"
+                                                                            aria-label={`Alícuota ${a.code || `actividad ${idx + 1}`} en ${jurisdictionLabel(code)} (%)`}
+                                                                            placeholder="sin informar"
+                                                                            value={r.rate}
+                                                                            onChange={(e) => setManualRate(a.uid, code, { rate: e.target.value })}
+                                                                        />
+                                                                    )}
+                                                                    {r.treatment === "EXEMPT" && (
+                                                                        // Destino estable del error de la alícuota cuando es exención.
+                                                                        <span {...a11y(rk, originId)} tabIndex={-1} style={fieldStyle(rk, errorMap)}>
+                                                                            Exento (sin alícuota)
+                                                                        </span>
+                                                                    )}
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-secondary"
+                                                                        disabled={a.code.trim() === ""}
+                                                                        onClick={() => setSuggestFor({ uid: a.uid, code })}
+                                                                    >
+                                                                        Asistencia de alícuota
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                        {r.associated && (
+                                                            <span id={originId} style={{ ...HINT, marginTop: 0 }}>
+                                                                {r.treatment === "RATE" && r.rate.trim() === ""
+                                                                    ? "Sin informar"
+                                                                    : r.origin
+                                                                      ? `${RATE_ORIGIN_LABEL[r.origin]}${r.ruleRef ? ` (${r.ruleRef})` : ""}`
+                                                                      : "Sin origen registrado (carga anterior)"}
+                                                            </span>
+                                                        )}
+                                                        <FieldError baseId={baseId} fieldKey={rk} errors={errorMap} />
+                                                        {suggestFor?.uid === a.uid && suggestFor.code === code && (
+                                                            <RateSuggestionPanel
+                                                                jurisdiction={code}
+                                                                activity={{ nomenclator: a.nomenclator, catalogId: a.origin === "CATALOG" ? a.catalogId : null, code: a.code }}
+                                                                registration={reg}
+                                                                current={
+                                                                    r.associated && !(r.treatment === "RATE" && r.rate.trim() === "")
+                                                                        ? {
+                                                                              description: `${r.treatment === "EXEMPT" ? "Exento" : `${r.rate} %`} (${r.origin ? RATE_ORIGIN_LABEL[r.origin] : "sin origen registrado"})`,
+                                                                          }
+                                                                        : null
+                                                                }
+                                                                onConfirm={(alt) => confirmSuggestion(a.uid, code, alt)}
+                                                                onRecordAsStudioDecision={(alt) => recordAsStudioDecision(a.uid, code, alt)}
+                                                                onClose={() => setSuggestFor(null)}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <p style={HINT}>Registrá jurisdicciones para asociar alícuotas a esta actividad.</p>
+                                    )}
+                                    <div>
+                                        <button type="button" className="btn btn-secondary" onClick={() => requestRemoveActivity(a)}>Quitar actividad</button>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                         <div>
                             <button type="button" className="btn btn-secondary" onClick={() => addActivity()}>Agregar actividad</button>
                         </div>
                     </div>
 
-                    {/* Alícuota heredada */}
-                    <details className="card" open={mode === "create"}>
-                        <summary style={{ fontWeight: 600, cursor: "pointer" }}>Alícuota usada por el cálculo actual</summary>
-                        <div style={{ marginTop: "var(--spacing-sm)" }}>
-                            <label htmlFor={id("defaultIibbRate")} style={LABEL}>Alícuota IIBB del cálculo actual (%)</label>
-                            <input
-                                id={id("defaultIibbRate")}
-                                name="defaultIibbRate"
-                                type="text"
-                                inputMode="decimal"
-                                required={mode === "edit"}
-                                className="input"
-                                placeholder="3.0"
-                                value={fields.defaultIibbRate}
-                                onChange={set("defaultIibbRate")}
-                            />
-                            <p style={HINT}>
-                                Es la única alícuota que usa hoy la liquidación y la exportación. No cambia al editar la inscripción, las jurisdicciones ni las actividades.
-                            </p>
-                        </div>
-                    </details>
+                    {/* Alícuota del cálculo actual: única alícuota que usan hoy el cálculo y las exportaciones */}
+                    <section className="card" aria-labelledby={id("legacy-title")} style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+                        <h3 id={id("legacy-title")} style={{ fontSize: "1rem", fontWeight: 600 }}>Cálculo actual</h3>
+                        <label htmlFor={a11y("defaultIibbRate").id} style={{ fontWeight: 500 }}>
+                            Alícuota del cálculo actual (%)
+                        </label>
+                        <input
+                            {...a11y("defaultIibbRate", id("legacy-status"))}
+                            name="defaultIibbRate"
+                            type="text"
+                            inputMode="decimal"
+                            className="input"
+                            style={fieldStyle("defaultIibbRate", errorMap, { maxWidth: "160px" })}
+                            value={fields.defaultIibbRate}
+                            onChange={set("defaultIibbRate")}
+                        />
+                        <span id={id("legacy-status")} style={{ ...HINT, marginTop: 0 }}>
+                            {mode === "create"
+                                ? fields.defaultIibbRate.trim() === initial.defaultIibbRate
+                                    ? `${initial.defaultIibbRate} %: valor predeterminado, pendiente de confirmación.`
+                                    : "Valor indicado en el alta."
+                                : "Sin constancia de revisión: el sistema no registra si el estudio revisó este valor."}{" "}
+                            El cálculo y las exportaciones todavía usan este único valor. No se obtiene automáticamente de las actividades ni de las alícuotas por jurisdicción de
+                            esta ficha, y no representa una liquidación por jurisdicción.
+                        </span>
+                        <FieldError baseId={baseId} fieldKey="defaultIibbRate" errors={errorMap} />
+                    </section>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--spacing-sm)", marginTop: "var(--spacing-md)" }}>

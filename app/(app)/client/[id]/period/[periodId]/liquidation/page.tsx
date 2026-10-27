@@ -8,6 +8,7 @@ import { AccessNotice } from "@/app/_components/access-notice";
 import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-calc";
 import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { formatMoney } from "@/lib/format";
+import { LIQUIDATION_RATE_NOTE } from "@/lib/legacy-iibb-rate";
 
 export const dynamic = "force-dynamic";
 
@@ -119,6 +120,9 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
                     <span>Impuesto Determinado ({r.iibb.rate.toString()}%)</span>
                     <span style={{ fontWeight: 500 }}>${m(r.iibb.tax)}</span>
                 </div>
+                <p style={{ color: "var(--secondary)", fontSize: "0.8125rem", marginTop: "calc(-1 * var(--spacing-sm))", marginBottom: "var(--spacing-md)" }}>
+                    {LIQUIDATION_RATE_NOTE}
+                </p>
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
                     <span>Retenciones / Percepciones / SIRCREB</span>
