@@ -35,13 +35,15 @@ const statements = code.split(";").map((s) => s.trim()).filter(Boolean);
 const schema = readFileSync(repo + "prisma/schema.prisma", "utf8");
 
 describe(`migración ${MIGRATION} — revisión estática`, () => {
-  it("es la última migración y las previas no cambiaron (checksum)", () => {
+  it("se apila tras las previas sin cambiarlas (checksum); sólo la siguen migraciones posteriores conocidas", () => {
+    // Migraciones posteriores, revisadas en su propio test (tests/schema/*).
+    const LATER = ["20261025120000_client_profile_iibb_contacts"];
     const dirs = readdirSync(migrationsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
       .sort();
-    expect(dirs).toEqual([...Object.keys(PRIOR_SHA256), MIGRATION].sort());
-    expect(dirs[dirs.length - 1]).toBe(MIGRATION);
+    expect(dirs).toEqual([...Object.keys(PRIOR_SHA256), MIGRATION, ...LATER].sort());
+    expect(dirs.indexOf(MIGRATION)).toBe(Object.keys(PRIOR_SHA256).length);
     for (const [m, sha] of Object.entries(PRIOR_SHA256)) {
       const hash = createHash("sha256").update(readFileSync(migrationsDir + m + "/migration.sql")).digest("hex");
       expect(hash, m).toBe(sha);

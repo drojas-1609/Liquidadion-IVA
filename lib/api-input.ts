@@ -4,6 +4,7 @@ import { D, moneyInRange, MONEY_MAX } from "./decimal";
 import { parseMoney, parseRate } from "./validation/decimal";
 import { normalizeCuit } from "./cuit";
 import { CLIENT_CONDITION_ERROR, isClientCondition } from "./client-condition";
+import { normalizeContactEmail, normalizeContactPhone, validateIibbProfile, type IibbProfileData } from "./client-profile";
 import { isValidPeriodMonth, isValidPeriodYear, periodYearRange } from "./period";
 import type { InvoiceCategory, InvoiceModelData } from "./invoice-model";
 import { VAT_CONDITIONS, VOUCHER_TYPES, type VoucherVariant } from "./arca/catalogs";
@@ -383,6 +384,18 @@ export interface ClientCreateData {
   condition: string;
   address: string | null;
   defaultIibbRate: Prisma.Decimal;
+  /** Contacto confirmado por el estudio: obligatorio en altas nuevas. */
+  phone: string;
+  contactEmail: string;
+  /** Perfil IIBB informativo (opcional en el alta; null = sin clasificar). */
+  iibb: IibbProfileData | null;
+}
+
+/** Valida `iibb` si viene; ausente o null -> null. */
+function iibbInput(v: unknown): InputResult<IibbProfileData | null> {
+  if (v === undefined || v === null) return { ok: true, data: null };
+  const r = validateIibbProfile(v);
+  return r.ok ? { ok: true, data: r.value } : fail(r.field, r.error);
 }
 
 export function buildClientInput(body: unknown): InputResult<ClientCreateData> {
@@ -414,29 +427,73 @@ export function buildClientInput(body: unknown): InputResult<ClientCreateData> {
     defaultIibbRate = parsed.value;
   }
 
-  return { ok: true, data: { name: b.name, cuit: cuit.value, condition, address, defaultIibbRate } };
+  // Contactos: obligatorios en altas nuevas (los históricos pueden no tenerlos).
+  const phone = normalizeContactPhone(b.phone);
+  if (!phone.ok) return fail("phone", phone.error);
+  const contactEmail = normalizeContactEmail(b.contactEmail);
+  if (!contactEmail.ok) return fail("contactEmail", contactEmail.error);
+
+  const iibb = iibbInput(b.iibb);
+  if (!iibb.ok) return iibb;
+
+  return {
+    ok: true,
+    data: {
+      name: b.name,
+      cuit: cuit.value,
+      condition,
+      address,
+      defaultIibbRate,
+      phone: phone.value,
+      contactEmail: contactEmail.value,
+      iibb: iibb.data,
+    },
+  };
 }
 
 // ── Client (edición parcial) ────────────────────────────────────────────────
 
-/** Campos editables de un Client. Cualquier otra clave del body se IGNORA. */
+/** Campos escalares editables de un Client. Cualquier otra clave del body se IGNORA. */
 export const CLIENT_UPDATABLE_FIELDS = ["name", "cuit", "condition", "address", "defaultIibbRate"] as const;
 export type ClientUpdatableField = (typeof CLIENT_UPDATABLE_FIELDS)[number];
 
-export type ClientUpdateData = Partial<ClientCreateData>;
+export type ClientUpdateFields = Partial<Pick<ClientCreateData, ClientUpdatableField>> & {
+  /**
+   * Contactos: ausente = sin cambios; string = valor validado; null = el body
+   * pidió VACIARLO (la ruta lo rechaza si ya había un valor confirmado, y lo
+   * ignora si el cliente histórico no lo tenía).
+   */
+  phone?: string | null;
+  contactEmail?: string | null;
+  /** Perfil IIBB completo (reemplazo total); ausente = sin cambios. */
+  iibb?: IibbProfileData;
+};
+
+export const CLIENT_EXPECTED_UPDATED_AT_ERROR =
+  "expectedUpdatedAt inválido: debe ser la fecha ISO exacta del cliente (AAAA-MM-DDTHH:mm:ss.sssZ)";
+
+export type ClientUpdateData = ClientUpdateFields & {
+  /**
+   * `Client.updatedAt` que vio el formulario al abrirse: versión del cliente
+   * COMPLETO (campos generales, contactos y ficha IIBB). Obligatorio.
+   */
+  expectedUpdatedAt: Date;
+};
 
 /**
  * Valida un PATCH de Client. Sólo se consideran las claves presentes de
  * `CLIENT_UPDATABLE_FIELDS`; `organizationId`, `id`, autoría y timestamps del
  * body se ignoran. El CUIT pasa por `normalizeCuit` (mismo formato canónico que
- * el alta). Sin ningún campo editable -> 422.
+ * el alta). Sin ningún campo editable -> 422. `expectedUpdatedAt` (versión del
+ * cliente que vio el formulario) es obligatorio, con la misma regla estricta que
+ * comprobantes y períodos: ausente o inválido -> 422.
  */
 export function buildClientUpdateInput(body: unknown): InputResult<ClientUpdateData> {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return fail("body", "cuerpo inválido");
   }
   const b = body as Record<string, unknown>;
-  const data: ClientUpdateData = {};
+  const data: ClientUpdateFields = {};
 
   if (b.name !== undefined) {
     if (!nonEmptyString(b.name)) return fail("name", "nombre requerido");
@@ -463,9 +520,33 @@ export function buildClientUpdateInput(body: unknown): InputResult<ClientUpdateD
     if (!parsed.ok) return fail("defaultIibbRate", parsed.error);
     data.defaultIibbRate = parsed.value;
   }
+  if (b.phone !== undefined) {
+    if (b.phone === null || (typeof b.phone === "string" && b.phone.trim() === "")) data.phone = null;
+    else {
+      const phone = normalizeContactPhone(b.phone);
+      if (!phone.ok) return fail("phone", phone.error);
+      data.phone = phone.value;
+    }
+  }
+  if (b.contactEmail !== undefined) {
+    if (b.contactEmail === null || (typeof b.contactEmail === "string" && b.contactEmail.trim() === "")) data.contactEmail = null;
+    else {
+      const email = normalizeContactEmail(b.contactEmail);
+      if (!email.ok) return fail("contactEmail", email.error);
+      data.contactEmail = email.value;
+    }
+  }
+  if (b.iibb !== undefined) {
+    if (b.iibb === null) return fail("iibb", "perfil de Ingresos Brutos inválido");
+    const iibb = validateIibbProfile(b.iibb);
+    if (!iibb.ok) return fail(iibb.field, iibb.error);
+    data.iibb = iibb.value;
+  }
 
   if (Object.keys(data).length === 0) return fail("body", "no hay campos para actualizar");
-  return { ok: true, data };
+  const expected = parseExpectedUpdatedAt(b.expectedUpdatedAt);
+  if (!expected.ok) return fail("expectedUpdatedAt", CLIENT_EXPECTED_UPDATED_AT_ERROR);
+  return { ok: true, data: { ...data, expectedUpdatedAt: expected.data } };
 }
 
 // ── PeriodVatSettings: inclusión en el Régimen TurIVA ────────────────────────

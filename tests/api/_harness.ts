@@ -37,6 +37,9 @@ export interface ClientRow {
   condition: string;
   address: string | null;
   defaultIibbRate: Prisma.Decimal;
+  phone: string | null;
+  contactEmail: string | null;
+  iibbRegistration: string | null;
   createdById: string | null;
   updatedById: string | null;
   createdAt: Date;
@@ -80,6 +83,10 @@ export function clientRow(id: string, organizationId: string, over: Partial<Clie
     condition: "Responsable Inscripto",
     address: null,
     defaultIibbRate: new Prisma.Decimal("3"),
+    // Cliente histórico por defecto: sin contactos ni inscripción IIBB.
+    phone: null,
+    contactEmail: null,
+    iibbRegistration: null,
     createdById: null,
     updatedById: null,
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -176,6 +183,10 @@ export interface World {
   taxRecords?: any[];
   /** Filas de PeriodVatSettings (periodId, organizationId, turivaIncluded, …). */
   vatSettings?: any[];
+  /** Ficha IIBB: ClientJurisdiction, ClientActivity y ClientActivityRate. */
+  clientJurisdictions?: any[];
+  clientActivities?: any[];
+  clientActivityRates?: any[];
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -210,6 +221,9 @@ export interface DbMock {
   taxRecord: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; deleteMany: Fn };
   auditLog: { create: Fn };
   periodVatSettings: { findUnique: Fn; create: Fn; update: Fn };
+  clientJurisdiction: { findMany: Fn; deleteMany: Fn; createMany: Fn };
+  clientActivity: { findMany: Fn; deleteMany: Fn; create: Fn };
+  clientActivityRate: { findMany: Fn; deleteMany: Fn; createMany: Fn };
   $transaction: Fn;
   /** Simula lockPeriodForWrite (lock_timeout + FOR UPDATE de Period) y los FOR UPDATE de Invoice y TaxRecord; no hay locks reales. */
   $queryRaw: Fn;
@@ -233,6 +247,9 @@ export function freshDbMock(): DbMock {
     taxRecord: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     auditLog: { create: vi.fn() },
     periodVatSettings: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    clientJurisdiction: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
+    clientActivity: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
+    clientActivityRate: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     $transaction: vi.fn(),
     $queryRaw: vi.fn(),
   };
@@ -243,7 +260,7 @@ export interface Recorder {
   audits: any[];
   created: Record<string, any>;
   failAudit: boolean;
-  /** Bloqueos (Period / Invoice / TaxRecord) solicitados vía $queryRaw: { sql, values }. Sólo locks reales. */
+  /** Bloqueos (Period / Invoice / TaxRecord / Client) solicitados vía $queryRaw: { sql, values }. Sólo locks reales. */
   locks: Array<{ sql: string; values: unknown[] }>;
   /** Pasos de `lock_timeout` de lockPeriodForWrite (lectura, set 3000ms, restauración), en orden. */
   lockTimeouts: Array<{ step: "read" | "set" | "restore"; value: string }>;
@@ -396,15 +413,21 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       });
     }
     rec.created.client = data;
-    return clientRow(mkId("c"), data.organizationId, {
+    const row = clientRow(mkId("c"), data.organizationId, {
       name: data.name,
       cuit: data.cuit,
       condition: data.condition,
       address: data.address ?? null,
       defaultIibbRate: new Prisma.Decimal(String(data.defaultIibbRate ?? "3")),
+      phone: data.phone ?? null,
+      contactEmail: data.contactEmail ?? null,
+      iibbRegistration: data.iibbRegistration ?? null,
       createdById: data.createdById ?? null,
       updatedById: data.updatedById ?? null,
     });
+    // Como en la base: la fila existe para el resto de la transacción (FKs de la ficha IIBB).
+    world.clients.push(row);
+    return row;
   });
 
   const knownError = (code: string, message: string) =>
@@ -427,7 +450,8 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     ) {
       throw knownError("P2002", "Unique constraint failed");
     }
-    const next = { ...current, ...data, updatedAt: new Date("2026-02-01T00:00:00.000Z") };
+    // Como Prisma con @updatedAt: un valor explícito se respeta; si no, "ahora" fijo.
+    const next = { ...current, ...data, updatedAt: data.updatedAt ?? new Date("2026-02-01T00:00:00.000Z") };
     world.clients[idx] = next;
     rec.created.clientUpdate = data;
     return next;
@@ -441,6 +465,11 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       throw knownError("P2003", "Foreign key constraint failed");
     }
     world.clients.splice(idx, 1);
+    // ON DELETE CASCADE: la ficha IIBB del cliente se elimina con él.
+    const own = (r: { clientId: string; organizationId: string }) => r.clientId === current.id && r.organizationId === current.organizationId;
+    for (const table of [world.clientActivityRates, world.clientActivities, world.clientJurisdictions]) {
+      if (table) table.splice(0, table.length, ...table.filter((r) => !own(r)));
+    }
     rec.created.clientDelete = where.id_organizationId;
     return current;
   });
@@ -680,6 +709,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   const INVOICE_LOCK = /^SELECT .+ FROM "Invoice" WHERE "id" = \? AND "organizationId" = \? FOR UPDATE$/;
   const TAX_RECORD_LOCK_COLUMNS = ["id", "organizationId", "periodId", "type", "date", "amount", "description", "updatedAt"];
   const TAX_RECORD_LOCK = `SELECT ${TAX_RECORD_LOCK_COLUMNS.map((c) => `"${c}"`).join(", ")} FROM "TaxRecord" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE`;
+  const CLIENT_LOCK = `SELECT "id", "organizationId", "updatedAt" FROM "Client" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE`;
   db.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const raw = strings.join("?");
     const sql = raw.replace(/\s+/g, " ").trim();
@@ -719,6 +749,12 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       const row = (world.taxRecords ?? []).find((t) => t.id === id && t.organizationId === organizationId);
       return row ? [pick(row, Object.fromEntries(TAX_RECORD_LOCK_COLUMNS.map((c) => [c, true])))] : [];
     }
+    if (sql === CLIENT_LOCK && values.length === 2) {
+      rec.locks.push({ sql: raw, values });
+      rec.rawSteps.push(`lock:Client@${current}`);
+      const row = world.clients.find((c) => c.id === id && c.organizationId === organizationId);
+      return row ? [{ id: row.id, organizationId: row.organizationId, updatedAt: row.updatedAt }] : [];
+    }
     if (PERIOD_LOCK.test(sql) && values.length === 2) {
       rec.locks.push({ sql: raw, values });
       rec.rawSteps.push(`lock:Period@${current}`);
@@ -730,6 +766,83 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       return period ? [{ id, status: period.status }] : [];
     }
     throw new Error(`consulta raw inesperada: ${sql}`);
+  });
+
+  // Ficha IIBB: tablas en memoria acotadas por where (clientId, organizationId).
+  // Integridad simulada de la base: FKs compuestas (mismo cliente y
+  // organización) y unicidades; una violación lanza como lo haría PostgreSQL.
+  world.clientJurisdictions ??= [];
+  world.clientActivities ??= [];
+  world.clientActivityRates ??= [];
+  const matches = (row: any, where: any) => Object.entries(where ?? {}).every(([k, v]) => row[k] === v);
+  const removeWhere = (rows: any[], where: any) => {
+    const keep = rows.filter((r) => !matches(r, where));
+    const count = rows.length - keep.length;
+    rows.splice(0, rows.length, ...keep);
+    return { count };
+  };
+  const clientExists = (clientId: string, organizationId: string) =>
+    world.clients.some((c) => c.id === clientId && c.organizationId === organizationId);
+  const fkError = () => knownError("P2003", "Foreign key constraint failed");
+  const uniqueError = () => knownError("P2002", "Unique constraint failed");
+  db.clientJurisdiction.findMany.mockImplementation(async ({ where }: AnyArgs) =>
+    world.clientJurisdictions!.filter((r) => matches(r, where)).map((r) => ({ ...r })),
+  );
+  db.clientActivity.findMany.mockImplementation(async ({ where }: AnyArgs) =>
+    world.clientActivities!.filter((r) => matches(r, where)).map((r) => ({ ...r })),
+  );
+  db.clientActivityRate.findMany.mockImplementation(async ({ where }: AnyArgs) =>
+    world.clientActivityRates!.filter((r) => matches(r, where)).map((r) => ({ ...r })),
+  );
+  db.clientActivityRate.deleteMany.mockImplementation(async ({ where }: AnyArgs) => removeWhere(world.clientActivityRates!, where));
+  db.clientActivity.deleteMany.mockImplementation(async ({ where }: AnyArgs) => {
+    const ids = new Set(world.clientActivities!.filter((r) => matches(r, where)).map((r) => r.id));
+    world.clientActivityRates!.splice(0, world.clientActivityRates!.length, ...world.clientActivityRates!.filter((r) => !ids.has(r.activityId)));
+    return removeWhere(world.clientActivities!, where);
+  });
+  db.clientJurisdiction.deleteMany.mockImplementation(async ({ where }: AnyArgs) => {
+    const doomed = world.clientJurisdictions!.filter((r) => matches(r, where));
+    // FK ON DELETE CASCADE desde ClientActivityRate (como la base).
+    const gone = (r: { clientId: string; organizationId: string; jurisdictionCode: string }) =>
+      doomed.some((j) => j.clientId === r.clientId && j.organizationId === r.organizationId && j.jurisdictionCode === r.jurisdictionCode);
+    world.clientActivityRates!.splice(0, world.clientActivityRates!.length, ...world.clientActivityRates!.filter((r) => !gone(r)));
+    return removeWhere(world.clientJurisdictions!, where);
+  });
+  db.clientJurisdiction.createMany.mockImplementation(async ({ data }: AnyArgs) => {
+    for (const d of data) {
+      if (!clientExists(d.clientId, d.organizationId)) throw fkError();
+      if (world.clientJurisdictions!.some((r) => r.clientId === d.clientId && r.jurisdictionCode === d.jurisdictionCode)) throw uniqueError();
+      world.clientJurisdictions!.push({ id: mkId("cj"), ...d });
+    }
+    return { count: data.length };
+  });
+  db.clientActivity.create.mockImplementation(async ({ data }: AnyArgs) => {
+    if (!clientExists(data.clientId, data.organizationId)) throw fkError();
+    const dup = world.clientActivities!.some(
+      (r) =>
+        r.clientId === data.clientId &&
+        r.nomenclator === data.nomenclator &&
+        r.nomenclatorJurisdiction === data.nomenclatorJurisdiction &&
+        r.code === data.code,
+    );
+    if (dup) throw uniqueError();
+    const row = { id: mkId("ca"), ...data };
+    world.clientActivities!.push(row);
+    return { id: row.id };
+  });
+  db.clientActivityRate.createMany.mockImplementation(async ({ data }: AnyArgs) => {
+    for (const d of data) {
+      const activity = world.clientActivities!.find(
+        (a) => a.id === d.activityId && a.clientId === d.clientId && a.organizationId === d.organizationId,
+      );
+      const jurisdiction = world.clientJurisdictions!.find(
+        (j) => j.clientId === d.clientId && j.organizationId === d.organizationId && j.jurisdictionCode === d.jurisdictionCode,
+      );
+      if (!activity || !jurisdiction) throw fkError();
+      if (world.clientActivityRates!.some((r) => r.activityId === d.activityId && r.jurisdictionCode === d.jurisdictionCode)) throw uniqueError();
+      world.clientActivityRates!.push({ id: mkId("car"), ...d });
+    }
+    return { count: data.length };
   });
 
   // $transaction(fn) -> corre fn con el propio db. Atomicidad simulada: si fn
@@ -756,6 +869,9 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     const invoicesBefore = world.invoices?.slice();
     const invoiceVatLinesBefore = world.invoiceVatLines?.slice();
     const taxRecordsBefore = world.taxRecords?.map((t) => ({ ...t }));
+    const clientJurisdictionsBefore = world.clientJurisdictions!.slice();
+    const clientActivitiesBefore = world.clientActivities!.slice();
+    const clientActivityRatesBefore = world.clientActivityRates!.slice();
     try {
       return await fn(db);
     } catch (err) {
@@ -767,6 +883,9 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       world.invoices = invoicesBefore;
       world.invoiceVatLines = invoiceVatLinesBefore;
       world.taxRecords = taxRecordsBefore;
+      world.clientJurisdictions!.splice(0, world.clientJurisdictions!.length, ...clientJurisdictionsBefore);
+      world.clientActivities!.splice(0, world.clientActivities!.length, ...clientActivitiesBefore);
+      world.clientActivityRates!.splice(0, world.clientActivityRates!.length, ...clientActivityRatesBefore);
       throw err;
     }
   };

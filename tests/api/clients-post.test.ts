@@ -58,7 +58,7 @@ function post(bodyText: string | undefined) {
   );
 }
 const jbody = (o: unknown) => JSON.stringify(o);
-const validBody = { name: "Nueva SA", cuit: "30-22222222-9", condition: "Responsable Inscripto" };
+const validBody = { name: "Nueva SA", cuit: "30-22222222-9", condition: "Responsable Inscripto", phone: "+54 11 5555-0100", contactEmail: "contacto@estudio.test" };
 
 describe("POST /api/clients — rehabilitación segura", () => {
   it("201: crea el cliente en la org activa, con autoría y AuditLog client.create", async () => {
@@ -85,7 +85,7 @@ describe("POST /api/clients — rehabilitación segura", () => {
 
   it("AuditLog.metadata de client.create = { condition } y NUNCA el cuit", async () => {
     await post(jbody(validBody));
-    expect(rec.audits[0].metadata).toEqual({ condition: "Responsable Inscripto" });
+    expect(rec.audits[0].metadata).toEqual({ condition: "Responsable Inscripto", iibbRegistration: null });
     expect(JSON.stringify(rec.audits[0])).not.toMatch(/30-22222222-9/);
     // targetId es el id del cliente creado
     expect(rec.audits[0].targetId).toBe(rec.audits[0].targetId);

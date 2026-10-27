@@ -107,6 +107,19 @@ model Client {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  // Ficha del cliente (contactos e IIBB). Todo NULLABLE: los clientes
+  // históricos quedan sin dato (información pendiente), sin valores ficticios.
+  // Teléfono y email de CONTACTO confirmados por el estudio (no son domicilio
+  // fiscal electrónico ni titularidad verificada).
+  phone            String?
+  contactEmail     String?
+  // Categoría operativa de inscripción en Ingresos Brutos elegida por el
+  // estudio. NULL = sin clasificar. Informativa: NO interviene en el cálculo
+  // (la liquidación sigue usando defaultIibbRate).
+  iibbRegistration ClientIibbRegistration?
+  jurisdictions    ClientJurisdiction[]
+  activities       ClientActivity[]
+
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
   createdById    String?      @db.Uuid
@@ -471,4 +484,99 @@ model Settings {
   id    String @id @default(cuid())
   key   String @unique
   value String
+}
+
+// ── Ficha IIBB del cliente (informativa) ─────────────────────────────────────
+
+/// Categoría operativa de inscripción en Ingresos Brutos elegida por el estudio.
+/// Local, Simplificado y Convenio Multilateral son regímenes; Exento es un
+/// tratamiento y No Inscripto una situación (ver lib/iibb/registration.ts). No
+/// se infiere de la condición frente al IVA ni determina obligaciones.
+enum ClientIibbRegistration {
+  LOCAL
+  SIMPLIFICADO
+  EXENTO
+  NO_INSCRIPTO
+  CONVENIO_MULTILATERAL
+}
+
+/// Nomenclador del código de actividad. Los códigos de nomencladores distintos
+/// NO son equivalentes entre sí y no se convierten automáticamente.
+enum ActivityNomenclator {
+  ARCA
+  NAES
+  PROVINCIAL
+  OTRO
+}
+
+/// Jurisdicción IIBB del cliente (código de Convenio Multilateral 901-924).
+/// Según la inscripción es una jurisdicción inscripta, alcanzada (CM) o de
+/// actividad (No Inscripto). `isHeadquarters`: sede, sólo en CM.
+model ClientJurisdiction {
+  id               String   @id @default(cuid())
+  organizationId   String
+  clientId         String
+  jurisdictionCode String
+  isHeadquarters   Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  client Client               @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+  rates  ClientActivityRate[]
+
+  @@unique([clientId, jurisdictionCode])
+  // Destino de la FK compuesta desde ClientActivityRate (misma organización y cliente).
+  @@unique([clientId, organizationId, jurisdictionCode])
+  @@index([organizationId])
+}
+
+/// Actividad del cliente con su código en un nomenclador identificado.
+/// `nomenclatorJurisdiction`: jurisdicción del nomenclador provincial ("" si
+/// no aplica). `nomenclatorReference`: referencia libre del nomenclador (p. ej.
+/// el número de nomenclador informado por ARCA).
+model ClientActivity {
+  id                      String              @id @default(cuid())
+  organizationId          String
+  clientId                String
+  nomenclator             ActivityNomenclator
+  nomenclatorJurisdiction String              @default("")
+  nomenclatorReference    String?
+  code                    String
+  description             String
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  client Client               @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+  rates  ClientActivityRate[]
+
+  @@unique([clientId, nomenclator, nomenclatorJurisdiction, code])
+  // Destino de la FK compuesta desde ClientActivityRate.
+  @@unique([id, clientId, organizationId])
+  @@index([organizationId])
+}
+
+/// Alícuota informativa por actividad y jurisdicción. `rate` NULL = sin
+/// informar (distinto de 0 explícito). NO se usa en la liquidación. Tabla
+/// separada para poder agregar vigencias por período en el futuro.
+model ClientActivityRate {
+  id               String   @id @default(cuid())
+  organizationId   String
+  clientId         String
+  activityId       String
+  jurisdictionCode String
+  rate             Decimal? @db.Decimal(9, 6)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  activity     ClientActivity     @relation(fields: [activityId, clientId, organizationId], references: [id, clientId, organizationId], onDelete: Cascade, onUpdate: Cascade)
+  // onDelete Cascade: al borrar un cliente, sus jurisdicciones y alícuotas se
+  // eliminan juntas (con NoAction PostgreSQL verificaba esta FK antes de que la
+  // cascada desde la actividad borrara las alícuotas y el borrado fallaba). La
+  // protección contra quitas silenciosas está en el servidor: confirmación
+  // exacta bajo bloqueo de la fila del cliente (app/api/clients/[id]).
+  jurisdiction ClientJurisdiction @relation(fields: [clientId, organizationId, jurisdictionCode], references: [clientId, organizationId, jurisdictionCode], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([activityId, jurisdictionCode])
+  @@index([clientId])
+  @@index([organizationId])
 }

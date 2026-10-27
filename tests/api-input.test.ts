@@ -63,26 +63,26 @@ describe("lib/api-input", () => {
   });
 
   it("clients: defaultIibbRate ausente -> 3; presente inválido -> 422", () => {
-    const ok = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "Responsable Inscripto" });
+    const ok = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "Responsable Inscripto", phone: "+54 11 5555-0100", contactEmail: "contacto@estudio.test" });
     expect(ok.ok).toBe(true);
     if (ok.ok) expect(ok.data.defaultIibbRate.toString()).toBe("3");
 
-    const ok2 = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "Responsable Inscripto", defaultIibbRate: "3.5" });
+    const ok2 = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "Responsable Inscripto", phone: "+54 11 5555-0100", contactEmail: "contacto@estudio.test", defaultIibbRate: "3.5" });
     if (ok2.ok) expect(ok2.data.defaultIibbRate.toString()).toBe("3.5");
 
-    const bad = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "Responsable Inscripto", defaultIibbRate: "101" });
+    const bad = buildClientInput({ name: "X SA", cuit: "30-11111111-8", condition: "Responsable Inscripto", phone: "+54 11 5555-0100", contactEmail: "contacto@estudio.test", defaultIibbRate: "101" });
     expect(bad.ok).toBe(false);
   });
 });
 
 describe("buildClientInput / buildClientUpdateInput — condición fiscal", () => {
-  const base = { name: "X SA", cuit: "30-11111111-8" };
+  const base = { name: "X SA", cuit: "30-11111111-8", phone: "+54 11 5555-0100", contactEmail: "contacto@estudio.test" };
 
   it.each([["Responsable Inscripto"], ["Monotributo"], ["Exento"], ["  Monotributo  "]])("%s -> admitida (se guarda sin espacios)", (condition) => {
     const res = buildClientInput({ ...base, condition });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.data.condition).toBe(condition.trim());
-    const upd = buildClientUpdateInput({ condition });
+    const upd = buildClientUpdateInput({ condition, expectedUpdatedAt: "2026-01-01T00:00:00.000Z" });
     expect(upd.ok).toBe(true);
     if (upd.ok) expect(upd.data.condition).toBe(condition.trim());
   });

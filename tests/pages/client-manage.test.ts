@@ -43,7 +43,7 @@ import {
 import ClientDashboard from "@/app/(app)/client/[id]/dashboard/page";
 import EditClientPage from "@/app/(app)/client/[id]/edit/page";
 import { ClientActions } from "@/app/(app)/client/[id]/dashboard/client-actions";
-import { EditClientForm } from "@/app/(app)/client/[id]/edit/edit-client-form";
+import { ClientProfileForm } from "@/app/(app)/clients/_components/client-profile-form";
 import { AccessNotice } from "@/app/_components/access-notice";
 
 let db: ReturnType<typeof freshDbMock>;
@@ -109,16 +109,31 @@ describe("app/client/[id]/edit/page — sólo OWNER / ADMIN", () => {
     H.claims.value = claimsFor(sub);
     const el = await call("c_a");
     expect(noticeOf(el)).toBeNull();
-    const form = findElement(el, EditClientForm);
-    expect(form.props.client).toMatchObject({
+    const form = findElement(el, ClientProfileForm);
+    expect(form.props.mode).toBe("edit");
+    expect(form.props.initial).toEqual({
       id: "c_a",
+      // Token de versión: Client.updatedAt leído ANTES que la ficha IIBB.
+      expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
       name: "Alfa SA",
+      cuit: expect.any(String),
       condition: "Responsable Inscripto",
       address: "Calle 1",
       defaultIibbRate: "3",
+      // Cliente histórico: contactos e inscripción pendientes, sin valores ficticios.
+      phone: "",
+      contactEmail: "",
+      iibbRegistration: null,
+      jurisdictions: [],
+      activities: [],
     });
-    expect(form.props.client).not.toHaveProperty("organizationId");
+    expect(form.props.initial).not.toHaveProperty("organizationId");
     expect(db.client.findFirst).toHaveBeenCalledWith({ where: { id: "c_a", organizationId: ORG_A } });
+    // Orden: versión primero, ficha después (una ficha más nueva sólo puede dar 409, nunca datos viejos aceptados).
+    expect(db.client.findFirst.mock.invocationCallOrder[0]).toBeLessThan(db.clientJurisdiction.findMany.mock.invocationCallOrder[0]);
+    for (const m of [db.clientJurisdiction.findMany, db.clientActivity.findMany, db.clientActivityRate.findMany]) {
+      expect(m).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: "c_a", organizationId: ORG_A } }));
+    }
   });
 
   it.each([
@@ -128,7 +143,7 @@ describe("app/client/[id]/edit/page — sólo OWNER / ADMIN", () => {
     H.claims.value = claimsFor(sub);
     const el = await call("c_a");
     expect(noticeOf(el)).toBe("forbidden");
-    expect(findElement(el, EditClientForm)).toBeNull();
+    expect(findElement(el, ClientProfileForm)).toBeNull();
   });
 
   it("cliente de otra organización -> notFound() (idéntico a inexistente)", async () => {
@@ -153,5 +168,12 @@ describe("UI — la confirmación de borrado no usa window.confirm", () => {
     );
     expect(src).not.toMatch(/\b(window\.)?(confirm|alert|prompt)\s*\(/);
     expect(src).toMatch(/Sí, eliminar/);
+  });
+
+  it("el formulario de la ficha no invoca confirm()/alert()/prompt(): confirma quitas dentro de la página", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../../app/(app)/clients/_components/client-profile-form.tsx", import.meta.url), "utf8");
+    expect(src).not.toMatch(/\b(window\.)?(confirm|alert|prompt)\s*\(/);
+    expect(src).toMatch(/role="alertdialog"/);
   });
 });

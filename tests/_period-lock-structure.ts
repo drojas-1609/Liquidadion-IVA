@@ -20,6 +20,9 @@ import ts from "typescript";
  *    parámetros exactos, sin Period; el helper sólo se usa dentro de handlers
  *    inventariados, después del lock de Period y antes de toda escritura de
  *    TaxRecord (update/delete) y del AuditLog del handler.
+ *  - de lib/client-lock.ts: un único FOR UPDATE de Client por id + organización
+ *    con columnas y parámetros exactos, sin Period (versión optimista de la
+ *    edición de clientes; no participa del bloqueo del período).
  *  - cierre del período: PeriodClosedError sólo en lockPeriodForWrite (nunca en
  *    lockPeriodForStatusChange ni fuera de lib/period-lock.ts). Los handlers de
  *    TRANSICIÓN de estado (`transitions`, subconjunto de `methods`) usan
@@ -138,6 +141,9 @@ const INVOICE_LOCK_SQL = /^SELECT (?:"\w+", )*"\w+" FROM "Invoice" WHERE "id" = 
 const TAX_RECORD_LOCK_SQL =
   'SELECT "id", "organizationId", "periodId", "type", "date", "amount", "description", "updatedAt" FROM "TaxRecord" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE';
 const TAX_RECORD_LOCK_FILE = "lib/tax-record-lock.ts";
+/** FOR UPDATE de Client (versión de la edición de clientes): columnas y orden EXACTOS. */
+const CLIENT_LOCK_SQL = 'SELECT "id", "organizationId", "updatedAt" FROM "Client" WHERE "id" = ? AND "organizationId" = ? FOR UPDATE';
+const CLIENT_LOCK_FILE = "lib/client-lock.ts";
 const TAX_RECORD_LOCK_FN = "lockTaxRecordForUpdate";
 /** Bloqueo del Period de un writer del contenido y de una transición de estado. */
 const WRITE_LOCK_FN = "lockPeriodForWrite";
@@ -453,7 +459,17 @@ function checkRawInventory(ctx: Ctx, raws: RawQuery[]): void {
     if (raws.length === 0) add(ctx, "RAW_MISSING", null, "falta el FOR UPDATE de TaxRecord");
     return;
   }
-  for (const r of raws) add(ctx, "RAW_NOT_INVENTORIED", r.node, `$queryRaw fuera de lib/period-lock.ts, lib/invoice-lock.ts y lib/tax-record-lock.ts: ${r.sql}`);
+  if (ctx.file === CLIENT_LOCK_FILE) {
+    let ok = 0;
+    for (const r of raws) {
+      if (/"Period"/.test(r.sql) || r.sql !== CLIENT_LOCK_SQL || r.params.join(",") !== "clientId,organizationId") {
+        add(ctx, "RAW_NOT_INVENTORIED", r.node, `$queryRaw no inventariado: ${r.sql} [${r.params.join(", ")}]`);
+      } else if (++ok > 1) add(ctx, "RAW_NOT_INVENTORIED", r.node, "FOR UPDATE de Client repetido");
+    }
+    if (raws.length === 0) add(ctx, "RAW_MISSING", null, "falta el FOR UPDATE de Client");
+    return;
+  }
+  for (const r of raws) add(ctx, "RAW_NOT_INVENTORIED", r.node, `$queryRaw fuera de lib/period-lock.ts, lib/invoice-lock.ts, lib/tax-record-lock.ts y lib/client-lock.ts: ${r.sql}`);
 }
 
 /** lib/tax-record-lock.ts no bloquea ni lee Period (el Period lo bloquea la ruta, antes). */

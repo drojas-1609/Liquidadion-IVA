@@ -71,7 +71,10 @@ function patch(id: string, bodyText: string | undefined) {
     { params: Promise.resolve({ id }) },
   );
 }
-const jbody = (o: unknown) => JSON.stringify(o);
+/** Versión que vio el formulario: la de los fixtures (`clientRow`), salvo que el test envíe otra. */
+const V0 = "2026-01-01T00:00:00.000Z";
+const jbody = (o: unknown) =>
+  JSON.stringify(typeof o === "object" && o !== null && !Array.isArray(o) && !("expectedUpdatedAt" in o) ? { ...o, expectedUpdatedAt: V0 } : o);
 const clientA = () => world.clients.find((c) => c.id === "c_a")!;
 
 describe("PATCH /api/clients/[id] — actualización", () => {
@@ -118,6 +121,7 @@ describe("PATCH /api/clients/[id] — actualización", () => {
     expect(rec.audits[0].metadata).toEqual({
       changedFields: "name,cuit,address",
       condition: "Responsable Inscripto",
+      iibbRegistration: null,
     });
     const serialized = JSON.stringify(rec.audits[0]);
     expect(serialized).not.toMatch(/12345678|30-11111111-8|Nuevo Nombre|Otra calle|Calle 1/);
@@ -129,7 +133,9 @@ describe("PATCH /api/clients/[id] — actualización", () => {
       jbody({ name: "X", organizationId: ORG_B, id: "otro", createdById: "atacante", updatedById: "atacante" }),
     );
     expect(res.status).toBe(200);
-    expect(rec.created.clientUpdate).toEqual({ name: "X", updatedById: SUB_OWNER_A });
+    // updatedAt: versión nueva, estrictamente posterior a la que vio el formulario.
+    expect(rec.created.clientUpdate).toEqual({ name: "X", updatedById: SUB_OWNER_A, updatedAt: expect.any(Date) });
+    expect(rec.created.clientUpdate.updatedAt.getTime()).toBeGreaterThan(Date.parse(V0));
     expect(clientA().organizationId).toBe(ORG_A);
   });
 
