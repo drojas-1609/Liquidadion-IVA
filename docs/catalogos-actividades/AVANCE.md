@@ -187,3 +187,11 @@ Validación: 3011 tests, 15 integración omitidos en la suite (ya verificados co
 RESULT del titular: primeraNOT_FOUND, segundaNOT_FOUND, llamadasWSAA1, padrón2, reutilizacióntrue y conteos/marca cliente sin cambios. Reportado por el usuario; sin consultas independientes nuevas ni lectura de secretos. No demuestra FOUND ni autocompletado.
 
 Se prepara modo `--example` limitado a20164755100, ejemplo getPersona_v2 del manual oficialv4.1 (páginas9–12), sin garantía de disponibilidad actual. No se ejecutó con credenciales reales en esta etapa. Conserva el scope/titular/caché, exige frase distinta, se detiene con NOT_FOUND/error y sólo repite si FOUND. Pendiente RESULT del usuario antes de avanzar al formulario Preview.
+
+## Preparación Preview ARCA — 28/10/2026
+
+El usuario reportó FOUND dos veces en ejemplo20164755100: nombre/domicilio disponibles, actividad1, impuestos3; WSAA0, padrón2, reutilizacióntrue y conteos/marca sin cambios. La prueba local con datos está acreditada por esa salida, no por una consulta nueva del agente.
+
+Se implementa barrera web: build únicamente Deploy Preview/HEAD exacto, runtime activación/caducidad/DEV, producción siempre deshabilitada en esta etapa, consultas titular o ejemplo, transporte AFIP homologación fijo ya verificado. Carga de9variables preparada en scripts/arca/configure-preview.mjs: functions/contextbranch exclusivos, sin overwrites, token y contraseña en prompts ocultos, sin escrituras remotas todavía. Requiere aprobación expresa de transferencia a Netlify del certificado/clave cifrada/contraseña/clave caché y token que gestione el usuario. Procedimiento y casos en docs/arca/PREVIEW.md.
+
+Validaciones: suite3035pasados/15omitidos de integración, tipos/lint/build sin credenciales y fixturesausentes. Netlify leído sin cambios: projectIDd017ec41-acf9-4334-9c65-7d7e23045359, Preview privada y6claves preexistentes, ninguna ARCA; no se abrieron valores. Siguiente: PRdraft y Preview sin ARCA, luego autorización del usuario antes de transferir secretos y redeploy. No habilitar en producción ni repetir migraciones.

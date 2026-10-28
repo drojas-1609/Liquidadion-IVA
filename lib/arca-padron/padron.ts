@@ -16,6 +16,8 @@
  */
 import { child, childText, childrenNamed, escapeXml, find, parseXml, XmlParseError, soapBody, soapFault, type XmlElement } from "./xml";
 
+export const PADRON_HOMO_AFIP_ENDPOINT = "https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5";
+
 export const PADRON_SERVICE = "ws_sr_constancia_inscripcion";
 export const PADRON_NAMESPACE = "http://a5.soap.ws.server.puc.sr/";
 export const PADRON_SOURCE_LABEL = "ARCA — Padrón Constancia de Inscripción (ws_sr_constancia_inscripcion)";

@@ -264,6 +264,15 @@ describe("servicio lookupCuit (red simulada)", () => {
         expect(d.fetchImpl).toHaveBeenCalledTimes(1);
         expect((d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(PADRON_ENDPOINTS.homologacion);
     });
+    it("homologación web rechaza otro CUIT antes de autenticar",async()=>{
+        const d=deps(()=>ok(FOUND),{allowedCuits:[REPRESENTADA]});
+        expect(await lookupCuit(CUIT,d)).toMatchObject({status:"INVALID_CUIT"});expect(d.fetchImpl).not.toHaveBeenCalled();
+    });
+    it("perfil operativo de homologación usa sólo su endpoint fijo",async()=>{
+        const d=deps(url=>ok(url.includes("LoginCms")?ticketXml:FOUND),{homologationTransport:"afip-wsdl"});
+        expect(await lookupCuit(CUIT,d)).toMatchObject({status:"FOUND"});
+        expect((d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[1][0]).toBe("https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5");
+    });
     it("NOT_FOUND", async () => {
         const nf = envelope(`<soap:Fault><faultstring>No existe persona con ese Id</faultstring></soap:Fault>`);
         expect(await lookupCuit(CUIT, deps((url) => (url.includes("LoginCms") ? ok(ticketXml) : ok(nf, 500))))).toEqual({ status: "NOT_FOUND", cuit: CUIT_FMT });

@@ -1,4 +1,5 @@
 import "server-only";
+import { arcaHomoRuntimeEligible, ARCA_HOMO_EXAMPLE_CUIT } from "./preview-gate";
 import {LookupFailure,postSoap} from "./http";
 import {postgresTicketStore,type SharedTicketStore} from "./ticket-store";
 import { normalizeCuit } from "../cuit";
@@ -6,6 +7,7 @@ import { readArcaConfig, type ArcaConfigStatus } from "./config";
 import {
     buildGetPersonaV2Request,
     PADRON_ENDPOINTS,
+    PADRON_HOMO_AFIP_ENDPOINT,
     PADRON_SERVICE,
     PADRON_SOURCE_LABEL,
     parseGetPersonaV2Response,
@@ -42,16 +44,22 @@ export interface LookupDeps {
     timeoutMs: number;
     ticketCache: { get(): WsaaTicket | null; set(t: WsaaTicket): void; clear?(ticket:WsaaTicket):void };
     ticketStore?: SharedTicketStore;
+    allowedCuits?: readonly string[];
+    homologationTransport?: "afip-wsdl";
 }
 
 export const ARCA_TIMEOUT_MS = 8_000;
 export function defaultLookupDeps(): LookupDeps {
-    const config=readArcaConfig();
+    // La publicación de producción permanece deshabilitada en esta etapa.
+    const gate=arcaHomoRuntimeEligible(process.env,process.env.ARCA_HOMO_BUILD_ELIGIBLE,Date.now());
+    const config:ArcaConfigStatus=gate?readArcaConfig():{configured:false,reason:"DISABLED",missing:[]};
     // Ninguna ruta de producción usa una caché en memoria como sustituto del almacén compartido.
     const base:LookupDeps={fetchImpl:fetch,config,nowMs:Date.now,timeoutMs:ARCA_TIMEOUT_MS,ticketCache:{get:()=>null,set:()=>{throw new LookupFailure("AUTH");}}};
     if(config.configured){
         if(!config.ticketScope||!config.cacheKey)return {...base,config:{configured:false,reason:"MISSING_SETTINGS",missing:["ARCA_WSAA_CACHE_KEY"]}};
         base.ticketStore=postgresTicketStore(config.ticketScope,config.cacheKey);
+        base.allowedCuits=[config.cuitRepresentada,ARCA_HOMO_EXAMPLE_CUIT];
+        base.homologationTransport="afip-wsdl";
     }
     return base;
 }
@@ -86,12 +94,14 @@ export async function lookupCuit(cuitInput: unknown, deps: LookupDeps = defaultL
     if (!deps.config.configured) return { status: "NOT_CONFIGURED" };
     const config = deps.config;
     const idPersona = cuit.value.replace(/-/g, "");
+    if(deps.allowedCuits&&!deps.allowedCuits.includes(idPersona))return {status:"INVALID_CUIT",error:"La prueba de homologación sólo admite el CUIT titular o el ejemplo del manual de ARCA."};
+    if(deps.homologationTransport&&config.environment!=="homologacion")return {status:"NOT_CONFIGURED"};
 
     try {
         const ticket = await ticketFor(deps, config);
         const xml = await postSoap(
             deps,
-            PADRON_ENDPOINTS[config.environment],
+            deps.homologationTransport==="afip-wsdl"?PADRON_HOMO_AFIP_ENDPOINT:PADRON_ENDPOINTS[config.environment],
             buildGetPersonaV2Request({ token: ticket.token, sign: ticket.sign, cuitRepresentada: config.cuitRepresentada, idPersona }),
             "",
         );
