@@ -51,3 +51,5 @@ next-env.d.ts
 *.p12
 *.pfx
 *.secret
+
+/public/.well-known/arca-preview-destination.json

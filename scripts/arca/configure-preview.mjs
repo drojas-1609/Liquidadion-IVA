@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import {X509Certificate,createPrivateKey} from 'node:crypto';
+import {X509Certificate,createPrivateKey,createHash} from 'node:crypto';
 import {readFile,lstat,realpath} from 'node:fs/promises';
 import {resolve,join,sep} from 'node:path';
 import {homedir} from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {createInterface} from 'node:readline/promises';
+import {execFileSync} from 'node:child_process';
 export const SITE_ID='d017ec41-acf9-4334-9c65-7d7e23045359';
 export const BRANCH='codex/arca-homologacion-segura';
 export const KEYS=['ARCA_PADRON_ENABLED','ARCA_PADRON_ENV','ARCA_PADRON_CUIT_REPRESENTADA','ARCA_WSAA_CERT_PEM','ARCA_WSAA_KEY_PEM','ARCA_WSAA_KEY_PASSWORD','ARCA_WSAA_CACHE_KEY','ARCA_HOMO_PREVIEW','ARCA_HOMO_HASTA'];
@@ -29,9 +30,33 @@ export function effectiveValue(vars,key){
 export function isDevDatabase(raw){
  try{const u=new URL(raw);return !raw.includes('bqqruaikbqculvmtirvy')&&['postgres:','postgresql:'].includes(u.protocol)&&u.pathname==='/postgres'&&(u.hostname==='db.esyfpakajthdifhnhcew.supabase.co'||(u.hostname.endsWith('.pooler.supabase.com')&&decodeURIComponent(u.username)==='postgres.esyfpakajthdifhnhcew'));}catch{return false;}
 }
-export function checkDestinations(vars){
- if(!isDevDatabase(effectiveValue(vars,'DATABASE_URL')))throw Error('NETLIFY_DATABASE_NO_DEV');
- const direct=effectiveValue(vars,'DIRECT_URL');if(direct&&!isDevDatabase(direct))throw Error('NETLIFY_DIRECT_NO_DEV');
+export function validateDestinationProof(vars,deploy,proof,head,now=Date.now()){
+ if(!/^[a-f0-9]{40}$/.test(head)||deploy.site_id!==SITE_ID||deploy.branch!==BRANCH||deploy.context!=='deploy-preview'||deploy.review_id!==20||deploy.state!=='ready'||deploy.commit_ref!==head)throw Error('PREVIEW_NO_COINCIDE');
+ const created=Date.parse(deploy.created_at);
+ if(!Number.isFinite(created)||created>now||now-created>86400000)throw Error('PREVIEW_CONSTANCIA_VENCIDA');
+ if(proof?.version!==1||proof.commit!==head||proof.branch!==BRANCH||proof.dev!==true)throw Error('PREVIEW_DESTINO_NO_DEV');
+ for(const key of ['DATABASE_URL','DIRECT_URL','NEXT_PUBLIC_SUPABASE_URL']){
+  const variable=vars.find(x=>x.key===key);
+  if(!variable||!variable.scopes?.includes('builds')||!variable.scopes.includes('functions')||!effectiveValue(vars,key))throw Error('PREVIEW_DESTINO_SCOPE_INVALIDO');
+  const updated=Date.parse(variable.updated_at);
+  if(!Number.isFinite(updated)||updated>=created)throw Error('PREVIEW_VARIABLES_MODIFICADAS');
+ }
+ return true;
+}
+export function proofFromFileIndex(files,deploy,head){
+ const proof={version:1,commit:head,branch:BRANCH,dev:true};
+ const body=JSON.stringify(proof);
+ const file=Array.isArray(files)?files.find(f=>f.path==='/.well-known/arca-preview-destination.json'):null;
+ if(!file||file.site_id!==SITE_ID||file.deploy_id!==deploy.id||file.size!==Buffer.byteLength(body)||file.sha!==createHash('sha1').update(body).digest('hex'))throw Error('PREVIEW_CONSTANCIA_NO_DISPONIBLE');
+ return proof;
+}
+export function safePrecheckError(error){
+ const code=error instanceof Error?error.message:'';
+ return /^(NETLIFY_[A-Z_]+|PREVIEW_[A-Z_]+|API_NETLIFY_[0-9]{3}|VARIABLES_ARCA_YA_EXISTEN_NO_SOBRESCRIBIR|SITIO_NO_COINCIDE|METADATOS_NO_VALIDOS|CANCELADO)$/.test(code)?code:'PRECHECK_NO_COMPLETADO';
+}
+export function checkDestinations(vars,verifiedProof=false){
+ if(!verifiedProof&&!isDevDatabase(effectiveValue(vars,'DATABASE_URL')))throw Error('NETLIFY_DATABASE_NO_DEV');
+ const direct=effectiveValue(vars,'DIRECT_URL');if(!verifiedProof&&direct&&!isDevDatabase(direct))throw Error('NETLIFY_DIRECT_NO_DEV');
  const publicUrl=effectiveValue(vars,'NEXT_PUBLIC_SUPABASE_URL');
  if(!['https://esyfpakajthdifhnhcew.supabase.co','https://esyfpakajthdifhnhcew.supabase.co/'].includes(publicUrl))throw Error('NETLIFY_SUPABASE_NO_DEV');
  if(vars.some(x=>KEYS.includes(x.key)))throw Error('VARIABLES_ARCA_YA_EXISTEN_NO_SOBRESCRIBIR');
@@ -63,7 +88,15 @@ async function main(){
  const site=await api('/sites/'+SITE_ID);
  if(site.id!==SITE_ID||site.name!=='liquidadoriva'||site.account_slug!=='drojas-s83-g'||!site.account_id)throw Error('SITIO_NO_COINCIDE');
  const path='/accounts/'+encodeURIComponent(site.account_id)+'/env?site_id='+SITE_ID;
- const vars=await api(path);if(!Array.isArray(vars))throw Error('METADATOS_NO_VALIDOS');checkDestinations(vars);
+ const vars=await api(path);if(!Array.isArray(vars))throw Error('METADATOS_NO_VALIDOS');
+ const head=execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../..'),encoding:'utf8'}).trim();
+ const deploys=await api('/sites/'+SITE_ID+'/deploys?per_page=30');
+ const deploy=deploys.find(d=>d.commit_ref===head&&d.branch===BRANCH&&d.context==='deploy-preview'&&d.review_id===20&&d.state==='ready');
+ if(!deploy)throw Error('PREVIEW_NO_COINCIDE');
+ const files=await api('/deploys/'+encodeURIComponent(deploy.id)+'/files');
+ const proof=proofFromFileIndex(files,deploy,head);
+ validateDestinationProof(vars,deploy,proof,head);checkDestinations(vars,true);
+ console.log('Constancia DEV del build verificada para el commit '+head+'.');
  const until=new Date(Date.now()+24*3600000).toISOString();
  const payload=buildPayload({ARCA_PADRON_ENABLED:'true',ARCA_PADRON_ENV:'homologacion',ARCA_PADRON_CUIT_REPRESENTADA:cuit,ARCA_WSAA_CERT_PEM:data.cert,ARCA_WSAA_KEY_PEM:data.key,ARCA_WSAA_KEY_PASSWORD:password,ARCA_WSAA_CACHE_KEY:data.cache.trim(),ARCA_HOMO_PREVIEW:'1',ARCA_HOMO_HASTA:until});
  console.log('Destino verificado: liquidadoriva, rama '+BRANCH+'. Sólo functions; caduca '+until+'.');
@@ -72,10 +105,11 @@ async function main(){
  if((await ask('Escribí CONFIGURAR-ARCA-HOMO-PREVIEW-NETLIFY para enviar: '))!=='CONFIGURAR-ARCA-HOMO-PREVIEW-NETLIFY')throw Error('CANCELADO');
  let attempted=false;
  try{
+  if(JSON.stringify(await api(path))!==JSON.stringify(vars))throw Error('PREVIEW_VARIABLES_MODIFICADAS');
   attempted=true;await api(path,{method:'POST',body:JSON.stringify(payload)});
   const after=await api(path);
   for(const key of KEYS){const v=after.find(x=>x.key===key);if(!v||v.is_secret!==true||v.scopes?.length!==1||v.scopes[0]!=='functions'||v.values?.length!==1||v.values[0].context!=='branch'||v.values[0].context_parameter!==BRANCH)throw Error('VERIFICACION_INCIERTA');}
   console.log('RESULT '+JSON.stringify({site:'liquidadoriva',branch:BRANCH,variables:KEYS.length,scope:'functions',caduca:until,production_values:0,verified:true,deploy_triggered:false}));
- }catch(error){const status=error instanceof Error&&/^API_NETLIFY_\d{3}$/.test(error.message)?' ('+error.message+')':'';console.error(attempted?'DETENIDO: configuración incierta o rechazada'+status+'. No reintentar ni ampliar el alcance; revisar sólo metadatos.':'DETENIDO: sin envío.');process.exitCode=1;}
+ }catch(error){const status=error instanceof Error&&/^API_NETLIFY_\d{3}$/.test(error.message)?' ('+error.message+')':'';console.error(attempted?'DETENIDO: configuración incierta o rechazada'+status+'. No reintentar ni ampliar el alcance; revisar sólo metadatos.':'DETENIDO: '+safePrecheckError(error)+'; sin envío.');process.exitCode=1;}
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch(()=>{console.error('DETENIDO: precheck no completado; no se muestran errores internos ni secretos.');process.exitCode=1;});
+if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch(error=>{console.error('DETENIDO: '+safePrecheckError(error)+'; sin envío de variables ARCA. No se muestran valores ni errores internos.');process.exitCode=1;});

@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
-import { ARCA_HOMO_BUILD_FLAG, arcaHomoBuildEligible } from "./lib/arca-padron/preview-gate";
+import { ARCA_HOMO_BUILD_FLAG, arcaHomoBuildEligible, arcaHomoRuntimeEligible } from "./lib/arca-padron/preview-gate";
 import path from "node:path";
+import {mkdirSync,writeFileSync,rmSync} from "node:fs";
 
 import { SECURITY_HEADERS } from "./lib/security-headers";
 import { BUILD_FLAG_VAR, evaluateFixtureGate } from "./lib/preview-fixtures/gate";
@@ -14,6 +15,16 @@ import { BUILD_FLAG_VAR, evaluateFixtureGate } from "./lib/preview-fixtures/gate
  */
 const fixtureGate = evaluateFixtureGate(process.env, "build", new Date());
 const arcaBuildEligible = arcaHomoBuildEligible(process.env);
+// Constancia pública sin credenciales: sólo este build puede observar los secretos.
+const proofPath = path.join(process.cwd(), "public/.well-known/arca-preview-destination.json");
+rmSync(proofPath, {force:true});
+if (arcaBuildEligible && /^[a-f0-9]{40}$/.test(process.env.COMMIT_REF ?? "")) {
+ const now=Date.now();
+ const dev=arcaHomoRuntimeEligible({...process.env, ARCA_HOMO_PREVIEW:"1", ARCA_PADRON_ENV:"homologacion", ARCA_HOMO_HASTA:new Date(now+86400000).toISOString()}, "1", now);
+ mkdirSync(path.dirname(proofPath), {recursive:true});
+ writeFileSync(proofPath, JSON.stringify({version:1,commit:process.env.COMMIT_REF,branch:process.env.HEAD,dev:dev===true}));
+}
+
 if (arcaBuildEligible) console.info("[arca-homo] Build elegible; runtime exige activación, caducidad y DEV.");
 if (fixtureGate.enabled) console.warn("[catalogos-sinteticos] HABILITADOS en este build (Deploy Preview con DEV)");
 else if (process.env.CATALOGOS_SINTETICOS !== undefined) console.warn(`[catalogos-sinteticos] deshabilitados: ${fixtureGate.reasons.join("; ")}`);
