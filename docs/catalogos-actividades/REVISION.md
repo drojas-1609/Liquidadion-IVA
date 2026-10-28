@@ -1,6 +1,6 @@
 # Revisión pendiente de datos oficiales (preparada el 27/10/2026)
 
-Nada de lo que sigue está aprobado. Los tres archivos están en `PENDIENTE_REVISION`, con **todos sus niveles en PENDIENTE**, y no se ofrecen en el buscador ni en la asistencia.
+**Actualización del 28/10/2026:** aprobación expresa de Diego Rojas para los tres nomencladores cargados (NAES, CLAE y NAIIB-18). Se registraron `technical` y `validity` CONFORME y aprobación final REVISADO, sin cambiar códigos, descripciones ni vigencias. Las fichas siguientes conservan el análisis y sus incertidumbres como antecedentes. **Las decisiones sobre alícuotas e interpretaciones permanecen pendientes; la aprobación de nomencladores no las resuelve.**
 
 Los **checks** registrados en cada archivo (`manifest.review.levels.<nivel>.checks`) son resultados del preparador, cotejos y búsquedas, con su evidencia. **No son decisiones.**
 
@@ -36,7 +36,7 @@ cli approve --file <archivo> --reviewer "<nombre>" --date AAAA-MM-DD      # sól
 
 ## Fichas de decisión
 
-Cada ficha indica la fuente, el texto, la propuesta y su fundamento, qué falta acreditar y qué queda bloqueado mientras tanto. **Ninguna está resuelta.** Las páginas son del PDF oficial citado.
+Cada ficha indica la fuente, el texto, la propuesta y su fundamento, qué falta acreditar y qué queda bloqueado mientras tanto. Las relativas a nomencladores quedan aceptadas por la aprobación expresa indicada arriba; las relativas a tasas e interpretaciones siguen abiertas. Las páginas son del PDF oficial citado.
 
 ### CABA
 

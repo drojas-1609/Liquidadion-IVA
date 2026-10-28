@@ -16,8 +16,9 @@ import arbaNaiibb18 from "@/data/activity-catalogs/arba-naiibb18-2026-10-27.json
  * aceptan como origen en la ficha; el resto queda registrado pero no publicado.
  *
  * Estado actual: NAES (RG CA 19/2025), CLAE (RG AFIP 3537/2013) y NAIIB-18 de ARBA importados y
- * cotejados con sus fuentes, PENDIENTES de la revisión humana (no se ofrecen
- * todavía). Ver
+ * cotejados con sus fuentes y aprobados expresamente por Diego Rojas el
+ * 28/10/2026 para búsqueda y copia de actividades. Las reglas de tasas se
+ * revisan por separado y continúan pendientes. Ver
  * docs/catalogos-actividades/README.md, «Cobertura».
  */
 // El JSON se tipa con strings amplios; la forma real se valida en `checked`.

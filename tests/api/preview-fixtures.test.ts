@@ -3,8 +3,7 @@ import { Prisma } from "@prisma/client";
 
 /**
  * Endpoints con los registros REALES (sin mockear): los catálogos sintéticos
- * sólo se sirven con las barreras habilitadas, y los oficiales siguen
- * pendientes (nunca se listan ni se ofrecen).
+ * sólo se sirven con las barreras habilitadas, sin desplazar los oficiales aprobados por el estudio.
  */
 const H = vi.hoisted(() => ({
     claims: { value: null as unknown },
@@ -68,13 +67,12 @@ const suggestStatus = async () =>
 const OFFICIAL = ["naes-rg-ca-19-2025", "clae-rg-afip-3537-2013", "arba-naiibb18-2026-10-27"];
 
 describe("catálogos sintéticos en los endpoints", () => {
-    it("barreras habilitadas: se listan, se buscan y sugieren; los oficiales siguen sin servirse", async () => {
+    it("barreras habilitadas: fixtures separados de los tres nomencladores oficiales", async () => {
         setEnv(ENABLED);
         const ids = await listIds();
-        expect(ids).toEqual(["prueba-sintetica-naes"]);
-        for (const id of OFFICIAL) expect(ids).not.toContain(id);
+        expect(ids.sort()).toEqual([...OFFICIAL, "prueba-sintetica-naes"].sort());
         expect(await searchCodes("999001")).toEqual(["999001"]);
-        expect(await searchCodes("011111")).toEqual([]); // el NAES oficial sigue pendiente
+        expect(await searchCodes("011111")).toEqual(["011111"]); // catálogo aprobado; sin reglas tributarias habilitadas
         expect(await suggestStatus()).toMatchObject({ status: "UNICA", alternative: { rate: "1.23" } });
     });
     it.each([
@@ -87,7 +85,7 @@ describe("catálogos sintéticos en los endpoints", () => {
         ["sin variables (producción normal)", {}],
     ])("%s: nada sintético se sirve", async (_label, env) => {
         setEnv(env);
-        expect(await listIds()).toEqual([]);
+        expect((await listIds()).sort()).toEqual([...OFFICIAL].sort());
         expect(await searchCodes("999001")).toEqual([]);
         expect((await suggestStatus()).status).toBe("SIN_COBERTURA");
     });
@@ -95,10 +93,10 @@ describe("catálogos sintéticos en los endpoints", () => {
         vi.useFakeTimers({ toFake: ["Date"] });
         vi.setSystemTime(new Date("2026-10-27T12:00:00Z"));
         setEnv({ ...ENABLED, CATALOGOS_SINTETICOS_HASTA: "2026-10-28T12:00:00Z" });
-        expect(await listIds()).toEqual(["prueba-sintetica-naes"]);
+        expect((await listIds()).sort()).toEqual([...OFFICIAL, "prueba-sintetica-naes"].sort());
         expect(await searchCodes("999001")).toEqual(["999001"]);
         vi.setSystemTime(new Date("2026-10-28T12:00:00Z"));
-        expect(await listIds()).toEqual([]);
+        expect((await listIds()).sort()).toEqual([...OFFICIAL].sort());
         expect(await searchCodes("999001")).toEqual([]);
         expect((await suggestStatus()).status).toBe("SIN_COBERTURA");
     });
