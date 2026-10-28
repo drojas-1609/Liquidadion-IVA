@@ -61,7 +61,17 @@ describe("submitClientUpdate", () => {
         ["error de red", new Error("offline"), UPDATE_CLIENT_GENERIC_ERROR],
     ])("%s -> mensaje legible", async (_label, res, expected) => {
         const result = await submitClientUpdate("c_1", {}, fetchReturning(res));
-        expect(result).toEqual({ ok: false, message: expected });
+        expect(result).toMatchObject({ ok: false, message: expected });
+    });
+    it("422 con field: además devuelve el campo y el mensaje SIN prefijo (error junto al campo)", async () => {
+        const result = await submitClientUpdate("c_1", {}, fetchReturning(jsonResponse(422, err("UNPROCESSABLE_ENTITY", "CUIT inválido: dígito verificador incorrecto", "cuit"))));
+        expect(result).toEqual({ ok: false, message: "CUIT: CUIT inválido: dígito verificador incorrecto", field: "cuit", fieldMessage: "CUIT inválido: dígito verificador incorrecto" });
+    });
+    it("sin campo (body, 404, red) no informa field", async () => {
+        for (const res of [jsonResponse(422, err("UNPROCESSABLE_ENTITY", "no hay campos para actualizar", "body")), jsonResponse(404, err("NOT_FOUND", "No encontrado.")), new Error("offline")]) {
+            const result = await submitClientUpdate("c_1", {}, fetchReturning(res));
+            expect(result.ok === false && "field" in result).toBe(false);
+        }
     });
 
     it("nunca produce [object Object]", () => {

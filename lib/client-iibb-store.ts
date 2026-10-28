@@ -1,7 +1,8 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { parseRate } from "./validation/decimal";
-import { activityKey, type IibbProfileData } from "./client-profile";
+import { activityKey, type ActivityOrigin, type IibbProfileData } from "./client-profile";
+import type { RateOrigin, RateTreatment } from "./iibb-rates/types";
 import type { IibbRegistration } from "./iibb/registration";
 
 /**
@@ -24,7 +25,10 @@ export interface StoredIibbProfile {
         nomenclatorReference: string | null;
         code: string;
         description: string;
-        rates: Array<{ jurisdiction: string; rate: string | null }>;
+        origin: ActivityOrigin;
+        catalogId: string | null;
+        catalogVersion: string | null;
+        rates: Array<{ jurisdiction: string; rate: string | null; treatment: RateTreatment; origin: RateOrigin | null; ruleRef: string | null }>;
     }>;
 }
 
@@ -47,9 +51,18 @@ export async function loadIibbProfile(tx: Tx, clientId: string, organizationId: 
             nomenclatorReference: a.nomenclatorReference,
             code: a.code,
             description: a.description,
+            origin: a.origin,
+            catalogId: a.catalogId,
+            catalogVersion: a.catalogVersion,
             rates: rates
                 .filter((r) => r.activityId === a.id)
-                .map((r) => ({ jurisdiction: r.jurisdictionCode, rate: rateString(r.rate) })),
+                .map((r) => ({
+                    jurisdiction: r.jurisdictionCode,
+                    rate: rateString(r.rate),
+                    treatment: r.treatment,
+                    origin: r.rateOrigin,
+                    ruleRef: r.ruleRef,
+                })),
         })),
     };
 }
@@ -66,10 +79,18 @@ function canonical(registration: IibbRegistration | null, p: Pick<StoredIibbProf
         registration,
         jurisdictions: [...p.jurisdictions].sort((a, b) => a.code.localeCompare(b.code)),
         activities: [...p.activities]
+            // Claves explícitas y en orden fijo: la comparación no depende del orden de construcción.
             .map((a) => ({
-                ...a,
+                nomenclator: a.nomenclator,
+                nomenclatorJurisdiction: a.nomenclatorJurisdiction,
+                nomenclatorReference: a.nomenclatorReference,
+                code: a.code,
+                description: a.description,
+                origin: a.origin,
+                catalogId: a.catalogId,
+                catalogVersion: a.catalogVersion,
                 rates: [...a.rates]
-                    .map((r) => ({ jurisdiction: r.jurisdiction, rate: canonRate(r.rate) }))
+                    .map((r) => ({ jurisdiction: r.jurisdiction, rate: canonRate(r.rate), treatment: r.treatment, origin: r.origin, ruleRef: r.ruleRef }))
                     .sort((x, y) => x.jurisdiction.localeCompare(y.jurisdiction)),
             }))
             .sort((x, y) => activityKey(x).localeCompare(activityKey(y))),
@@ -122,6 +143,9 @@ export async function replaceIibbProfile(
                 nomenclatorReference: a.nomenclatorReference,
                 code: a.code,
                 description: a.description,
+                origin: a.origin,
+                catalogId: a.catalogId,
+                catalogVersion: a.catalogVersion,
             },
             select: { id: true },
         });
@@ -135,7 +159,16 @@ export async function replaceIibbProfile(
                         if (!parsed.ok) throw new Error("alícuota inválida tras la validación");
                         rate = parsed.value;
                     }
-                    return { clientId, organizationId, activityId: created.id, jurisdictionCode: r.jurisdiction, rate };
+                    return {
+                        clientId,
+                        organizationId,
+                        activityId: created.id,
+                        jurisdictionCode: r.jurisdiction,
+                        rate,
+                        treatment: r.treatment,
+                        rateOrigin: r.origin,
+                        ruleRef: r.ruleRef,
+                    };
                 }),
             });
         }

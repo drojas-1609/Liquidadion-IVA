@@ -788,11 +788,15 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   db.clientJurisdiction.findMany.mockImplementation(async ({ where }: AnyArgs) =>
     world.clientJurisdictions!.filter((r) => matches(r, where)).map((r) => ({ ...r })),
   );
+  // DEFAULT de las columnas (migración 20261027120000): filas sembradas sin ellas
+  // se leen como las devolvería PostgreSQL.
+  const activityDefaults = { origin: "MANUAL", catalogId: null, catalogVersion: null };
+  const rateDefaults = { treatment: "RATE", rateOrigin: null, ruleRef: null };
   db.clientActivity.findMany.mockImplementation(async ({ where }: AnyArgs) =>
-    world.clientActivities!.filter((r) => matches(r, where)).map((r) => ({ ...r })),
+    world.clientActivities!.filter((r) => matches(r, where)).map((r) => ({ ...activityDefaults, ...r })),
   );
   db.clientActivityRate.findMany.mockImplementation(async ({ where }: AnyArgs) =>
-    world.clientActivityRates!.filter((r) => matches(r, where)).map((r) => ({ ...r })),
+    world.clientActivityRates!.filter((r) => matches(r, where)).map((r) => ({ ...rateDefaults, ...r })),
   );
   db.clientActivityRate.deleteMany.mockImplementation(async ({ where }: AnyArgs) => removeWhere(world.clientActivityRates!, where));
   db.clientActivity.deleteMany.mockImplementation(async ({ where }: AnyArgs) => {
@@ -826,7 +830,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
         r.code === data.code,
     );
     if (dup) throw uniqueError();
-    const row = { id: mkId("ca"), ...data };
+    const row = { id: mkId("ca"), ...activityDefaults, ...data };
     world.clientActivities!.push(row);
     return { id: row.id };
   });
@@ -840,7 +844,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       );
       if (!activity || !jurisdiction) throw fkError();
       if (world.clientActivityRates!.some((r) => r.activityId === d.activityId && r.jurisdictionCode === d.jurisdictionCode)) throw uniqueError();
-      world.clientActivityRates!.push({ id: mkId("car"), ...d });
+      world.clientActivityRates!.push({ id: mkId("car"), ...rateDefaults, ...d });
     }
     return { count: data.length };
   });

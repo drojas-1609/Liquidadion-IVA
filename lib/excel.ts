@@ -2,6 +2,7 @@ import "server-only";
 import * as XLSX from "xlsx";
 import { Prisma } from "@prisma/client";
 import type { LiquidationDTO } from "./serializers";
+import { LIQUIDATION_RATE_NOTE } from "./legacy-iibb-rate";
 
 /**
  * Todos los importes entran como STRING decimal (contrato de la app). La
@@ -60,13 +61,13 @@ export const generateLiquidationExcel = (data: LiquidationData) => {
         ["RESUMEN IIBB"],
         ["Concepto", "Importe"],
         ["Base Imponible IIBB", n(data.iibb.base)],
-        [`Impuesto Determinado (${data.iibb.rate}%)`, n(data.iibb.tax)],
+        [`Impuesto Determinado (${data.iibb.rate}%)`, n(data.iibb.tax), LIQUIDATION_RATE_NOTE],
         ["Retenciones/Percepciones IIBB", n(data.iibb.retentions)],
         ["Saldo a Pagar / (A Favor) IIBB", n(data.iibb.payable)],
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(displayData);
-    ws["!cols"] = [{ wch: 40 }, { wch: 20 }];
+    ws["!cols"] = [{ wch: 40 }, { wch: 20 }, { wch: 100 }];
     XLSX.utils.book_append_sheet(wb, ws, "Liquidacion");
 
     const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });

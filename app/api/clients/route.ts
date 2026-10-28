@@ -11,6 +11,9 @@ import {
 } from "@/lib/auth/authz";
 import { recordAudit } from "@/lib/auth/audit";
 import { replaceIibbProfile } from "@/lib/client-iibb-store";
+import { verifyProfileSources } from "@/lib/iibb-profile-sources";
+import { activityCatalogs } from "@/lib/activity-catalog/registry";
+import { usableRateRuleSets } from "@/lib/iibb-rates/registry";
 import { ROLES_READ, ROLES_CREATE } from "@/lib/auth/roles";
 import { ValidationError } from "@/lib/auth/errors";
 
@@ -47,6 +50,12 @@ export const POST = withApiAuthz(async (request: Request) => {
     const body = await parseJsonBody(request);
     const parsed = buildClientInput(body);
     if (!parsed.ok) throw new ValidationError(parsed.error, parsed.field);
+    // Procedencia: actividades "de catálogo" y tasas "sugeridas" deben coincidir
+    // con un catálogo / una regla revisados (en el alta todo es nuevo).
+    if (parsed.data.iibb) {
+        const source = verifyProfileSources(parsed.data.iibb, null, activityCatalogs(), usableRateRuleSets());
+        if (source) throw new ValidationError(source.error, source.field);
+    }
 
     const created = await prisma.$transaction(async (tx) => {
         const client = await tx.client.create({

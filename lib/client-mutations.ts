@@ -3,7 +3,7 @@
  * la API (`{ error: { code, message }, field? }`) a mensajes legibles. Nunca se
  * convierte un objeto a string de forma implícita.
  */
-import { readApiError } from "@/lib/new-client-submit";
+import { readApiError, readApiFieldError } from "@/lib/new-client-submit";
 import { profileFieldLabel } from "@/lib/client-profile";
 
 export const UPDATE_CLIENT_GENERIC_ERROR = "Error al actualizar el cliente";
@@ -62,7 +62,7 @@ export function deleteClientErrorMessage(body: unknown): string {
 }
 
 /** `stale`: el formulario quedó desactualizado (409 de versión); nunca se reenvía solo. */
-export type ClientMutationResult = { ok: true } | { ok: false; message: string; stale?: true };
+export type ClientMutationResult = { ok: true } | { ok: false; message: string; stale?: true; field?: string; fieldMessage?: string };
 
 async function send(
     url: string,
@@ -79,7 +79,10 @@ async function send(
     }
     if (res.ok) return { ok: true };
     const body: unknown = await res.json().catch(() => null);
-    return isStaleClientError(body) ? { ok: false, message: toMessage(body), stale: true } : { ok: false, message: toMessage(body) };
+    // Conflicto de versión: no es un error de campo (el borrador entero quedó obsoleto).
+    return isStaleClientError(body)
+        ? { ok: false, message: toMessage(body), stale: true }
+        : { ok: false, message: toMessage(body), ...(readApiFieldError(body) ?? {}) };
 }
 
 export function submitClientUpdate(

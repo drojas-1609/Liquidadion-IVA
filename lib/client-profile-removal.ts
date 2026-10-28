@@ -26,12 +26,18 @@ export interface FormActivity {
     nomenclatorJurisdiction: string;
     code: string;
     description: string;
-    /** jurisdicción -> asociada y alícuota ("" = sin informar). */
-    rates: Record<string, { associated: boolean; rate: string }>;
+    /** jurisdicción -> asociada, alícuota ("" = sin informar) y tratamiento (EXEMPT = exento). */
+    rates: Record<string, { associated: boolean; rate: string; treatment?: string }>;
+}
+
+/** Dato de alícuota para los avisos: 0 %, exento y sin informar se distinguen. */
+export interface RateDisplay {
+    rate: string | null;
+    treatment?: string;
 }
 
 /** Actividades guardadas al abrir el formulario, por activityKey. */
-export type StoredActivityIndex = Record<string, { label: string; rates: Record<string, string | null> }>;
+export type StoredActivityIndex = Record<string, { label: string; rates: Record<string, RateDisplay> }>;
 
 export function storedActivityIndex(
     activities: ReadonlyArray<{
@@ -39,13 +45,13 @@ export function storedActivityIndex(
         nomenclatorJurisdiction: string;
         code: string;
         description: string;
-        rates: ReadonlyArray<{ jurisdiction: string; rate: string | null }>;
+        rates: ReadonlyArray<{ jurisdiction: string; rate: string | null; treatment?: string }>;
     }>,
 ): StoredActivityIndex {
     return Object.fromEntries(
         activities.map((a) => [
             activityKey(a),
-            { label: activityLabel(a), rates: Object.fromEntries(a.rates.map((r) => [r.jurisdiction, r.rate])) },
+            { label: activityLabel(a), rates: Object.fromEntries(a.rates.map((r) => [r.jurisdiction, { rate: r.rate, treatment: r.treatment }])) },
         ]),
     );
 }
@@ -56,7 +62,8 @@ export function activityLabel(a: { nomenclator: ActivityNomenclator; nomenclator
     return a.description.trim() ? `${nom} ${code} (${a.description.trim()})` : `${nom} ${code}`;
 }
 
-const rateText = (rate: string | null | undefined) => (rate === null || rate === undefined || rate.trim() === "" ? "sin informar" : `${rate.trim()} %`);
+const rateText = (r: RateDisplay | undefined) =>
+    r?.treatment === "EXEMPT" ? "exento" : r?.rate === null || r?.rate === undefined || r.rate.trim() === "" ? "sin informar" : `${r.rate.trim()} %`;
 
 /** Lo que se pierde: detalle legible y el conjunto exacto que se confirma. */
 export interface RemovalLoss {
@@ -82,7 +89,7 @@ export function jurisdictionRemovalLoss(
     for (const r of rows) {
         if (!r.rates[code]?.associated) continue;
         if (r.storedKey && stored.includes(r.storedKey)) continue;
-        lines.push(`${activityLabel(r)}: alícuota sin guardar ${rateText(r.rates[code].rate)}`);
+        lines.push(`${activityLabel(r)}: alícuota sin guardar ${rateText(r.rates[code])}`);
     }
     return { stored, lines };
 }
@@ -97,7 +104,7 @@ export function activityRemovalLoss(row: FormActivity, summary: StoredIibbProfil
     }
     for (const [code, r] of Object.entries(row.rates)) {
         if (!r.associated || stored.includes(code)) continue;
-        lines.push(`${jurisdictionLabel(code)}: alícuota sin guardar ${rateText(r.rate)}`);
+        lines.push(`${jurisdictionLabel(code)}: alícuota sin guardar ${rateText(r)}`);
     }
     return { stored, lines };
 }

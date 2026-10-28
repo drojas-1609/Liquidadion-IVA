@@ -17,6 +17,7 @@ import {
     isIibbRegistration,
     type IibbRegistration,
 } from "./iibb/registration";
+import { RATE_ORIGINS, RATE_TREATMENTS, parseRuleRef, type RateOrigin, type RateTreatment } from "./iibb-rates/types";
 
 export type FieldResult<T> = { ok: true; value: T } | { ok: false; field: string; error: string };
 
@@ -106,7 +107,13 @@ export function isActivityNomenclator(value: unknown): value is ActivityNomencla
 
 export const MAX_ACTIVITIES = 50;
 const ACTIVITY_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9.\-/]{0,19}$/;
-const ACTIVITY_DESCRIPTION_MAX = 250;
+/**
+ * La columna es TEXT sin límite en la base: el máximo es de la aplicación. 300
+ * admite las descripciones oficiales más largas publicadas (NAIIB-18 de ARBA,
+ * 253 caracteres) sin truncarlas.
+ */
+export const ACTIVITY_DESCRIPTION_MAX = 300;
+/** Igual a SELECTION_REFERENCE_MAX (lib/activity-catalog/validate): la referencia copiada del catálogo debe entrar. */
 const NOMENCLATOR_REFERENCE_MAX = 60;
 
 /** Clave de duplicado de una actividad: mismo nomenclador (y jurisdicción) y código. */
@@ -122,9 +129,23 @@ export interface IibbJurisdictionData {
 }
 export interface IibbRateData {
     jurisdiction: string;
-    /** null = sin informar; "0" = 0 % explícito. */
+    /** null = sin informar (o exención, ver `treatment`); "0" = 0 % explícito. */
     rate: string | null;
+    /** RATE (con o sin tasa) o EXEMPT (exención, sin tasa). */
+    treatment: RateTreatment;
+    /** Origen del dato; null = sin dato o sin origen registrado (cargas previas). */
+    origin: RateOrigin | null;
+    /** Regla confirmada ("<conjunto>#<regla>"), sólo con origen CONFIRMED_SUGGESTION. */
+    ruleRef: string | null;
 }
+
+export const ACTIVITY_ORIGINS = ["CATALOG", "MANUAL"] as const;
+export type ActivityOrigin = (typeof ACTIVITY_ORIGINS)[number];
+
+export const ACTIVITY_ORIGIN_LABEL: Readonly<Record<ActivityOrigin, string>> = {
+    CATALOG: "Catálogo oficial",
+    MANUAL: "Carga manual o histórica (no catalogada)",
+};
 export interface IibbActivityData {
     nomenclator: ActivityNomenclator;
     /** Jurisdicción del nomenclador provincial; "" si no aplica. */
@@ -132,6 +153,10 @@ export interface IibbActivityData {
     nomenclatorReference: string | null;
     code: string;
     description: string;
+    /** CATALOG: copia fija de una entrada de catálogo (catalogId + catalogVersion). */
+    origin: ActivityOrigin;
+    catalogId: string | null;
+    catalogVersion: string | null;
     rates: IibbRateData[];
 }
 export interface IibbProfileData {
@@ -171,6 +196,8 @@ function optionalTrimmed(v: unknown): string | null | undefined {
 }
 
 const MAX_ACTIVITY_KEY = 120;
+const CATALOG_ID_RE = /^[a-z0-9][a-z0-9-]{2,79}$/;
+const CATALOG_VERSION_MAX = 60;
 const isActivityKeyString = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_ACTIVITY_KEY;
 
 /**
@@ -301,6 +328,22 @@ export function validateIibbProfile(raw: unknown): FieldResult<IibbProfileData> 
             return fail(`${f}.description`, `descripción de actividad requerida (máximo ${ACTIVITY_DESCRIPTION_MAX})`);
         }
 
+        const origin = r.origin === undefined || r.origin === null ? "MANUAL" : r.origin;
+        if (!(ACTIVITY_ORIGINS as readonly unknown[]).includes(origin)) return fail(`${f}.origin`, "origen de la actividad inválido");
+        let catalogId: string | null = null;
+        let catalogVersion: string | null = null;
+        if (origin === "CATALOG") {
+            if (nomenclator === "OTRO") return fail(`${f}.origin`, "el nomenclador «otro» no tiene catálogo: registrala como carga manual");
+            const cid = optionalTrimmed(r.catalogId);
+            const cver = optionalTrimmed(r.catalogVersion);
+            if (typeof cid !== "string" || !CATALOG_ID_RE.test(cid)) return fail(`${f}.catalogId`, "catálogo de la actividad inválido");
+            if (typeof cver !== "string" || cver.length > CATALOG_VERSION_MAX) return fail(`${f}.catalogVersion`, "versión del catálogo inválida");
+            catalogId = cid;
+            catalogVersion = cver;
+        } else if (optionalTrimmed(r.catalogId) !== null || optionalTrimmed(r.catalogVersion) !== null) {
+            return fail(`${f}.origin`, "una actividad manual no lleva catálogo");
+        }
+
         const key = activityKey({ nomenclator, nomenclatorJurisdiction, code });
         if (keys.has(key)) return fail(`${f}.code`, `actividad duplicada: ${code}`);
         keys.add(key);
@@ -312,13 +355,15 @@ export function validateIibbProfile(raw: unknown): FieldResult<IibbProfileData> 
         for (const [k, x] of rawRates.entries()) {
             const fr = `${f}.rates[${k}]`;
             if (typeof x !== "object" || x === null) return fail(fr, "alícuota inválida");
-            const { jurisdiction, rate } = x as Record<string, unknown>;
+            const { jurisdiction, rate, treatment: rawTreatment, origin: rawOrigin, ruleRef: rawRuleRef } = x as Record<string, unknown>;
             if (!isJurisdictionCode(jurisdiction)) return fail(fr, "jurisdicción inexistente");
             if (!profileCodes.has(jurisdiction)) {
                 return fail(fr, `la jurisdicción ${jurisdictionLabel(jurisdiction)} no está registrada para el cliente`);
             }
             if (rateJur.has(jurisdiction)) return fail(fr, `alícuota duplicada para ${jurisdictionLabel(jurisdiction)}`);
             rateJur.add(jurisdiction);
+            const treatment = rawTreatment === undefined || rawTreatment === null ? "RATE" : rawTreatment;
+            if (!(RATE_TREATMENTS as readonly unknown[]).includes(treatment)) return fail(fr, "tratamiento de la alícuota inválido");
             let value: string | null = null;
             if (rate !== undefined && rate !== null && rate !== "") {
                 if (typeof rate !== "string") return fail(fr, "la alícuota debe enviarse como texto");
@@ -326,10 +371,32 @@ export function validateIibbProfile(raw: unknown): FieldResult<IibbProfileData> 
                 if (err) return fail(fr, err);
                 value = rate.trim();
             }
-            rates.push({ jurisdiction, rate: value });
+            if (treatment === "EXEMPT" && value !== null) return fail(fr, "una exención no lleva alícuota (0 % es un dato distinto)");
+            const origin = rawOrigin === undefined || rawOrigin === null || rawOrigin === "" ? null : rawOrigin;
+            if (origin !== null && !(RATE_ORIGINS as readonly unknown[]).includes(origin)) return fail(fr, "origen de la alícuota inválido");
+            const absent = treatment === "RATE" && value === null;
+            if (absent && origin !== null) return fail(fr, "una alícuota sin informar no lleva origen");
+            let ruleRefValue: string | null = null;
+            if (origin === "CONFIRMED_SUGGESTION") {
+                if (typeof rawRuleRef !== "string" || parseRuleRef(rawRuleRef) === null) return fail(fr, "falta la regla de la sugerencia confirmada");
+                ruleRefValue = rawRuleRef;
+            } else if (rawRuleRef !== undefined && rawRuleRef !== null && rawRuleRef !== "") {
+                return fail(fr, "sólo una sugerencia confirmada lleva referencia de regla");
+            }
+            rates.push({ jurisdiction, rate: value, treatment: treatment as RateTreatment, origin: origin as RateOrigin | null, ruleRef: ruleRefValue });
         }
 
-        activities.push({ nomenclator, nomenclatorJurisdiction, nomenclatorReference: reference, code, description, rates });
+        activities.push({
+            nomenclator,
+            nomenclatorJurisdiction,
+            nomenclatorReference: reference,
+            code,
+            description,
+            origin: origin as ActivityOrigin,
+            catalogId,
+            catalogVersion,
+            rates,
+        });
     }
 
     const cj = confirmationList(b.confirmRemovedJurisdictions, "code", "associations", isJurisdictionCode, isActivityKeyString, MAX_JURISDICTIONS, MAX_ACTIVITIES);
