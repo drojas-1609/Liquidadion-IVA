@@ -8,6 +8,15 @@ import {createInterface} from 'node:readline/promises';
 export const SITE_ID='d017ec41-acf9-4334-9c65-7d7e23045359';
 export const BRANCH='codex/arca-homologacion-segura';
 export const KEYS=['ARCA_PADRON_ENABLED','ARCA_PADRON_ENV','ARCA_PADRON_CUIT_REPRESENTADA','ARCA_WSAA_CERT_PEM','ARCA_WSAA_KEY_PEM','ARCA_WSAA_KEY_PASSWORD','ARCA_WSAA_CACHE_KEY','ARCA_HOMO_PREVIEW','ARCA_HOMO_HASTA'];
+export function tokenFromCliConfig(config){
+ const id=config?.userId;
+ const token=typeof id==='string'?config?.users?.[id]?.auth?.token:undefined;
+ return typeof token==='string'&&token.trim()?token:null;
+}
+async function existingCliToken(){
+ const file=join(homedir(),process.platform==='darwin'?'Library/Preferences/netlify/config.json':'.config/netlify/config.json');
+ try{const st=await lstat(file);if(!st.isFile()||st.isSymbolicLink()||st.size>1000000||(st.mode&0o077)!==0||(process.getuid&&st.uid!==process.getuid()))return null;return tokenFromCliConfig(JSON.parse(await readFile(file,'utf8')));}catch{return null;}
+}
 export function buildPayload(values){
  if(KEYS.some(k=>typeof values[k]!=='string'||!values[k]))throw Error('VALORES_INCOMPLETOS');
  return KEYS.map(key=>({key,scopes:['functions'],is_secret:true,values:[{context:'branch',context_parameter:BRANCH,value:values[key]}]}));
@@ -43,7 +52,10 @@ async function main(){
  const cert=new X509Certificate(data.cert),key=createPrivateKey({key:data.key,format:'pem',passphrase:password});
  if(!cert.checkPrivateKey(key)||Date.now()<Date.parse(cert.validFrom)||Date.now()>=Date.parse(cert.validTo))throw Error('CERTIFICADO_NO_VALIDO');
  const cuit=cert.subject.match(/serialNumber\s*=\s*CUIT\s*(\d{11})/i)?.[1];if(!cuit)throw Error('CUIT_CERTIFICADO');
- const token=await hidden('Token personal de Netlify (no se muestra; no se guarda): ');if(!token.trim())throw Error('TOKEN_VACIO');
+ let token=await existingCliToken();
+ if(token)console.log('Autorización local existente de Netlify CLI: seleccionada sin mostrar el token.');
+ else token=await hidden('Token personal de Netlify (no se muestra; no se guarda): ');
+ if(!token.trim())throw Error('TOKEN_VACIO');
  const api=async(path,options={})=>{
   const response=await fetch('https://api.netlify.com/api/v1'+path,{...options,redirect:'error',signal:AbortSignal.timeout(20000),headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'}});
   if(!response.ok)throw Error('API_NETLIFY_'+response.status);return response.status===204?null:response.json();
@@ -64,6 +76,6 @@ async function main(){
   const after=await api(path);
   for(const key of KEYS){const v=after.find(x=>x.key===key);if(!v||v.is_secret!==true||v.scopes?.length!==1||v.scopes[0]!=='functions'||v.values?.length!==1||v.values[0].context!=='branch'||v.values[0].context_parameter!==BRANCH)throw Error('VERIFICACION_INCIERTA');}
   console.log('RESULT '+JSON.stringify({site:'liquidadoriva',branch:BRANCH,variables:KEYS.length,scope:'functions',caduca:until,production_values:0,verified:true,deploy_triggered:false}));
- }catch{console.error(attempted?'DETENIDO: configuración incierta o rechazada. No reintentar ni ampliar el alcance; revisar sólo metadatos.':'DETENIDO: sin envío.');process.exitCode=1;}
+ }catch(error){const status=error instanceof Error&&/^API_NETLIFY_\d{3}$/.test(error.message)?' ('+error.message+')':'';console.error(attempted?'DETENIDO: configuración incierta o rechazada'+status+'. No reintentar ni ampliar el alcance; revisar sólo metadatos.':'DETENIDO: sin envío.');process.exitCode=1;}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch(()=>{console.error('DETENIDO: precheck no completado; no se muestran errores internos ni secretos.');process.exitCode=1;});

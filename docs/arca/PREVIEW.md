@@ -24,7 +24,7 @@ El usuario debe autorizar expresamente que el certificado de homologación, la c
 node scripts/arca/configure-preview.mjs /ruta/local/a/la/carpeta-del-certificado --apply
 ```
 
-Pide contraseña local y token personal de Netlify en prompts ocultos. No crea ni guarda el token; el usuario lo gestiona en Netlify y puede revocarlo después. Verifica sitio/equipo y destinos DEV efectivos de la rama leyendo las variables en memoria, sin imprimir valores. Se niega a sobrescribir cualquier variable de este namespace que ya exista. Comprueba certificado/clave y reutiliza wsaa-cache-dev.secret.
+Pide la contraseña local en prompt oculto. Intenta reutilizar la autorización Netlify CLI del usuario activo, sólo desde su archivo privado estándar y sin mostrarla; si no hay una válida con ese formato, pide un token personal en prompt oculto. No crea ni guarda el token; el usuario lo gestiona en Netlify y puede revocarlo después. Verifica sitio/equipo y destinos DEV efectivos de la rama leyendo las variables en memoria, sin imprimir valores. Se niega a sobrescribir cualquier variable de este namespace que ya exista. Comprueba certificado/clave y reutiliza wsaa-cache-dev.secret.
 
 Antes de enviar muestra alcance/caducidad y exige CONFIGURAR-ARCA-HOMO-PREVIEW-NETLIFY. Crea las9variables en una única solicitud y relee metadatos. No llama deploy, no hace merge y no cambia permisos. Si el plan/API no admite scope functions o secreto, no amplía scopes ni contrata planes: se detiene. Tras una respuesta incierta puede haber variables parciales; no repetir ni borrar a ciegas. Revisar metadatos antes de decidir.
 
