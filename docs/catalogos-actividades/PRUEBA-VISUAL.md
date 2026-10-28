@@ -1,4 +1,4 @@
-# Prueba visual en Deploy Preview con Supabase DEV: preparada, NO ejecutada
+# Prueba visual en Deploy Preview con Supabase DEV: ejecutada, con límites
 
 Camino elegido: **Preview de Netlify contra DEV**, sin Docker ni Supabase local.
 
@@ -7,16 +7,16 @@ Camino elegido: **Preview de Netlify contra DEV**, sin Docker ni Supabase local.
 | DEV | `esyfpakajthdifhnhcew` (`tax-liquidator-dev`) |
 | PROD (nunca se toca) | `bqqruaikbqculvmtirvy` |
 
-**Estado.** La preparación local está completa: las barreras, sus tests, el control de build y el kit de migración DEV. **No se ejecutó ningún paso remoto.** Cada uno de los pasos de la sección 6 necesita tu autorización explícita por separado.
+**Estado al 28/10/2026 UTC.** Commit `76ef235`, PR draft [#18](https://github.com/drojas-1609/Liquidadion-IVA/pull/18), migración DEV aplicada y verificada, y smoke ejecutado con limpieza completa. Ver `SMOKE-DEV.md` para evidencia y límites. Los procedimientos siguientes se conservan como referencia; los pasos completados no deben repetirse. PROD sigue sin esta migración: no mergear.
 
 ## 1. Migración en DEV (kit `~/catalogos-dev-kit`)
 
 | Migración | DEV hoy | Acción |
 |---|---|---|
 | Las 8 hasta `20261025120000_client_profile_iibb_contacts` (PR #17) | Aplicadas y verificadas el 26/10 | Ninguna; el preflight exige sus 8 checksums |
-| `20261027120000_activity_catalog_rate_origin` (esta rama) | **No aplicada** | Sólo en DEV, con el kit nuevo |
+| `20261027120000_activity_catalog_rate_origin` (esta rama) | Aplicada y verificada el 28/10/2026 UTC | Ninguna: no repetir |
 
-El kit está en `~/catalogos-dev-kit/README.md` y su autoprueba offline pasa: 49 bloques, de los cuales 59 son casos de evaluación. Resumen:
+El kit está en `~/catalogos-dev-kit/README.md`. La autoprueba de cierre tuvo 62 bloques OK y la evaluación JSON 60 casos OK. Resumen de sus guardas:
 
 - **Preflight de sólo lectura:**
   - la URL sólo puede ser DEV, y cualquier rastro de PROD lo detiene;
@@ -39,7 +39,7 @@ El kit está en `~/catalogos-dev-kit/README.md` y su autoprueba offline pasa: 49
   - los conteos de negocio y el `updatedAt` máximo no cambian;
   - `_prisma_migrations` aumenta en 1.
 - **Diagnóstico sin acciones automáticas.**
-- **SHA del commit: PENDIENTE.** `EXPECTED_HEAD` está vacío y la guarda rechaza siempre, también en el estado ideal. La autoprueba comprueba que hoy el kit se detiene antes de pedir la URL. Se fija recién cuando exista el commit definitivo.
+- **SHA fijado:** `76ef23509948a5f5104495184f421da5ce31fe78`. La migración ya tiene su marcador de intento. El kit exige un worktree limpio; las notas documentales posteriores al commit no justifican modificar esa guarda ni repetir la migración.
 
 **Riesgo de orden:** si la rama se mergeara antes de migrar PROD, la producción quedaría con código que espera columnas inexistentes. La migración de PROD es otra autorización, con su propio runbook.
 
@@ -165,7 +165,7 @@ La pestaña Red del navegador sólo muestra a qué Supabase habla el cliente. Pr
   - verificar el redeploy con tres controles: el log ya no contiene `HABILITADOS` (sin la variable no se imprime ninguna línea), `verify-build --expect absent` sobre el artefacto da OK (o, sin acceso al artefacto, el listado devuelve `[]`) y la búsqueda de «999001» no encuentra nada.
 - **Producción:** no necesita nada. Su build tiene `CONTEXT=production`, así que la barrera de build está cerrada y los datos no se empaquetan, como prueba el control `--expect absent`.
 
-## 6. Acciones remotas pendientes (cada una con su autorización)
+## 6. Secuencia del plan y estado actual
 
 1. **Commit** de la rama y fijación de su SHA en `EXPECTED_HEAD` del kit. Después, regenerar `SHA256SUMS` y repetir `selftest.sh`.
 2. **Preflight DEV** (`10-preflight.sh`, sólo lectura) y revisión de `observation.json`.
@@ -175,3 +175,14 @@ La pestaña Red del navegador sólo muestra a qué Supabase habla el cliente. Pr
 6. **Consultas de sólo lectura en DEV** de antes y después: auditoría y limpieza.
 7. **Prueba en el navegador** con los clientes centinela, y su limpieza.
 8. **Quitar las variables y redeployar la Preview**, o dejar que venza.
+
+
+### Cierre real del 28/10/2026 UTC
+
+Los pasos 1 a 7 se completaron dentro de sus autorizaciones, con las limitaciones de `SMOKE-DEV.md`. El deploy `6ae1431d7059c0a271478097` corresponde al commit `76ef235`. El log registró `[catalogos-sinteticos] HABILITADOS`.
+
+Las variables tienen valor sólo en Deploy Previews; Production, Branch deploys, Preview Server & Agent Runners y Local development están vacíos. El plan de Netlify permite únicamente **All scopes**, por lo que no se pudo restringir a Builds y Functions. No contienen credenciales.
+
+Vencimiento configurado: `2026-10-28T21:30:00-03:00`. El paso 8 queda pendiente: no se retiraron las variables ni se comprobó aún su apagado por vencimiento. No hay datos de prueba que limpiar: SQL final confirmó cero centinelas y descendientes.
+
+La captura de payloads HTTP y VoiceOver no se completaron. No declarar esos puntos aprobados. La comprobación aritmética y del Excel se hizo contra los datos sintéticos, no contra una ejecución del binario anterior.

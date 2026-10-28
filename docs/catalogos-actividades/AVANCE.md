@@ -141,3 +141,27 @@ Las acciones remotas de `PRUEBA-VISUAL.md` §6, cada una con su autorización. S
   - un cliente con actividad sintética se elimina (204) con las barreras ya deshabilitadas.
 - [x] Integración con PostgreSQL 17 local descartable (`scripts/pg-local-regression.sh`): 9 migraciones, schema igual a las migraciones y 10/10 tests.
 - [x] Un único commit local en `feature/catalogos-actividades-validacion`, sin push. Su SHA está fijado en `EXPECTED_HEAD` de `~/catalogos-dev-kit`, fuera del repo.
+
+## Punto de retomada (28/10/2026)
+- **Commit local:** `76ef23509948a5f5104495184f421da5ce31fe78` (padre `40413ea`), **sin push**. Esta nota se agregó después del commit, así que el worktree tiene este único cambio sin commitear.
+- **Migración DEV:** `20261027120000_activity_catalog_rate_origin` aplicada y verificada por el postcheck del kit y por una verificación independiente de sólo lectura.
+  - 9 migraciones terminadas, ninguna fallida ni revertida.
+  - Huella DEV: `75563a6ceca6e2f8e1c2d342089d439ec152477649c82356ceb16ea298b2bc23`.
+  - AuditLog 118; sin datos temporales ni actividad o locks residuales.
+- **Corrida:** `~/catalogos-dev-kit/runs/20261028T002336Z-migrate`.
+- **Próximo paso:** revisar en sólo lectura la configuración de Netlify y preparar la Preview según `PRUEBA-VISUAL.md` §3 y §6, cada paso con su autorización.
+- **Variables sintéticas** (`CATALOGOS_SINTETICOS`, `CATALOGOS_SINTETICOS_HASTA`): todavía sin activar.
+- **PROD:** sin esta migración. **No mergear** hasta migrarla con su propio runbook y autorización.
+- **Conjuntos fiscales:** sin aprobar ni habilitar.
+
+
+## Cierre del smoke desde Codex (28/10/2026 UTC)
+
+- PR draft [#18](https://github.com/drojas-1609/Liquidadion-IVA/pull/18), head `76ef23509948a5f5104495184f421da5ce31fe78`, ya subido. `main` sigue en `40413ea` según la verificación del push.
+- Deploy Preview `6ae1431d7059c0a271478097`: exitoso; log de fixtures HABILITADOS y centinelas autenticados correctos.
+- Smoke ejecutado con OWNER. Evidencia, IDs y límites en `SMOKE-DEV.md`.
+- Limpieza por UI y SELECT final dentro de BEGIN READ ONLY: clientes1, períodos1, comprobantes3, líneasIVA3, jurisdicciones/actividades/alícuotas0, retenciones0; cero centinelas y descendientes. AuditLog128 (118+10 entradas exactas de la prueba).
+- Liquidación y Excel: base1000, IVA210, IIBB30 al3%, aclaración en C17. No se capturaron payloads HTTP; VoiceOver pendiente.
+- Los fixtures siguen con vencimiento `2026-10-28T21:30:00-03:00`; no se verificó aún el apagado.
+- Conjuntos oficiales continúan pendientes y deshabilitados. ARCA sin configurar. PROD sin la nueva migración. No mergear.
+- Documentación corregida localmente, sin nuevo commit ni push. La nota de retomada anterior se conserva como historial.
