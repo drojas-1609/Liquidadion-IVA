@@ -18,8 +18,8 @@ import { child, childText, escapeXml, parseXml, XmlParseError, soapBody, soapFau
 import type { ArcaEnvironment } from "./padron";
 
 export const WSAA_ENDPOINTS: Readonly<Record<ArcaEnvironment, string>> = {
-    homologacion: "https://wsaahomo.arca.gob.ar/ws/services/LoginCms",
-    produccion: "https://wsaa.arca.gob.ar/ws/services/LoginCms",
+    homologacion: "https://wsaahomo.afip.gov.ar/ws/services/LoginCms",
+    produccion: "https://wsaa.afip.gov.ar/ws/services/LoginCms",
 };
 export const WSAA_NAMESPACE = "http://wsaa.view.sua.dvadac.desein.afip.gov";
 

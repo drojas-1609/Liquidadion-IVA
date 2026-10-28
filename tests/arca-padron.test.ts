@@ -139,8 +139,8 @@ describe("padrón ws_sr_constancia_inscripcion — getPersona_v2", () => {
 describe("WSAA — loginCms", () => {
     it("endpoints oficiales", () => {
         expect(WSAA_ENDPOINTS).toEqual({
-            homologacion: "https://wsaahomo.arca.gob.ar/ws/services/LoginCms",
-            produccion: "https://wsaa.arca.gob.ar/ws/services/LoginCms",
+            homologacion: "https://wsaahomo.afip.gov.ar/ws/services/LoginCms",
+            produccion: "https://wsaa.afip.gov.ar/ws/services/LoginCms",
         });
     });
     it("TRA con servicio, uniqueId y ventana de validez", () => {
