@@ -165,3 +165,9 @@ Las acciones remotas de `PRUEBA-VISUAL.md` §6, cada una con su autorización. S
 - Los fixtures siguen con vencimiento `2026-10-28T21:30:00-03:00`; no se verificó aún el apagado.
 - Conjuntos oficiales continúan pendientes y deshabilitados. ARCA sin configurar. PROD sin la nueva migración. No mergear.
 - Documentación corregida localmente, sin nuevo commit ni push. La nota de retomada anterior se conserva como historial.
+
+## Preparación ARCA y publicación de nomencladores — 28/10/2026
+
+PR #19 mergeado con autorización expresa y producción Published main@5324424. Se verificó en producción el listado de NAES, CLAE y NAIIB-18 y la búsqueda del código 692000 en los tres; no se crearon ni modificaron clientes. Las reglas de alícuotas siguen pendientes.
+
+Rama local `codex/arca-homologacion-segura`: preparación de CMS, tickets cifrados compartidos, parser/transporte limitado y generador local de CSR. Guía: `docs/arca/ALTA-Y-HOMOLOGACION.md`. No se generaron credenciales reales ni se configuró ARCA remota. La migración `20261028120000_arca_wsaa_ticket_cache` sólo se ensayó en PostgreSQL local; DEV y PROD siguen con 9 migraciones. No usar los kits anteriores para esta migración. Pendientes: revisión del cambio, certificado y autorización WSASS, nuevo kit y autorización de migración DEV, secretos de Preview y homologación real antes de producción.

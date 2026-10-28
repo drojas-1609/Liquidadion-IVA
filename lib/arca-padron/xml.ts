@@ -1,161 +1,170 @@
-/**
- * Parser XML mínimo para las respuestas SOAP de ARCA (WSAA y padrón).
- *
- * Sin dependencias. Deliberadamente restrictivo:
- *  - rechaza DOCTYPE/DTD (sin expansión de entidades ni entidades externas);
- *  - sólo las entidades predefinidas y referencias numéricas;
- *  - límite de tamaño;
- *  - los prefijos de namespace se descartan (se usa el nombre local).
- * Una entrada mal formada lanza `XmlParseError`; nunca se "repara".
- */
-
+/** Parser restrictivo de respuestas ARCA: tamaño en bytes, profundidad y namespaces. */
 export interface XmlElement {
-    /** Nombre local (sin prefijo de namespace). */
     name: string;
+    qname: string;
+    namespaceUri: string;
     children: XmlElement[];
-    /** Texto directo concatenado (sin el de los hijos), con entidades resueltas. */
     text: string;
 }
-
 export class XmlParseError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = "XmlParseError";
-    }
+    constructor(message: string) { super(message); this.name = 'XmlParseError'; }
 }
-
 export const XML_MAX_BYTES = 512 * 1024;
-
-const NAME_RE = /^[A-Za-z_][\w.-]*(:[A-Za-z_][\w.-]*)?$/;
-
-function decodeEntities(s: string): string {
-    return s.replace(/&(#x[0-9a-fA-F]+|#\d+|lt|gt|amp|quot|apos);?/g, (m, ent: string) => {
-        if (!m.endsWith(";")) throw new XmlParseError("entidad sin terminar");
-        if (ent === "lt") return "<";
-        if (ent === "gt") return ">";
-        if (ent === "amp") return "&";
-        if (ent === "quot") return '"';
-        if (ent === "apos") return "'";
-        const code = ent.startsWith("#x") ? parseInt(ent.slice(2), 16) : parseInt(ent.slice(1), 10);
-        if (!Number.isFinite(code) || code > 0x10ffff) throw new XmlParseError("referencia numérica inválida");
-        return String.fromCodePoint(code);
+export const XML_MAX_DEPTH = 64;
+export const SOAP_NAMESPACE = 'http://schemas.xmlsoap.org/soap/envelope/';
+const NAME = /^[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?$/;
+function decode(raw: string): string {
+    if (/&(?!(?:#x[0-9a-fA-F]+|#\d+|lt|gt|amp|quot|apos);)/.test(raw))
+        throw new XmlParseError('entidad inválida');
+    return raw.replace(/&(#x[0-9a-fA-F]+|#\d+|lt|gt|amp|quot|apos);/g, (_, ent: string) => {
+        const fixed: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
+        if (ent in fixed)
+            return fixed[ent];
+        const n = ent.startsWith('#x') ? parseInt(ent.slice(2), 16) : parseInt(ent.slice(1), 10);
+        if (!(n === 9 || n === 10 || n === 13 || (n >= 32 && n <= 0xd7ff) || (n >= 0xe000 && n <= 0xfffd) || (n >= 0x10000 && n <= 0x10ffff)))
+            throw new XmlParseError('referencia inválida');
+        return String.fromCodePoint(n);
     });
 }
-
-function localName(qname: string): string {
-    const i = qname.indexOf(":");
-    return i === -1 ? qname : qname.slice(i + 1);
-}
-
 export function parseXml(input: string): XmlElement {
-    if (input.length > XML_MAX_BYTES) throw new XmlParseError("respuesta XML demasiado grande");
-    let i = 0;
-    const n = input.length;
-    const stack: XmlElement[] = [];
+    if (new TextEncoder().encode(input).byteLength > XML_MAX_BYTES)
+        throw new XmlParseError('XML demasiado grande');
+    if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/.test(input))
+        throw new XmlParseError('carácter XML inválido');
+    const stack: Array<{
+        el: XmlElement;
+        ns: Record<string, string>;
+    }> = [];
     let root: XmlElement | null = null;
-
-    const appendText = (raw: string) => {
-        if (raw.trim() === "") return;
-        if (raw.includes("&") && /&(?!(#x[0-9a-fA-F]+|#\d+|lt|gt|amp|quot|apos);)/.test(raw)) {
-            throw new XmlParseError("'&' sin escapar");
-        }
-        if (stack.length === 0) throw new XmlParseError("texto fuera del elemento raíz");
-        stack[stack.length - 1].text += decodeEntities(raw);
-    };
-
-    while (i < n) {
-        const lt = input.indexOf("<", i);
-        if (lt === -1) {
-            appendText(input.slice(i));
+    let i = 0;
+    const append = (raw: string) => { if (!raw.trim())
+        return; if (!stack.length)
+        throw new XmlParseError('texto fuera de raíz'); stack[stack.length - 1].el.text += decode(raw); };
+    while (i < input.length) {
+        const lt = input.indexOf('<', i);
+        if (lt < 0) {
+            append(input.slice(i));
             break;
         }
-        if (lt > i) appendText(input.slice(i, lt));
-        if (input.startsWith("<?", lt)) {
-            const end = input.indexOf("?>", lt + 2);
-            if (end === -1) throw new XmlParseError("instrucción de procesamiento sin cerrar");
+        if (lt > i)
+            append(input.slice(i, lt));
+        if (input.startsWith('<?', lt)) {
+            const end = input.indexOf('?>', lt + 2);
+            if (end < 0)
+                throw new XmlParseError('instrucción sin cerrar');
             i = end + 2;
-        } else if (input.startsWith("<!--", lt)) {
-            const end = input.indexOf("-->", lt + 4);
-            if (end === -1) throw new XmlParseError("comentario sin cerrar");
-            i = end + 3;
-        } else if (input.startsWith("<![CDATA[", lt)) {
-            const end = input.indexOf("]]>", lt + 9);
-            if (end === -1) throw new XmlParseError("CDATA sin cerrar");
-            if (stack.length === 0) throw new XmlParseError("CDATA fuera del elemento raíz");
-            stack[stack.length - 1].text += input.slice(lt + 9, end);
-            i = end + 3;
-        } else if (input.startsWith("<!", lt)) {
-            throw new XmlParseError("DOCTYPE/DTD no admitido");
-        } else if (input.startsWith("</", lt)) {
-            const end = input.indexOf(">", lt);
-            if (end === -1) throw new XmlParseError("etiqueta de cierre sin terminar");
-            const name = input.slice(lt + 2, end).trim();
-            const open = stack.pop();
-            if (!open || open.name !== localName(name)) throw new XmlParseError("etiquetas no balanceadas");
-            if (stack.length === 0) root = open;
-            i = end + 1;
-        } else {
-            // Etiqueta de apertura: nombre + atributos (ignorados) + "/>" opcional.
-            let j = lt + 1;
-            let quote: string | null = null;
-            while (j < n) {
-                const c = input[j];
-                if (quote) {
-                    if (c === quote) quote = null;
-                } else if (c === '"' || c === "'") quote = c;
-                else if (c === ">") break;
-                j++;
-            }
-            if (j >= n) throw new XmlParseError("etiqueta sin terminar");
-            let body = input.slice(lt + 1, j);
-            const selfClosing = body.endsWith("/");
-            if (selfClosing) body = body.slice(0, -1);
-            const qname = body.trim().split(/\s+/, 1)[0] ?? "";
-            if (!NAME_RE.test(qname)) throw new XmlParseError("nombre de elemento inválido");
-            if (stack.length === 0 && root !== null) throw new XmlParseError("más de un elemento raíz");
-            const el: XmlElement = { name: localName(qname), children: [], text: "" };
-            if (stack.length > 0) stack[stack.length - 1].children.push(el);
-            if (selfClosing) {
-                if (stack.length === 0) root = el;
-            } else {
-                stack.push(el);
-            }
-            i = j + 1;
+            continue;
         }
+        if (input.startsWith('<!--', lt)) {
+            const end = input.indexOf('-->', lt + 4);
+            if (end < 0 || input.slice(lt + 4, end).includes('--'))
+                throw new XmlParseError('comentario inválido');
+            i = end + 3;
+            continue;
+        }
+        if (input.startsWith('<![CDATA[', lt)) {
+            const end = input.indexOf(']]>', lt + 9);
+            if (end < 0 || !stack.length)
+                throw new XmlParseError('CDATA inválido');
+            stack[stack.length - 1].el.text += input.slice(lt + 9, end);
+            i = end + 3;
+            continue;
+        }
+        if (input.startsWith('<!', lt))
+            throw new XmlParseError('DTD no admitido');
+        if (input.startsWith('</', lt)) {
+            const end = input.indexOf('>', lt);
+            if (end < 0)
+                throw new XmlParseError('cierre incompleto');
+            const qname = input.slice(lt + 2, end).trim();
+            const frame = stack.pop();
+            if (!NAME.test(qname) || !frame || frame.el.qname !== qname)
+                throw new XmlParseError('etiquetas no balanceadas');
+            if (!stack.length)
+                root = frame.el;
+            i = end + 1;
+            continue;
+        }
+        let end = lt + 1, quote = '';
+        for (; end < input.length; end++) {
+            const c = input[end];
+            if (quote) {
+                if (c === quote)
+                    quote = '';
+            }
+            else if (c === '"' || c === "'")
+                quote = c;
+            else if (c === '>')
+                break;
+        }
+        if (end >= input.length)
+            throw new XmlParseError('apertura incompleta');
+        let raw = input.slice(lt + 1, end);
+        const selfClosing = raw.endsWith('/');
+        if (selfClosing)
+            raw = raw.slice(0, -1);
+        const qname = raw.match(/^([^\s]+)/)?.[1] ?? '';
+        if (!NAME.test(qname))
+            throw new XmlParseError('nombre inválido');
+        const ns: Record<string, string> = { ...(stack.at(-1)?.ns ?? {}), xml: 'http://www.w3.org/XML/1998/namespace' };
+        let attrs = raw.slice(qname.length);
+        const seen = new Set<string>();
+        const names: string[] = [];
+        while (attrs.trim()) {
+            const a = attrs.match(/^\s+([A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?)\s*=\s*("[^"]*"|'[^']*')/);
+            if (!a || seen.has(a[1]))
+                throw new XmlParseError('atributos inválidos');
+            seen.add(a[1]);
+            names.push(a[1]);
+            const value = decode(a[2].slice(1, -1));
+            if (value.includes('<'))
+                throw new XmlParseError('atributo inválido');
+            if (a[1] === 'xmlns')
+                ns[''] = value;
+            else if (a[1].startsWith('xmlns:')) {
+                const prefix = a[1].slice(6);
+                if (!value || prefix === 'xmlns' || (prefix === 'xml' && value !== ns.xml))
+                    throw new XmlParseError('namespace inválido');
+                ns[prefix] = value;
+            }
+            attrs = attrs.slice(a[0].length);
+        }
+        for (const name of [qname, ...names.filter(n => n !== 'xmlns' && !n.startsWith('xmlns:'))]) {
+            if (name.includes(':') && !ns[name.split(':')[0]])
+                throw new XmlParseError('prefijo no declarado');
+        }
+        const parts = qname.split(':');
+        const el: XmlElement = { name: parts.at(-1)!, qname, namespaceUri: ns[parts.length === 2 ? parts[0] : ''] ?? '', children: [], text: '' };
+        if (!stack.length && root)
+            throw new XmlParseError('más de una raíz');
+        if (stack.length >= XML_MAX_DEPTH)
+            throw new XmlParseError('profundidad XML excesiva');
+        if (stack.length)
+            stack[stack.length - 1].el.children.push(el);
+        if (selfClosing) {
+            if (!stack.length)
+                root = el;
+        }
+        else
+            stack.push({ el, ns });
+        i = end + 1;
     }
-    if (stack.length > 0) throw new XmlParseError("elementos sin cerrar");
-    if (!root) throw new XmlParseError("documento vacío");
+    if (stack.length || !root)
+        throw new XmlParseError('documento incompleto');
     return root;
 }
-
-/** Primer hijo directo con ese nombre local. */
-export function child(el: XmlElement | undefined, name: string): XmlElement | undefined {
-    return el?.children.find((c) => c.name === name);
-}
-
-/** Todos los hijos directos con ese nombre local. */
-export function childrenNamed(el: XmlElement | undefined, name: string): XmlElement[] {
-    return el ? el.children.filter((c) => c.name === name) : [];
-}
-
-/** Primer descendiente (búsqueda en profundidad) con ese nombre local. */
-export function find(el: XmlElement | undefined, name: string): XmlElement | undefined {
-    if (!el) return undefined;
-    for (const c of el.children) {
-        if (c.name === name) return c;
-        const hit = find(c, name);
-        if (hit) return hit;
-    }
-    return undefined;
-}
-
-/** Texto (sin espacios en los extremos) del hijo directo, o null si no existe o está vacío. */
-export function childText(el: XmlElement | undefined, name: string): string | null {
-    const t = child(el, name)?.text.trim();
-    return t ? t : null;
-}
-
-/** Escapa texto para incluirlo en un documento XML. */
-export function escapeXml(s: string): string {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-}
+export function child(el: XmlElement | undefined, name: string): XmlElement | undefined { return el?.children.find(c => c.name === name); }
+export function childrenNamed(el: XmlElement | undefined, name: string): XmlElement[] { return el?.children.filter(c => c.name === name) ?? []; }
+export function find(el: XmlElement | undefined, name: string): XmlElement | undefined { if (!el)
+    return undefined; for (const c of el.children) {
+    if (c.name === name)
+        return c;
+    const hit = find(c, name);
+    if (hit)
+        return hit;
+} return undefined; }
+export function childText(el: XmlElement | undefined, name: string): string | null { return child(el, name)?.text.trim() || null; }
+export function escapeXml(s: string): string { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;'); }
+export function soapBody(doc: XmlElement): XmlElement | undefined { if (doc.name !== 'Envelope' || doc.namespaceUri !== SOAP_NAMESPACE)
+    return undefined; const bodies = doc.children.filter(c => c.name === 'Body' && c.namespaceUri === SOAP_NAMESPACE); return bodies.length === 1 ? bodies[0] : undefined; }
+export function soapFault(doc: XmlElement): XmlElement | undefined { return soapBody(doc)?.children.find(c => c.name === 'Fault' && c.namespaceUri === SOAP_NAMESPACE); }
