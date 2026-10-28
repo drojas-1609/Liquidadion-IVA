@@ -1,5 +1,5 @@
 import {describe,it,expect,vi} from 'vitest';
-import {devUrl,safeResult,checkNetwork,HOMO} from '../scripts/arca/homologation-runner';
+import {devUrl,safeResult,checkNetwork,HOMO,queryTarget,canRepeat,MANUAL_EXAMPLE_CUIT} from '../scripts/arca/homologation-runner';
 describe('runner de homologación: guardas y salida sin datos personales',()=>{
  it.each([
  ['postgresql://postgres:ficticia@db.esyfpakajthdifhnhcew.supabase.co:5432/postgres',true],
@@ -28,5 +28,19 @@ describe('runner de homologación: guardas y salida sin datos personales',()=>{
  it('no cambia de host como respuesta a un fallo TLS',async()=>{
   const f=vi.fn(async()=>{throw Error('TLS');}) as unknown as typeof fetch;
   await expect(checkNetwork(f)).rejects.toThrow('TLS');expect(f).toHaveBeenCalledTimes(1);
+ });
+});
+
+describe('ejemplo público de homologación',()=>{
+ it('permite sólo titular o el ejemplo fijo del manual; no CUIT arbitrario',()=>{
+  expect(queryTarget('TITULAR',[]).cuit).toBe('TITULAR');
+  expect(queryTarget('TITULAR',['--example'])).toMatchObject({cuit:MANUAL_EXAMPLE_CUIT,example:true});
+  expect(()=>queryTarget('TITULAR',['--example','otro'])).toThrow();
+  expect(()=>queryTarget('TITULAR',['--cuit','30999999170'])).toThrow();
+ });
+ it('se detiene si el ejemplo no existe y no altera la regla del caso titular',()=>{
+  const missing={status:'NOT_FOUND' as const,cuit:MANUAL_EXAMPLE_CUIT};
+  expect(canRepeat(missing,true)).toBe(false);expect(canRepeat(missing,false)).toBe(true);
+  expect(canRepeat({status:'ERROR',code:'AUTH'},true)).toBe(false);
  });
 });

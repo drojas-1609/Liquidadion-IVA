@@ -63,3 +63,17 @@ El servidor web y producción no se habilitan con esta prueba. Pasar el ensayo s
 - La [página oficial de WSAA](https://www.arca.gob.ar/ws/documentacion/wsaa.asp) publica `wsaahomo.afip.gov.ar` / `wsaa.afip.gov.ar`. Se corrigieron las constantes que usaban el dominio arca para WSAA.
 - El [manual del padrón v4.1](https://www.arca.gob.ar/ws/WSCI/manual_ws_sr_ws_constancia_inscripcion.pdf) publica `awshomo.arca.gob.ar`; en esta máquina no resolvió. `wsaahomo.arca.gob.ar` devolvió un certificado con nombre distinto. No se desactivó TLS ni se usó resolución forzada.
 - Los WSDL públicos de [WSAA de homologación](https://wsaahomo.afip.gov.ar/ws/services/LoginCms?WSDL) y [padrón de homologación](https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5?WSDL) respondieron 200 con TLS válido y publicaron esas mismas direcciones SOAP. El runner usa explícitamente ese perfil sólo de homologación; no hay fallback automático. El endpoint del padrón del servidor permanece como lo documenta v4.1 hasta decidir su configuración real.
+
+## Ejemplo público para buscar una respuesta con datos
+
+La primera ejecución real del titular devolvió NOT_FOUND dos veces, con una sola llamadaWSAA, reutilizacióntrue y conteos/marca del cliente sin cambios según el RESULT compartido por el usuario. Esto demuestra autenticación/transporte y reutilización en ese cliente local, no el autocompletado ni la inscripción de producción.
+
+El manual oficialv4.1 muestra `20164755100` en el ejemplo getPersona_v2 (páginas impresas9–12) y una respuesta con datos. No afirma que ese CUIT esté permanentemente disponible en homologación. Para intentar ese único ejemplo:
+
+```sh
+node scripts/arca/homologate.mjs /ruta/local/a/la/carpeta-del-certificado --example
+```
+
+Mismos prompts ocultos y misma carpeta: reutiliza `wsaa-cache-dev.secret`, no lo borra ni recrea si falta. Certificado y CUIT representado siguen siendo los del titular. La frase es `PROBAR-EJEMPLO-ARCA-HOMO-DEV`. Si devuelve FOUND, hace una segunda consulta para comprobar caché; si devuelve NOT_FOUND o error, termina sin buscar otros CUIT y sin repetir. No permite un CUIT arbitrario como argumento.
+
+El resumen sólo muestra disponibilidad de nombre/domicilio y cantidades de actividades/impuestos. No muestra valores personales ni respuestas crudas y no crea un cliente. Una respuesta FOUND no valida aún la interfaz del navegador.

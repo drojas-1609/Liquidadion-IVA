@@ -181,3 +181,9 @@ Runner `node scripts/arca/homologate.mjs <carpeta-certificado>` listo para que e
 Corrección de endpoints: la página oficial WSAA publica afip.gov.ar, se corrigieron constantes. El dominio arca de WSAA falló TLS y el de padrón no resolvió aquí; los WSDL AFIP de homologación respondieron200 con TLSválido y direcciónSOAPcoincidente. Runner usa ese perfil explícitamente, sin fallback; servidor padrón mantiene dominioarca documentado en v4.1 hasta definir configuración final. Ver guíaARCA para fuentes y límites.
 
 Validación: 3011 tests, 15 integración omitidos en la suite (ya verificados con PostgreSQL local en la etapa anterior); tipos/lint/buildOK. Autoprueba de prompts por terminal con dos cadenas ficticiasOK. Sólo se hicieron GET públicos de WSDL, ninguna autenticación o consulta de persona real, ni carga de secretos en Netlify, push, merge o deploy. Pendiente: el usuario ejecuta la prueba con su clave, revisar RESULT antes de avanzar a Preview.
+
+## Primer ensayo real y ejemplo del manual — 28/10/2026
+
+RESULT del titular: primeraNOT_FOUND, segundaNOT_FOUND, llamadasWSAA1, padrón2, reutilizacióntrue y conteos/marca cliente sin cambios. Reportado por el usuario; sin consultas independientes nuevas ni lectura de secretos. No demuestra FOUND ni autocompletado.
+
+Se prepara modo `--example` limitado a20164755100, ejemplo getPersona_v2 del manual oficialv4.1 (páginas9–12), sin garantía de disponibilidad actual. No se ejecutó con credenciales reales en esta etapa. Conserva el scope/titular/caché, exige frase distinta, se detiene con NOT_FOUND/error y sólo repite si FOUND. Pendiente RESULT del usuario antes de avanzar al formulario Preview.
