@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {describe,it,expect} from 'vitest';
-import {buildPayload,effectiveValue,checkDestinations,KEYS,BRANCH,tokenFromCliConfig,validateDestinationProof,safePrecheckError,SITE_ID,proofFromFileIndex} from '../scripts/arca/configure-preview.mjs';
+import {buildPayload,effectiveValue,checkDestinations,KEYS,BRANCH,tokenFromCliConfig,validateDestinationProof,safePrecheckError,SITE_ID,proofFromFileIndex,metadataSnapshot} from '../scripts/arca/configure-preview.mjs';
 const db='postgresql://postgres:x@db.esyfpakajthdifhnhcew.supabase.co:5432/postgres';
 const vars=[{key:'DATABASE_URL',values:[{context:'deploy-preview',value:db},{context:'production',value:'PROD'}]},{key:'NEXT_PUBLIC_SUPABASE_URL',values:[{context:'deploy-preview',value:'https://esyfpakajthdifhnhcew.supabase.co'}]}];
 describe('carga Netlify acotada',()=>{
@@ -48,4 +48,16 @@ describe('índice autenticado de archivos del deploy',()=>{
  const file={path:'/.well-known/arca-preview-destination.json',site_id:SITE_ID,deploy_id:deploy.id,size:Buffer.byteLength(body),sha:createHash('sha1').update(body).digest('hex')};
  it('acredita el contenido exacto sin descargar el sitio protegido',()=>expect(proofFromFileIndex([file],deploy,head).dev).toBe(true));
  it.each([{sha:'0'.repeat(40)},{size:0},{site_id:'otro'},{deploy_id:'otro'},{path:'/otro.json'}])('rechaza índice incorrecto %j',change=>expect(()=>proofFromFileIndex([{...file,...change}],deploy,head)).toThrow());
+});
+
+describe('comparación estable de metadatos',()=>{
+ const v=[{key:'DATABASE_URL',is_secret:true,updated_at:'2026-10-28T16:00:00Z',scopes:['functions','builds'],values:[{id:'uno',context:'deploy-preview',value:'mascara1'}]},{key:'PUBLIC',is_secret:false,values:[{id:'dos',context:'all',value:'visible'}]}];
+ it('ignora orden y máscara, conserva los identificadores y fechas',()=>{
+ const b=structuredClone(v).reverse();b[1].values[0].value='mascara2';b[1].scopes?.reverse();expect(metadataSnapshot(b)).toBe(metadataSnapshot(v));
+ });
+ it.each(['updated_at','scopes','is_secret'])('detecta cambio de %s',key=>{const b=structuredClone(v);Object.assign(b[0],{[key]:key==='scopes'?['builds']:key==='is_secret'?false:'otra-fecha'});expect(metadataSnapshot(b)).not.toBe(metadataSnapshot(v));});
+ it('detecta reemplazo del valor secreto por id y cambio de valor público',()=>{
+ const b=structuredClone(v);b[0].values[0].id='nuevo';expect(metadataSnapshot(b)).not.toBe(metadataSnapshot(v));
+ const c=structuredClone(v);c[1].values[0].value='otro';expect(metadataSnapshot(c)).not.toBe(metadataSnapshot(v));
+ });
 });

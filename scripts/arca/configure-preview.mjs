@@ -50,6 +50,9 @@ export function proofFromFileIndex(files,deploy,head){
  if(!file||file.site_id!==SITE_ID||file.deploy_id!==deploy.id||file.size!==Buffer.byteLength(body)||file.sha!==createHash('sha1').update(body).digest('hex'))throw Error('PREVIEW_CONSTANCIA_NO_DISPONIBLE');
  return proof;
 }
+export function metadataSnapshot(vars){
+ return JSON.stringify(vars.map(v=>({key:v.key,is_secret:v.is_secret===true,updated_at:v.updated_at,scopes:[...(v.scopes??[])].sort(),values:(v.values??[]).map(x=>({id:x.id,context:x.context,context_parameter:x.context_parameter,role:x.role,...(v.is_secret?{}:{value:x.value})})).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))})).sort((a,b)=>a.key.localeCompare(b.key)));
+}
 export function safePrecheckError(error){
  const code=error instanceof Error?error.message:'';
  return /^(NETLIFY_[A-Z_]+|PREVIEW_[A-Z_]+|API_NETLIFY_[0-9]{3}|VARIABLES_ARCA_YA_EXISTEN_NO_SOBRESCRIBIR|SITIO_NO_COINCIDE|METADATOS_NO_VALIDOS|CANCELADO)$/.test(code)?code:'PRECHECK_NO_COMPLETADO';
@@ -105,7 +108,7 @@ async function main(){
  if((await ask('Escribí CONFIGURAR-ARCA-HOMO-PREVIEW-NETLIFY para enviar: '))!=='CONFIGURAR-ARCA-HOMO-PREVIEW-NETLIFY')throw Error('CANCELADO');
  let attempted=false;
  try{
-  if(JSON.stringify(await api(path))!==JSON.stringify(vars))throw Error('PREVIEW_VARIABLES_MODIFICADAS');
+  if(metadataSnapshot(await api(path))!==metadataSnapshot(vars))throw Error('PREVIEW_VARIABLES_MODIFICADAS');
   attempted=true;await api(path,{method:'POST',body:JSON.stringify(payload)});
   const after=await api(path);
   for(const key of KEYS){const v=after.find(x=>x.key===key);if(!v||v.is_secret!==true||v.scopes?.length!==1||v.scopes[0]!=='functions'||v.values?.length!==1||v.values[0].context!=='branch'||v.values[0].context_parameter!==BRANCH)throw Error('VERIFICACION_INCIERTA');}
