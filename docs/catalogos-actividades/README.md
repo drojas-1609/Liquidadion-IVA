@@ -2,14 +2,14 @@
 
 Estado: **implementación local**, sin commits, sin migraciones remotas. La migración `20261027120000_activity_catalog_rate_origin` está **preparada, no aplicada** en DEV ni PROD.
 
-**Cobertura real hoy.** Todo está importado desde fuentes oficiales y cotejado de forma reproducible, pero **pendiente de la revisión del estudio**, en tres niveles separados (técnico, vigencia e interpretación; ver «Revisión por niveles»). Mientras tanto no se ofrece en el buscador ni en la asistencia:
+**Cobertura al 28/10/2026.** Diego Rojas aprobó expresamente los tres nomencladores oficiales cargados, con sus niveles técnico y de vigencia. Se habilitan la búsqueda y copia de actividades. **Las reglas de alícuotas continúan pendientes de revisión y no se habilitan.**
 
 | Dato | Archivo | Contenido | Estado |
 |---|---|---|---|
-| NAES | `data/activity-catalogs/naes-rg-ca-19-2025.json` | 1013 códigos con vigencia propia: 4 bajas al 31/12/2025 y 18 altas desde 01/2026 | `PENDIENTE_REVISION` |
-| ARCA / CLAE F.883 | `data/activity-catalogs/clae-rg-afip-3537-2013.json` | 951 actividades | `PENDIENTE_REVISION` |
+| NAES | `data/activity-catalogs/naes-rg-ca-19-2025.json` | 1013 códigos con vigencia propia: 4 bajas al 31/12/2025 y 18 altas desde 01/2026 | `REVISADO` (28/10/2026) |
+| ARCA / CLAE F.883 | `data/activity-catalogs/clae-rg-afip-3537-2013.json` | 951 actividades | `REVISADO` (28/10/2026) |
 | Alícuotas CABA 2026 | `data/iibb-rate-rules/caba-ley-6927-2026.json` | 33 reglas sobre 799 códigos NAES de las Planillas 1 a 11. **15 retenidas** por interpretación pendiente: la Ley 6948 desde junio y el 4 % residencial | `PENDIENTE_REVISION` |
-| NAIIB-18 (ARBA, 902) | `data/activity-catalogs/arba-naiibb18-2026-10-27.json` (+ `.correspondencias.json`, no aplicado) | 1035 códigos de la exportación oficial del 27/10/2026 | `PENDIENTE_REVISION` |
+| NAIIB-18 (ARBA, 902) | `data/activity-catalogs/arba-naiibb18-2026-10-27.json` (+ `.correspondencias.json`, no aplicado) | 1035 códigos de la exportación oficial del 27/10/2026 | `REVISADO` (28/10/2026) |
 | Alícuotas Buenos Aires 2026 | `data/iibb-rate-rules/arba-ley-15558-2026.json` | 71 reglas sobre 1022 códigos, contrastadas con el art. 20 de la Ley 15.558 sin diferencias; 222 códigos retenidos | `PENDIENTE_REVISION` |
 | Alícuotas Santa Cruz | — | Anexo I oficial de la Ley 3760 (BO 25/11/2021) leído y cotejado sólo como evidencia | **Pendiente**: vigencia posterior a 2021 no acreditada (ver `REVISION.md`) |
 | Alícuotas Corrientes | — | Ley 6249 (copia oficial de la DGR, 2021), con alícuotas por descripción | **Pendiente**: falta el texto oficial de la RG DGR 293/2025 |
@@ -106,7 +106,7 @@ Todos los comandos pasan por `scripts/activity-catalogs/cli.ts`, porque vite-nod
    - Los cotejos informan códigos faltantes o sobrantes y descripciones o vigencias distintas, y salen con código 3 si hay diferencias.
 4. **Registrar los resultados del preparador** con `cli.ts -- add-check --file … --level … --kind AUTOMATICO|INVESTIGACION --result … --summary … --evidence …`. No cambian ninguna decisión.
 5. **Revisión del estudio, nivel por nivel:** `cli.ts -- review --file … --level technical|validity --decision CONFORME|OBSERVADO …`. Después, la aprobación final con `cli.ts -- approve …`, que sólo funciona con todos los niveles CONFORME. La guía está en `REVISION.md`.
-6. **Registrar** la versión en `lib/activity-catalog/registry.ts`, con un import explícito revisable en el PR. Las dos versiones actuales ya están registradas como pendientes: hasta el paso 5 no se ofrecen.
+6. **Registrar** la versión en `lib/activity-catalog/registry.ts`, con un import explícito revisable en el PR. Los tres nomencladores actuales están registrados y aprobados; las versiones nuevas siguen requiriendo revisión propia.
 
 ### Revisión por niveles
 

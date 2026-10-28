@@ -18,16 +18,16 @@
   "entriesSha256": "032158aa8147baabeae71dc75979caf79cd27b5977ba85b13766ceed86e3cd83",
   "entryCount": 1013,
   "review": {
-   "status": "PENDIENTE_REVISION",
-   "reviewedBy": null,
-   "reviewedAt": null,
-   "notes": null,
+   "status": "REVISADO",
+   "reviewedBy": "Diego Rojas — aprobación expresa del estudio",
+   "reviewedAt": "2026-10-28",
+   "notes": "Autorización expresa del 28/10/2026: apruebo los nomencladores oficiales. Se habilita la búsqueda y copia de actividades; las reglas de alícuotas permanecen pendientes.",
    "levels": {
     "technical": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas — aprobación expresa del estudio",
+     "reviewedAt": "2026-10-28",
+     "notes": "Aprobación expresa del propietario en el chat del 28/10/2026 sobre los nomencladores oficiales cargados y su evidencia previa. Alcance: códigos, descripciones y vigencias de estas versiones; no aprueba alícuotas, equivalencias ni interpretaciones pendientes.",
      "checks": [
       {
        "kind": "AUTOMATICO",
@@ -44,10 +44,10 @@
      ]
     },
     "validity": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas — aprobación expresa del estudio",
+     "reviewedAt": "2026-10-28",
+     "notes": "Aprobación expresa del propietario en el chat del 28/10/2026 sobre los nomencladores oficiales cargados y su evidencia previa. Alcance: códigos, descripciones y vigencias de estas versiones; no aprueba alícuotas, equivalencias ni interpretaciones pendientes.",
      "checks": [
       {
        "kind": "INVESTIGACION",

@@ -27,8 +27,18 @@ const CLAE = clae as unknown as CatalogFile;
 const CABA = caba as unknown as RateRuleSet;
 
 describe("catálogos oficiales importados", () => {
+    it("aprobación expresa del estudio: los tres nomencladores permiten buscar sin activar reglas fiscales", () => {
+        for (const c of [NAES, CLAE, arba as unknown as CatalogFile]) {
+            expect(c.manifest.review).toMatchObject({status: "REVISADO", reviewedAt: "2026-10-28", levels: {technical: {status: "CONFORME"}, validity: {status: "CONFORME"}}});
+            expect(c.manifest.review.reviewedBy).toContain("Diego Rojas");
+            expect(searchCatalogs([c], "011111", {date: "2026-10-28"})).toHaveLength(1);
+        }
+        expect(CABA.manifest.review.status).toBe("PENDIENTE_REVISION");
+        expect(arbaRules.manifest.review.status).toBe("PENDIENTE_REVISION");
+    });
+
     it("estructura válida e íntegra (checksum de entradas)", () => {
-        for (const c of [NAES, CLAE]) {
+        for (const c of [NAES, CLAE, arba as unknown as CatalogFile]) {
             expect(validateCatalogFile(c), c.manifest.id).toEqual([]);
             expect(integrityProblems(c), c.manifest.id).toEqual([]);
         }
