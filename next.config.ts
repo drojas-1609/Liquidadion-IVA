@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { ARCA_HOMO_BUILD_FLAG, arcaHomoBuildEligible, arcaHomoRuntimeEligible } from "./lib/arca-padron/preview-gate";
+import { ARCA_HOMO_BUILD_FLAG, arcaHomoBuildEligible, arcaHomoRuntimeEligible, arcaHomoLocalEligible } from "./lib/arca-padron/preview-gate";
 import path from "node:path";
 import {mkdirSync,writeFileSync,rmSync} from "node:fs";
 
@@ -39,7 +39,7 @@ const FIXTURE_DATA_MODULE = "@/lib/preview-fixtures/data";
 const fixtureDataTarget = fixtureGate.enabled ? "./lib/preview-fixtures/data.ts" : "./lib/preview-fixtures/data-disabled.ts";
 
 const nextConfig: NextConfig = {
-  env: { [BUILD_FLAG_VAR]: fixtureGate.enabled ? "1" : "0", [ARCA_HOMO_BUILD_FLAG]: arcaBuildEligible ? "1" : "0" },
+  env: { [BUILD_FLAG_VAR]: fixtureGate.enabled ? "1" : "0", [ARCA_HOMO_BUILD_FLAG]: (arcaBuildEligible || arcaHomoLocalEligible(process.env)) ? "1" : "0" },
   turbopack: { resolveAlias: { [FIXTURE_DATA_MODULE]: fixtureDataTarget } },
   webpack(config) {
     config.resolve ??= {};

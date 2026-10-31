@@ -1,5 +1,6 @@
 import {describe,it,expect,vi} from 'vitest';
-import {devUrl,safeResult,checkNetwork,HOMO,queryTarget,canRepeat,MANUAL_EXAMPLE_CUIT} from '../scripts/arca/homologation-runner';
+import {EventEmitter} from 'node:events';
+import {devUrl,safeResult,checkNetwork,HOMO,queryTarget,canRepeat,MANUAL_EXAMPLE_CUIT,superviseServer} from '../scripts/arca/homologation-runner';
 describe('runner de homologación: guardas y salida sin datos personales',()=>{
  it.each([
  ['postgresql://postgres:ficticia@db.esyfpakajthdifhnhcew.supabase.co:5432/postgres',true],
@@ -42,5 +43,33 @@ describe('ejemplo público de homologación',()=>{
   const missing={status:'NOT_FOUND' as const,cuit:MANUAL_EXAMPLE_CUIT};
   expect(canRepeat(missing,true)).toBe(false);expect(canRepeat(missing,false)).toBe(true);
   expect(canRepeat({status:'ERROR',code:'AUTH'},true)).toBe(false);
+ });
+});
+
+describe('cierre del servidor web local',()=>{
+ const fake=()=>{const child=Object.assign(new EventEmitter(),{kill:vi.fn(()=>true)});return child;};
+ it('Ctrl+C repetido cierra una vez y mantiene las señales atendidas hasta release',async()=>{
+ const child=fake(),notice=vi.fn(),before=process.listenerCount('SIGINT');
+ const server=superviseServer(child as never,{maxMs:60000,graceMs:60000,notice});
+ process.emit('SIGINT');process.emit('SIGINT');
+ expect(child.kill).toHaveBeenCalledTimes(1);expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+ expect(notice).toHaveBeenNthCalledWith(1,expect.stringContaining('esperá el RESULT'));expect(notice).toHaveBeenNthCalledWith(2,expect.stringContaining('Ya se está cerrando'));
+ child.emit('exit',0);await server.done;expect(server.exited()).toBe(true);
+ process.emit('SIGINT');expect(child.kill).toHaveBeenCalledTimes(1);
+ expect(process.listenerCount('SIGINT')).toBe(before+1);
+ server.release();expect(process.listenerCount('SIGINT')).toBe(before);
+ });
+ it('fuerza SIGKILL si Next no termina dentro de la gracia y respeta el máximo',()=>{
+ vi.useFakeTimers();try{
+ const child=fake(),server=superviseServer(child as never,{maxMs:1000,graceMs:500,notice:()=>{}});
+ vi.advanceTimersByTime(999);expect(child.kill).not.toHaveBeenCalled();
+ vi.advanceTimersByTime(1);expect(child.kill).toHaveBeenLastCalledWith('SIGTERM');
+ vi.advanceTimersByTime(500);expect(child.kill).toHaveBeenLastCalledWith('SIGKILL');
+ server.release();
+ }finally{vi.useRealTimers();}
+ });
+ it('no mata un proceso ya terminado y rechaza sin detalle si no inicia',async()=>{
+ const ok=fake(),a=superviseServer(ok as never,{maxMs:60000,graceMs:10,notice:()=>{}});ok.emit('exit',1);await a.done;a.stop();expect(ok.kill).not.toHaveBeenCalled();a.release();
+ const bad=fake(),b=superviseServer(bad as never,{maxMs:60000,graceMs:10,notice:()=>{}});bad.emit('error',Error('detalle interno'));await expect(b.done).rejects.toThrow(/^SERVIDOR_LOCAL$/);b.release();
  });
 });

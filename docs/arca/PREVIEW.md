@@ -40,3 +40,7 @@ Documentación primaria: [variables por rama](https://www.netlify.com/blog/branc
 6. Al terminar, la activación caduca automáticamente en runtime. Eliminar después los valores de esta rama con revisión de metadatos y un nuevo deploy; los deploys publicados conservan su entorno previo. No borrar la clave de caché local ni tickets vigentes para forzar autenticaciones.
 
 Límites: no demuestra funcionamiento de producción, todos los roles, límites globales entre instancias ni casos de indisponibilidad. Cualquier despliegue de producción requiere revisión separada, migración y certificado/servicio propios.
+
+
+## Alternativa local autorizada
+El intento de carga fue rechazado403: la cuenta no tiene env_var_scopes. Se verificó que no hay variables ARCA creadas. El usuario eligió continuar localmente sin ampliar scopes ni contratar planes. Ver [LOCAL.md](LOCAL.md); la prueba web remota queda pausada.
