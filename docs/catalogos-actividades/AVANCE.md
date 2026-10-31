@@ -165,3 +165,33 @@ Las acciones remotas de `PRUEBA-VISUAL.md` §6, cada una con su autorización. S
 - Los fixtures siguen con vencimiento `2026-10-28T21:30:00-03:00`; no se verificó aún el apagado.
 - Conjuntos oficiales continúan pendientes y deshabilitados. ARCA sin configurar. PROD sin la nueva migración. No mergear.
 - Documentación corregida localmente, sin nuevo commit ni push. La nota de retomada anterior se conserva como historial.
+
+## Preparación ARCA y publicación de nomencladores — 28/10/2026
+
+PR #19 mergeado con autorización expresa y producción Published main@5324424. Se verificó en producción el listado de NAES, CLAE y NAIIB-18 y la búsqueda del código 692000 en los tres; no se crearon ni modificaron clientes. Las reglas de alícuotas siguen pendientes.
+
+Rama local `codex/arca-homologacion-segura`: preparación de CMS, tickets cifrados compartidos, parser/transporte limitado y generador local de CSR. Guía: `docs/arca/ALTA-Y-HOMOLOGACION.md`. No se generaron credenciales reales ni se configuró ARCA remota. La migración `20261028120000_arca_wsaa_ticket_cache` sólo se ensayó en PostgreSQL local; DEV y PROD siguen con 9 migraciones. No usar los kits anteriores para esta migración. Pendientes: revisión del cambio, certificado y autorización WSASS, nuevo kit y autorización de migración DEV, secretos de Preview y homologación real antes de producción.
+
+## Homologación ARCA: ejecutor local preparado — 28/10/2026
+
+Certificado y autorización WSASS obtenidos por el usuario; certificado legible/vigente y clave pública coincidente con el CSR (sin abrir la clave privada). Migración de tickets aplicada y verificada en DEV, corrida `~/arca-dev-kit/runs/20261028T170450Z-migrate`: Prisma0, postcheckOK, AuditLog128 y conteos sin cambios, huella `37460066024602df4109ae1e6996a1d2315b8ce0da52e25f6188cf493511c9de`. PROD sin esta migración. El kit quedó fijado al commit4d16b72; ya cumplió su propósito y no debe repetirse.
+
+Runner `node scripts/arca/homologate.mjs <carpeta-certificado>` listo para que el titular ingrese URLDEV y contraseña en prompts ocultos. Usa el adaptador real, certificado cifrado local y caché compartida cifrada en DEV. El runner genera/preserva `wsaa-cache-dev.secret` (no se leyó ni generó con datos reales en esta preparación); limita la consulta al CUIT titular, pide frase final y resume sólo estados/contadores. No crea clientes.
+
+Corrección de endpoints: la página oficial WSAA publica afip.gov.ar, se corrigieron constantes. El dominio arca de WSAA falló TLS y el de padrón no resolvió aquí; los WSDL AFIP de homologación respondieron200 con TLSválido y direcciónSOAPcoincidente. Runner usa ese perfil explícitamente, sin fallback; servidor padrón mantiene dominioarca documentado en v4.1 hasta definir configuración final. Ver guíaARCA para fuentes y límites.
+
+Validación: 3011 tests, 15 integración omitidos en la suite (ya verificados con PostgreSQL local en la etapa anterior); tipos/lint/buildOK. Autoprueba de prompts por terminal con dos cadenas ficticiasOK. Sólo se hicieron GET públicos de WSDL, ninguna autenticación o consulta de persona real, ni carga de secretos en Netlify, push, merge o deploy. Pendiente: el usuario ejecuta la prueba con su clave, revisar RESULT antes de avanzar a Preview.
+
+## Primer ensayo real y ejemplo del manual — 28/10/2026
+
+RESULT del titular: primeraNOT_FOUND, segundaNOT_FOUND, llamadasWSAA1, padrón2, reutilizacióntrue y conteos/marca cliente sin cambios. Reportado por el usuario; sin consultas independientes nuevas ni lectura de secretos. No demuestra FOUND ni autocompletado.
+
+Se prepara modo `--example` limitado a20164755100, ejemplo getPersona_v2 del manual oficialv4.1 (páginas9–12), sin garantía de disponibilidad actual. No se ejecutó con credenciales reales en esta etapa. Conserva el scope/titular/caché, exige frase distinta, se detiene con NOT_FOUND/error y sólo repite si FOUND. Pendiente RESULT del usuario antes de avanzar al formulario Preview.
+
+## Preparación Preview ARCA — 28/10/2026
+
+El usuario reportó FOUND dos veces en ejemplo20164755100: nombre/domicilio disponibles, actividad1, impuestos3; WSAA0, padrón2, reutilizacióntrue y conteos/marca sin cambios. La prueba local con datos está acreditada por esa salida, no por una consulta nueva del agente.
+
+Se implementa barrera web: build únicamente Deploy Preview/HEAD exacto, runtime activación/caducidad/DEV, producción siempre deshabilitada en esta etapa, consultas titular o ejemplo, transporte AFIP homologación fijo ya verificado. Carga de9variables preparada en scripts/arca/configure-preview.mjs: functions/contextbranch exclusivos, sin overwrites, token y contraseña en prompts ocultos, sin escrituras remotas todavía. Requiere aprobación expresa de transferencia a Netlify del certificado/clave cifrada/contraseña/clave caché y token que gestione el usuario. Procedimiento y casos en docs/arca/PREVIEW.md.
+
+Validaciones: suite3035pasados/15omitidos de integración, tipos/lint/build sin credenciales y fixturesausentes. Netlify leído sin cambios: projectIDd017ec41-acf9-4334-9c65-7d7e23045359, Preview privada y6claves preexistentes, ninguna ARCA; no se abrieron valores. Siguiente: PRdraft y Preview sin ARCA, luego autorización del usuario antes de transferir secretos y redeploy. No habilitar en producción ni repetir migraciones.

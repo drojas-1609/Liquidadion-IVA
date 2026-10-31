@@ -44,3 +44,12 @@ next-env.d.ts
 /app/generated/prisma
 *.db
 *.db-journal
+
+# Material ARCA local (siempre fuera del repo)
+*.key
+*.csr
+*.p12
+*.pfx
+*.secret
+
+/public/.well-known/arca-preview-destination.json

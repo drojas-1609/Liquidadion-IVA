@@ -38,6 +38,9 @@ trap cleanup EXIT
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 echo "PostgreSQL local: $("${PG_BIN}/psql" "$URL" -X -qAt -c 'SHOW server_version')"
 
+# Roles sintéticos y permisos por defecto como los que puede heredar una tabla en Supabase.
+"${PG_BIN}/psql" "$URL" -X -v ON_ERROR_STOP=1 -q -c 'CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN; ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO anon, authenticated, service_role;' >/dev/null
+
 CLEAN_ENV=(env -i PATH="$PATH" HOME="$HOME" CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPDATE_MESSAGE=1 NEXT_TELEMETRY_DISABLED=1)
 ( cd "$REPO" && "${CLEAN_ENV[@]}" DATABASE_URL="$URL" DIRECT_URL="$URL" npx --no-install prisma migrate deploy ) \
   || { tail -20 "$TMP/server.log"; die "falló prisma migrate deploy en el clúster local"; }
@@ -53,4 +56,4 @@ SHADOW="postgresql://postgres@127.0.0.1:${PORT}/prisma_shadow"
     --to-schema-datamodel prisma/schema.prisma --shadow-database-url "$SHADOW" --exit-code >/dev/null ) \
   && echo "schema.prisma == migraciones: sin diferencias" || die "schema.prisma y las migraciones difieren"
 
-( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" npx --no-install vitest run tests/integration/client-profile-pg.test.ts )
+( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" npx --no-install vitest run tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts )

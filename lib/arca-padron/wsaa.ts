@@ -14,7 +14,7 @@
  * La firma CMS se delega en un `CmsSigner` (ver config.ts): este módulo nunca
  * ve la clave privada. Puro: sin red ni registros.
  */
-import { child, childText, escapeXml, find, parseXml, XmlParseError } from "./xml";
+import { child, childText, escapeXml, parseXml, XmlParseError, soapBody, soapFault } from "./xml";
 import type { ArcaEnvironment } from "./padron";
 
 export const WSAA_ENDPOINTS: Readonly<Record<ArcaEnvironment, string>> = {
@@ -45,7 +45,7 @@ export function buildLoginTicketRequest(args: { service: string; nowMs: number; 
         `<loginTicketRequest version="1.0"><header>` +
         `<uniqueId>${Math.trunc(args.uniqueId)}</uniqueId>` +
         `<generationTime>${isoWithOffset(args.nowMs - 60_000)}</generationTime>` +
-        `<expirationTime>${isoWithOffset(args.nowMs + 600_000)}</expirationTime>` +
+        `<expirationTime>${isoWithOffset(args.nowMs + 12 * 60 * 60_000)}</expirationTime>` +
         `</header><service>${escapeXml(args.service)}</service></loginTicketRequest>`
     );
 }
@@ -66,10 +66,12 @@ export type LoginCmsParse = { kind: "TICKET"; ticket: WsaaTicket } | { kind: "FA
 export function parseLoginCmsResponse(xml: string): LoginCmsParse {
     try {
         const doc = parseXml(xml);
-        const body = child(doc, "Body");
-        if (doc.name !== "Envelope" || !body) return { kind: "INVALID" };
-        if (child(body, "Fault")) return { kind: "FAULT" };
-        const ret = find(body, "loginCmsReturn");
+        const body = soapBody(doc);
+        if (!body) return { kind: "INVALID" };
+        if (soapFault(doc)) return { kind: "FAULT" };
+        const response=body.children[0];
+        if(body.children.length!==1 || response?.name!=="loginCmsResponse" || response.namespaceUri!==WSAA_NAMESPACE)return {kind:"INVALID"};
+        const ret = child(response, "loginCmsReturn");
         if (!ret || ret.text.trim() === "") return { kind: "INVALID" };
         const inner = parseXml(ret.text.trim());
         if (inner.name !== "loginTicketResponse") return { kind: "INVALID" };
@@ -86,8 +88,8 @@ export function parseLoginCmsResponse(xml: string): LoginCmsParse {
     }
 }
 
-/** Un ticket se reutiliza mientras le queden más de 5 minutos. */
-export const TICKET_SAFETY_MS = 5 * 60_000;
+/** Un ticket se reutiliza mientras le queden más de 1 minuto. */
+export const TICKET_SAFETY_MS = 60_000;
 
 export function ticketUsable(ticket: WsaaTicket | null, nowMs: number): ticket is WsaaTicket {
     return ticket !== null && ticket.expiresAt - TICKET_SAFETY_MS > nowMs;
