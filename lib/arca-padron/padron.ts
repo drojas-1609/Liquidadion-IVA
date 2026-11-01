@@ -3,8 +3,8 @@
  * `ws_sr_constancia_inscripcion`, ex Alcance 5), operación `getPersona_v2`.
  *
  * Fuente: WSDL oficial publicado por ARCA
- *   homologación: https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5?WSDL
- *   producción:   https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5?WSDL
+ *   homologación: https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5?WSDL
+ *   producción:   https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5?WSDL
  * (namespace `http://a5.soap.ws.server.puc.sr/`; entrada token, sign,
  * cuitRepresentada, idPersona; salida personaReturn con datosGenerales,
  * datosRegimenGeneral, datosMonotributo, errorConstancia y metadata).
@@ -14,15 +14,17 @@
  * que la ficha puede proponer (nombre, domicilio fiscal, impuestos/regímenes
  * informados y actividades con su nomenclador de ARCA).
  */
-import { child, childText, childrenNamed, escapeXml, find, parseXml, XmlParseError, type XmlElement } from "./xml";
+import { child, childText, childrenNamed, escapeXml, find, parseXml, XmlParseError, soapBody, soapFault, type XmlElement } from "./xml";
+
+export const PADRON_HOMO_AFIP_ENDPOINT = "https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5";
 
 export const PADRON_SERVICE = "ws_sr_constancia_inscripcion";
 export const PADRON_NAMESPACE = "http://a5.soap.ws.server.puc.sr/";
 export const PADRON_SOURCE_LABEL = "ARCA — Padrón Constancia de Inscripción (ws_sr_constancia_inscripcion)";
 
 export const PADRON_ENDPOINTS = {
-    homologacion: "https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5",
-    produccion: "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5",
+    homologacion: "https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5",
+    produccion: "https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5",
 } as const;
 export type ArcaEnvironment = keyof typeof PADRON_ENDPOINTS;
 
@@ -91,6 +93,7 @@ export type PadronParse =
     | { kind: "FOUND"; person: PadronPerson }
     | { kind: "NOT_FOUND" }
     | { kind: "FAULT" }
+    | { kind: "AUTH" }
     | { kind: "INVALID" };
 
 const NOT_FOUND_RE = /no\s+existe\s+persona/i;
@@ -149,20 +152,20 @@ export function parseGetPersonaV2Response(xml: string, expectedIdPersona: string
         if (err instanceof XmlParseError) return { kind: "INVALID" };
         throw err;
     }
-    if (doc.name !== "Envelope") return { kind: "INVALID" };
-    const body = child(doc, "Body");
+    const body = soapBody(doc);
     if (!body) return { kind: "INVALID" };
 
-    const fault = child(body, "Fault");
+    const fault = soapFault(doc);
     if (fault) {
         const text = `${childText(fault, "faultstring") ?? ""} ${find(fault, "detail")?.text ?? ""}`;
+        if(/token|sign(?:ature)?|auth|autoriz|security|credencial|cuitRepresentada/i.test(`${childText(fault,"faultcode")??""} ${text}`)) return {kind:"AUTH"};
         return NOT_FOUND_RE.test(text) ? { kind: "NOT_FOUND" } : { kind: "FAULT" };
     }
 
     const response = child(body, "getPersona_v2Response");
-    if (!response) return { kind: "INVALID" };
+    if (!response || response.namespaceUri !== PADRON_NAMESPACE || body.children.length !== 1) return { kind: "INVALID" };
     const ret = child(response, "personaReturn");
-    if (!ret) return { kind: "NOT_FOUND" };
+    if (!ret) return { kind: "INVALID" };
 
     const generales = child(ret, "datosGenerales");
     const errorConstancia = child(ret, "errorConstancia");

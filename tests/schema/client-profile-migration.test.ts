@@ -37,7 +37,7 @@ const schema = readFileSync(repo + "prisma/schema.prisma", "utf8");
 describe(`migración ${MIGRATION} — revisión estática`, () => {
   it("no cambia las previas, ella misma no cambia (aplicada en PROD) y sólo la siguen migraciones posteriores conocidas", () => {
     // Posteriores, revisadas en su propio test (tests/schema/*).
-    const LATER = ["20261027120000_activity_catalog_rate_origin"];
+    const LATER = ["20261027120000_activity_catalog_rate_origin", "20261028120000_arca_wsaa_ticket_cache"];
     const dirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
     expect(dirs).toEqual([...Object.keys(PRIOR_SHA256), MIGRATION, ...LATER]);
     const own = createHash("sha256").update(readFileSync(migrationsDir + MIGRATION + "/migration.sql")).digest("hex");

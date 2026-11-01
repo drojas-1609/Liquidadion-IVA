@@ -612,3 +612,13 @@ enum RateOrigin {
   STUDIO_MANUAL
   CONFIRMED_SUGGESTION
 }
+
+/// Caché operativa del servidor. Credenciales WSAA cifradas AES-256-GCM, nunca datos del padrón.
+/// RLS habilitada sin políticas y sin GRANT a roles API; acceso del backend propietario.
+model ArcaWsaaTicket {
+  key String @id
+  ciphertext String?
+  expiresAt DateTime? @db.Timestamptz(3)
+  blockedUntil DateTime? @db.Timestamptz(3)
+  updatedAt DateTime @db.Timestamptz(3)
+}

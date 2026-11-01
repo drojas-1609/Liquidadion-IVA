@@ -1,4 +1,8 @@
 import "server-only";
+import {createHash} from "node:crypto";
+import {createCmsSigner} from "./cms";
+import {parseCacheKey} from "./ticket-store";
+import {PADRON_SERVICE} from "./padron";
 import { normalizeCuit } from "../cuit";
 import type { ArcaEnvironment } from "./padron";
 import type { CmsSigner } from "./wsaa";
@@ -13,10 +17,8 @@ import type { CmsSigner } from "./wsaa";
  *   ARCA_WSAA_CERT_PEM              certificado X.509 emitido por ARCA (PEM)
  *   ARCA_WSAA_KEY_PEM               clave privada del certificado (PEM)
  *
- * Además hace falta un firmante CMS (PKCS#7) para el TRA de WSAA: Node no lo
- * provee y el proyecto no tiene una dependencia que lo haga, así que
- * `resolveCmsSigner` devuelve null y la consulta queda NO CONFIGURADA aunque
- * existan las variables. Ver docs/clientes-ficha/README.md.
+ * Firmante CMS node-forge con SHA-256 y certificado RSA; tickets cifrados en
+ * almacén PostgreSQL compartido. La habilitación requiere configuración completa.
  *
  * El estado nunca expone valores: sólo qué falta (nombres de variables) para
  * la documentación del servidor; la API responde un mensaje genérico.
@@ -29,6 +31,8 @@ export type ArcaConfigStatus =
           /** 11 dígitos. */
           cuitRepresentada: string;
           signer: CmsSigner;
+          ticketScope?: string;
+          cacheKey?: Buffer;
       }
     | {
           configured: false;
@@ -42,17 +46,17 @@ export const ARCA_ENV_VARS = [
     "ARCA_PADRON_CUIT_REPRESENTADA",
     "ARCA_WSAA_CERT_PEM",
     "ARCA_WSAA_KEY_PEM",
+    "ARCA_WSAA_CACHE_KEY",
 ] as const;
 
 /**
- * Firmante CMS para el TRA. Pendiente de una implementación aprobada (p. ej.
- * una dependencia CMS/PKCS#7 auditada): hasta entonces no hay firmante.
+ * Firmante CMS del TRA; null ante certificado o clave inválidos.
  */
-export const resolveCmsSigner: (certPem: string, keyPem: string) => CmsSigner | null = () => null;
+export const resolveCmsSigner = createCmsSigner;
 
 export function readArcaConfig(
     env: Readonly<Record<string, string | undefined>> = process.env,
-    signerFactory: (certPem: string, keyPem: string) => CmsSigner | null = resolveCmsSigner,
+    signerFactory: (certPem: string, keyPem: string, password?: string) => CmsSigner | null = resolveCmsSigner,
 ): ArcaConfigStatus {
     if (env.ARCA_PADRON_ENABLED !== "true") return { configured: false, reason: "DISABLED", missing: [] };
     const missing = ARCA_ENV_VARS.filter((k) => !env[k] || env[k]!.trim() === "");
@@ -68,7 +72,9 @@ export function readArcaConfig(
     if (!pemOk(env.ARCA_WSAA_KEY_PEM!)) invalid.push("ARCA_WSAA_KEY_PEM");
     if (invalid.length > 0 || !cuit.ok) return { configured: false, reason: "INVALID_SETTINGS", missing: invalid };
 
-    const signer = signerFactory(env.ARCA_WSAA_CERT_PEM!, env.ARCA_WSAA_KEY_PEM!);
+    const cacheKey = parseCacheKey(env.ARCA_WSAA_CACHE_KEY);
+    if (!cacheKey) return {configured:false,reason:"INVALID_SETTINGS",missing:["ARCA_WSAA_CACHE_KEY"]};
+    const signer = signerFactory(env.ARCA_WSAA_CERT_PEM!, env.ARCA_WSAA_KEY_PEM!, env.ARCA_WSAA_KEY_PASSWORD);
     if (!signer) return { configured: false, reason: "SIGNER_UNAVAILABLE", missing: [] };
 
     return {
@@ -76,5 +82,7 @@ export function readArcaConfig(
         environment: environment as ArcaEnvironment,
         cuitRepresentada: cuit.value.replace(/-/g, ""),
         signer,
+        cacheKey,
+        ticketScope: createHash("sha256").update([environment,cuit.value,PADRON_SERVICE,createHash("sha256").update(env.ARCA_WSAA_CERT_PEM!.replace(/\s/g,"" )).digest("hex")].join("|")).digest("hex"),
     };
 }

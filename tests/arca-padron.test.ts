@@ -68,8 +68,8 @@ describe("padrón ws_sr_constancia_inscripcion — getPersona_v2", () => {
     it("endpoints oficiales y servicio", () => {
         expect(PADRON_SERVICE).toBe("ws_sr_constancia_inscripcion");
         expect(PADRON_ENDPOINTS).toEqual({
-            homologacion: "https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5",
-            produccion: "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5",
+            homologacion: "https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5",
+            produccion: "https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5",
         });
     });
     it("request: escapa token/sign y exige CUITs de 11 dígitos", () => {
@@ -108,15 +108,15 @@ describe("padrón ws_sr_constancia_inscripcion — getPersona_v2", () => {
         const r = parseGetPersonaV2Response(xml, CUIT);
         expect(r.kind === "FOUND" && r.person.name).toBe("PEREZ ANA");
     });
-    it("NOT_FOUND: fault 'No existe persona', personaReturn ausente o errorConstancia", () => {
+    it("NOT_FOUND: fault 'No existe persona' y errorConstancia; personaReturn ausente es inválida", () => {
         const fault = envelope(`<soap:Fault><faultcode>soap:Server</faultcode><faultstring>No existe persona con ese Id</faultstring></soap:Fault>`);
         expect(parseGetPersonaV2Response(fault, CUIT)).toEqual({ kind: "NOT_FOUND" });
-        expect(parseGetPersonaV2Response(envelope(`<ns2:getPersona_v2Response xmlns:ns2="x"/>`), CUIT)).toEqual({ kind: "NOT_FOUND" });
+        expect(parseGetPersonaV2Response(envelope(`<ns2:getPersona_v2Response xmlns:ns2="http://a5.soap.ws.server.puc.sr/"/>`), CUIT)).toEqual({ kind: "INVALID" });
         const err = personaResponse(`<errorConstancia><error>No existe persona con ese Id</error></errorConstancia>`);
         expect(parseGetPersonaV2Response(err, CUIT)).toEqual({ kind: "NOT_FOUND" });
     });
     it("otro fault -> FAULT (sin exponer su texto)", () => {
-        const fault = envelope(`<soap:Fault><faultstring>Error interno ${SECRET_TOKEN}</faultstring></soap:Fault>`);
+        const fault = envelope(`<soap:Fault><faultstring>Error interno no clasificable</faultstring></soap:Fault>`);
         expect(parseGetPersonaV2Response(fault, CUIT)).toEqual({ kind: "FAULT" });
     });
     it("respuesta de OTRO CUIT -> INVALID (nunca se proponen datos ajenos)", () => {
@@ -147,7 +147,7 @@ describe("WSAA — loginCms", () => {
         const tra = buildLoginTicketRequest({ service: PADRON_SERVICE, nowMs: Date.parse("2026-10-25T12:00:00Z"), uniqueId: 1792929600 });
         expect(tra).toContain("<uniqueId>1792929600</uniqueId>");
         expect(tra).toContain("<generationTime>2026-10-25T11:59:00Z</generationTime>");
-        expect(tra).toContain("<expirationTime>2026-10-25T12:10:00Z</expirationTime>");
+        expect(tra).toContain("<expirationTime>2026-10-26T00:00:00Z</expirationTime>");
         expect(tra).toContain(`<service>${PADRON_SERVICE}</service>`);
     });
     it("loginCms: el CMS va en in0 y se rechaza contenido no base64", () => {
@@ -160,7 +160,7 @@ describe("WSAA — loginCms", () => {
                 `<credentials><token>${SECRET_TOKEN}</token><sign>${SECRET_SIGN}</sign></credentials></loginTicketResponse>`,
         );
     it("respuesta: token, sign y vencimiento", () => {
-        const xml = envelope(`<loginCmsResponse><loginCmsReturn>${inner("2026-10-25T23:00:00-03:00")}</loginCmsReturn></loginCmsResponse>`);
+        const xml = envelope(`<loginCmsResponse xmlns="http://wsaa.view.sua.dvadac.desein.afip.gov"><loginCmsReturn>${inner("2026-10-25T23:00:00-03:00")}</loginCmsReturn></loginCmsResponse>`);
         expect(parseLoginCmsResponse(xml)).toEqual({
             kind: "TICKET",
             ticket: { token: SECRET_TOKEN, sign: SECRET_SIGN, expiresAt: Date.parse("2026-10-25T23:00:00-03:00") },
@@ -168,12 +168,12 @@ describe("WSAA — loginCms", () => {
     });
     it("fault o respuesta incompleta", () => {
         expect(parseLoginCmsResponse(envelope("<soap:Fault><faultstring>cms.bad</faultstring></soap:Fault>"))).toEqual({ kind: "FAULT" });
-        expect(parseLoginCmsResponse(envelope("<loginCmsResponse><loginCmsReturn></loginCmsReturn></loginCmsResponse>"))).toEqual({ kind: "INVALID" });
+        expect(parseLoginCmsResponse(envelope(`<loginCmsResponse xmlns="http://wsaa.view.sua.dvadac.desein.afip.gov"><loginCmsReturn></loginCmsReturn></loginCmsResponse>`))).toEqual({ kind: "INVALID" });
         expect(parseLoginCmsResponse("basura")).toEqual({ kind: "INVALID" });
     });
-    it("ticket reutilizable sólo con más de 5 minutos de margen", () => {
-        expect(ticketUsable({ token: "t", sign: "s", expiresAt: 1_000_000 }, 1_000_000 - 6 * 60_000)).toBe(true);
-        expect(ticketUsable({ token: "t", sign: "s", expiresAt: 1_000_000 }, 1_000_000 - 4 * 60_000)).toBe(false);
+    it("ticket reutilizable sólo con más de 1 minuto de margen", () => {
+        expect(ticketUsable({ token: "t", sign: "s", expiresAt: 1_000_000 }, 1_000_000 - 2 * 60_000)).toBe(true);
+        expect(ticketUsable({ token: "t", sign: "s", expiresAt: 1_000_000 }, 1_000_000 - 1 * 60_000)).toBe(false);
         expect(ticketUsable(null, 0)).toBe(false);
     });
 });
@@ -185,6 +185,7 @@ describe("configuración", () => {
         ARCA_PADRON_CUIT_REPRESENTADA: REPRESENTADA,
         ARCA_WSAA_CERT_PEM: "-----BEGIN CERTIFICATE-----\nSINTETICO\n-----END CERTIFICATE-----",
         ARCA_WSAA_KEY_PEM: "-----BEGIN PRIVATE KEY-----\nSINTETICO\n-----END PRIVATE KEY-----",
+        ARCA_WSAA_CACHE_KEY: Buffer.alloc(32,7).toString("base64"),
     };
     const signer = async () => "QUJD";
     it("deshabilitada por defecto", () => {
@@ -192,7 +193,7 @@ describe("configuración", () => {
     });
     it("faltan variables: informa NOMBRES, nunca valores", () => {
         const r = readArcaConfig({ ARCA_PADRON_ENABLED: "true", ARCA_PADRON_ENV: "homologacion" });
-        expect(r).toEqual({ configured: false, reason: "MISSING_SETTINGS", missing: ["ARCA_PADRON_CUIT_REPRESENTADA", "ARCA_WSAA_CERT_PEM", "ARCA_WSAA_KEY_PEM"] });
+        expect(r).toEqual({ configured: false, reason: "MISSING_SETTINGS", missing: ["ARCA_PADRON_CUIT_REPRESENTADA", "ARCA_WSAA_CERT_PEM", "ARCA_WSAA_KEY_PEM", "ARCA_WSAA_CACHE_KEY"] });
     });
     it("valores inválidos", () => {
         const r = readArcaConfig({ ...full, ARCA_PADRON_ENV: "otro", ARCA_WSAA_KEY_PEM: "no-pem" }, () => signer);
@@ -210,7 +211,7 @@ describe("configuración", () => {
 
 describe("servicio lookupCuit (red simulada)", () => {
     const ticketXml = envelope(
-        `<loginCmsResponse><loginCmsReturn>${escapeXml(
+        `<loginCmsResponse xmlns="http://wsaa.view.sua.dvadac.desein.afip.gov"><loginCmsReturn>${escapeXml(
             `<loginTicketResponse><header><expirationTime>2099-01-01T00:00:00Z</expirationTime></header><credentials><token>${SECRET_TOKEN}</token><sign>${SECRET_SIGN}</sign></credentials></loginTicketResponse>`,
         )}</loginCmsReturn></loginCmsResponse>`,
     );
@@ -252,6 +253,25 @@ describe("servicio lookupCuit (red simulada)", () => {
         await lookupCuit(CUIT, d);
         const urls = (d.fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
         expect(urls.filter((u: string) => u.includes("LoginCms"))).toHaveLength(1);
+    });
+    it("rechazo del padrón invalida el ticket compartido sin repetir LoginCms", async () => {
+        const ticket = { token: SECRET_TOKEN, sign: SECRET_SIGN, expiresAt: Date.parse("2026-10-25T12:00:00Z") + 3600000 };
+        const invalidate = vi.fn(async () => {});
+        const fault = envelope('<soap:Fault><faultcode>auth</faultcode><faultstring>No autorizado</faultstring></soap:Fault>');
+        const d = deps(() => ok(fault, 500), { ticketStore: { getOrIssue: async () => ticket, invalidate } });
+        expect(await lookupCuit(CUIT, d)).toEqual({ status: "ERROR", code: "AUTH" });
+        expect(invalidate).toHaveBeenCalledExactlyOnceWith(ticket);
+        expect(d.fetchImpl).toHaveBeenCalledTimes(1);
+        expect((d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(PADRON_ENDPOINTS.homologacion);
+    });
+    it("homologación web rechaza otro CUIT antes de autenticar",async()=>{
+        const d=deps(()=>ok(FOUND),{allowedCuits:[REPRESENTADA]});
+        expect(await lookupCuit(CUIT,d)).toMatchObject({status:"INVALID_CUIT"});expect(d.fetchImpl).not.toHaveBeenCalled();
+    });
+    it("perfil operativo de homologación usa sólo su endpoint fijo",async()=>{
+        const d=deps(url=>ok(url.includes("LoginCms")?ticketXml:FOUND),{homologationTransport:"afip-wsdl"});
+        expect(await lookupCuit(CUIT,d)).toMatchObject({status:"FOUND"});
+        expect((d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[1][0]).toBe("https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5");
     });
     it("NOT_FOUND", async () => {
         const nf = envelope(`<soap:Fault><faultstring>No existe persona con ese Id</faultstring></soap:Fault>`);

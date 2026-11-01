@@ -73,6 +73,7 @@ export default async function AppShellLayout({
         )}
       </aside>
       <main style={{ flex: 1, padding: "var(--spacing-xl)", overflowY: "auto" }}>
+        {process.env.ARCA_LOCAL_HOMO==='1'&&<p role="status" style={{padding:"1rem",border:"1px solid var(--primary)",marginBottom:"1rem"}}>Prueba local · ARCA homologación · DEV. Guardar y modificar datos está deshabilitado. Los datos propuestos quedan sólo en el formulario.</p>}
         {children}
       </main>
     </div>

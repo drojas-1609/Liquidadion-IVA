@@ -402,10 +402,10 @@ interface RawQuery {
 function collectRaw(ctx: Ctx): RawQuery[] {
   const out: RawQuery[] = [];
   forEachNode(ctx.sf, (n) => {
-    if ((ts.isIdentifier(n) || ts.isPrivateIdentifier(n) || isStringLit(n)) && BANNED_RAW.has(n.text)) {
+    if ((ts.isIdentifier(n) || ts.isPrivateIdentifier(n) || isStringLit(n)) && BANNED_RAW.has(n.text) && !(ctx.file === "lib/arca-padron/ticket-store.ts" && n.text === "$executeRaw")) {
       add(ctx, "RAW_BANNED", n, `${n.text} prohibido`);
     }
-    if (!(ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) || memberName(n) !== "$queryRaw") return;
+    if (!(ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) || !(memberName(n) === "$queryRaw" || (ctx.file === "lib/arca-padron/ticket-store.ts" && memberName(n) === "$executeRaw"))) return;
     const parent = n.parent;
     if (!ts.isTaggedTemplateExpression(parent) || parent.tag !== n) {
       add(ctx, "RAW_FORM", n, `$queryRaw fuera de un tagged template: ${text(ctx.sf, parent)}`);
@@ -428,6 +428,20 @@ function collectRaw(ctx: Ctx): RawQuery[] {
 }
 
 function checkRawInventory(ctx: Ctx, raws: RawQuery[]): void {
+  if (ctx.file === "lib/arca-padron/ticket-store.ts") {
+    // Excepción acotada al almacén técnico: SQL y parámetros exactos, sin tablas de negocio.
+    const allowed = new Map([
+      ["SET LOCAL lock_timeout = '3s'", ""],
+      ['INSERT INTO "ArcaWsaaTicket" ("key", "updatedAt") VALUES (?, NOW()) ON CONFLICT ("key") DO NOTHING', 'scope'],
+      ['SELECT "ciphertext", "expiresAt", "blockedUntil" FROM "ArcaWsaaTicket" WHERE "key"=? FOR UPDATE', 'scope'],
+      ['UPDATE "ArcaWsaaTicket" SET "ciphertext"=?, "expiresAt"=?, "blockedUntil"=NULL, "updatedAt"=NOW() WHERE "key"=?', 'ciphertext,new Date(ticket.expiresAt),scope'],
+      ['UPDATE "ArcaWsaaTicket" SET "ciphertext"=NULL, "expiresAt"=NULL, "blockedUntil"=?, "updatedAt"=NOW() WHERE "key"=?', 'new Date(nowMs()+30000),scope|new Date(Math.max(nowMs()+30000,ticket.expiresAt)),scope'],
+    ]);
+    for (const q of raws) if (!allowed.has(q.sql) || !allowed.get(q.sql)!.split('|').some(p => p.replace(/\s/g, '') === q.params.join(',').replace(/\s/g, ''))) add(ctx, "RAW_NOT_INVENTORIED", q.node, `SQL WSAA fuera del inventario: ${q.sql}`);
+    if (raws.length !== 8) add(ctx, "RAW_MISSING", null, "se esperan las 8 operaciones técnicas WSAA inventariadas");
+    return;
+  }
+
   if (ctx.file === "lib/period-lock.ts") {
     for (const r of raws) {
       const shape =

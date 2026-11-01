@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { localHomoRequestAllowed } from "@/lib/arca-padron/preview-gate";
 import { resolveProxySession } from "@/lib/supabase/proxy-session";
 import { isSupabaseConfigError } from "@/lib/supabase/env";
 import { isPublicPath } from "@/lib/auth/proxy-matcher";
@@ -43,6 +44,10 @@ function pageDeny(status: number, message: string): NextResponse {
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname, search } = request.nextUrl;
+  // En el ensayo local sólo se permite consulta: ningún POST de negocio ni Server Action.
+  if(process.env.ARCA_LOCAL_HOMO==='1'&&!localHomoRequestAllowed(request.method,pathname,request.headers.get('host')??'')){
+    return jsonDeny(403,'LOCAL_HOMO_READ_ONLY','Prueba local: guardar y modificar datos está deshabilitado.');
+  }
 
   // Defensa en profundidad por si el matcher deja pasar una ruta pública.
   if (isPublicPath(pathname)) return NextResponse.next();

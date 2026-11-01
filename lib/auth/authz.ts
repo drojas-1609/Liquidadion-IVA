@@ -1,4 +1,5 @@
 import "server-only";
+import {localHomoRequestAllowed} from "@/lib/arca-padron/preview-gate";
 
 import { NextResponse } from "next/server";
 import { redirect, notFound } from "next/navigation";
@@ -254,6 +255,9 @@ export function withApiAuthz<Ctx extends unknown[]>(
 ): (req: Request, ...ctx: Ctx) => Promise<NextResponse> {
   return async (req: Request, ...ctx: Ctx): Promise<NextResponse> => {
     try {
+      if(process.env.ARCA_LOCAL_HOMO==='1'&&!localHomoRequestAllowed(req.method,new URL(req.url).pathname,req.headers.get('host')??new URL(req.url).host)){
+        return NextResponse.json({error:{code:'LOCAL_HOMO_READ_ONLY',message:'Prueba local: guardar y modificar datos está deshabilitado.'}},{status:403,headers:{'Cache-Control':NO_STORE}});
+      }
       const res = await handler(req, ...ctx);
       if (!res.headers.get("cache-control")) res.headers.set("Cache-Control", NO_STORE);
       return res;

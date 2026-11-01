@@ -119,7 +119,7 @@ Concurrencia optimista sobre el cliente **completo**: campos generales, contacto
 | | Homologación | Producción |
 |---|---|---|
 | WSAA | `https://wsaahomo.afip.gov.ar/ws/services/LoginCms` | `https://wsaa.afip.gov.ar/ws/services/LoginCms` |
-| Padrón | `https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5` | `https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5` |
+| Padrón | `https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5` | `https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5` |
 
 **Endpoint: `POST /api/arca/cuit-lookup`.** El cuerpo es `{ "cuit": "..." }`.
 - **Acceso:**
@@ -131,7 +131,7 @@ Concurrencia optimista sobre el cliente **completo**: campos generales, contacto
   - 200 `FOUND` / `NOT_FOUND` / `NOT_CONFIGURED`;
   - 504 `ARCA_TIMEOUT`;
   - 502 `ARCA_UNAVAILABLE` / `ARCA_AUTH` / `ARCA_INVALID_RESPONSE`.
-- **Sin escrituras:** no crea ni modifica clientes, no persiste la respuesta y no escribe nada en logs.
+- **Sin escrituras de clientes:** no crea ni modifica clientes ni persiste la respuesta. El servidor conserva sólo el ticket de autenticación cifrado en la tabla técnica; no registra secretos en logs.
 
 Qué se propone y qué no:
 - **Se propone:** nombre o razón social y domicilio fiscal. Los campos con un valor distinto requieren confirmación para reemplazarse.
@@ -151,7 +151,9 @@ Qué se propone y qué no:
 | `ARCA_PADRON_ENV` | `homologacion` o `produccion` |
 | `ARCA_PADRON_CUIT_REPRESENTADA` | CUIT que firma las consultas |
 | `ARCA_WSAA_CERT_PEM` | Certificado X.509 emitido por ARCA |
-| `ARCA_WSAA_KEY_PEM` | Clave privada del certificado |
+| `ARCA_WSAA_KEY_PEM` | Clave privada del certificado, preferentemente cifrada |
+| `ARCA_WSAA_KEY_PASSWORD` | Contraseña si la clave PEM está cifrada |
+| `ARCA_WSAA_CACHE_KEY` | Clave independiente de 32 bytes en base64 para cifrar tickets |
 
 Ninguna de estas variables existe hoy. Sin ellas, la UI muestra «Consulta ARCA no configurada».
 
@@ -163,29 +165,16 @@ Todo lo siguiente es requisito **antes** de configurar las variables.
 
 1. **Certificado digital.** En homologación se emite con WSASS; en producción, con «Administrador de Certificados Digitales» y la clave fiscal del CUIT representado. Lo gestiona el responsable del CUIT, no esta aplicación.
 2. **Asociación del servicio.** Hay que asociar el certificado al servicio `ws_sr_constancia_inscripcion` en «Administrador de Relaciones de Clave Fiscal».
-3. **Firmante CMS/PKCS#7 del TRA de WSAA.** Node no lo trae y el proyecto no tiene una dependencia que lo haga. `resolveCmsSigner` (`lib/arca-padron/config.ts`) devuelve `null` y la consulta queda «no configurada» aunque existan las variables. Hay que elegir y aprobar una alternativa:
-   - una dependencia auditada (p. ej. `node-forge`, `pkijs`);
-   - o un firmante externo (KMS/HSM o un servicio interno).
-4. **Secretos.** Cargar las variables en el entorno del servidor (Netlify). El certificado y la clave nunca van al repositorio ni al navegador.
-5. **Prueba en homologación.** Hacer una consulta con un CUIT de prueba antes de habilitar producción.
+3. **Preparación local implementada:** firmante CMS SHA-256 con node-forge, caché cifrada compartida en PostgreSQL e invalidación condicional (A1/A2), respuesta incompleta inválida (A3), lectura acotada en bytes (A4), profundidad máxima 64 (A5), namespaces y cierres verificados (A6), Fault estructural (A7).
+4. **Pendiente:** certificado y autorización reales, migración de la tabla de tickets en DEV/PROD, secretos del servidor y homologación. No está habilitada ni publicada esta preparación.
 
-**Cambios de código pendientes (revisión final, todavía no implementados):**
-
-| # | Archivo | Pendiente |
-|---|---|---|
-| A1 | `lib/arca-padron/wsaa.ts`, `lib/arca-padron/service.ts` | **Bloquea la habilitación.** Hace falta autenticación WSAA compartida. ARCA rechaza un pedido nuevo mientras exista un ticket válido para el mismo certificado y servicio. Con el ticket en memoria por instancia, la segunda instancia serverless, o dos consultas simultáneas, fallan con error de autenticación. Se necesita un ticket persistido y compartido entre instancias, con un solo pedido a la vez. |
-| A2 | `lib/arca-padron/service.ts` | Descartar el ticket guardado cuando el padrón lo rechaza (vencido o no autorizado). |
-| A3 | `lib/arca-padron/padron.ts` | Una respuesta sin `personaReturn` debe ser respuesta inválida, no «no existe la persona», salvo que el manual diga lo contrario. |
-| A4 | `lib/arca-padron/service.ts`, `lib/arca-padron/xml.ts` | Cortar la lectura al superar el tamaño máximo, medido en bytes, en lugar de leer toda la respuesta. |
-| A5 | `lib/arca-padron/xml.ts` | Tope de profundidad (p. ej. 64) para que el anidamiento extremo no termine en un error de pila mal clasificado. |
-| A6 | `lib/arca-padron/xml.ts`, `lib/arca-padron/padron.ts` | Verificar los prefijos de cierre y el namespace de la operación. |
-| A7 | `lib/arca-padron/service.ts` | Distinguir un SOAP Fault por su estructura, no por buscar el texto «Fault». |
+Guía operativa: [alta y homologación](../arca/ALTA-Y-HOMOLOGACION.md).
 
 ## Limitaciones
 
-- **Límite de uso en memoria por instancia.** En funciones serverless cada instancia lleva su propia cuenta: es un freno contra el abuso, **no una protección global garantizada**. El ticket WSAA también se cachea por instancia (ver A1).
+- **Límite de uso en memoria por instancia.** En funciones serverless cada instancia lleva su propia cuenta: es un freno contra el abuso, **no una protección global garantizada**. El ticket WSAA de esta preparación local usa un almacén PostgreSQL compartido y cifrado.
 - **Parser XML mínimo y propio.** Rechaza DOCTYPE, usa sólo entidades predefinidas y tiene un tope de 512 KB.
-- **Manual del servicio.** El manual oficial v4.1 (PDF) no pudo leerse como texto. El adaptador sigue el WSDL oficial y se probó sólo con respuestas sintéticas. Falta la validación en homologación.
+- **Manual del servicio.** Se revisó el manual oficial v4.1 de marzo de 2026. Las pruebas siguen siendo sintéticas y locales; falta homologación real.
 - **Conflicto de edición sin comparación campo a campo.** Ante un 409 el usuario reaplica sus cambios sobre la versión actual; no hay una fusión automática.
 - **La versión es la del cliente completo.** Un cambio de otra persona en cualquier campo invalida los formularios abiertos, aunque toquen campos distintos.
 - **Bloqueo sin `lock_timeout` propio.** Una edición concurrente espera el bloqueo de la fila dentro del `timeout` por defecto de la transacción interactiva de Prisma (5 s). Si se agota, la edición falla y no escribe nada.
@@ -203,7 +192,7 @@ Alta y edición comparten `app/(app)/clients/_components/client-profile-form.tsx
 ## Estado y pendientes antes de publicar
 
 - **Migración pendiente en DEV y PROD.** `20261025120000_client_profile_iibb_contacts` no está aplicada en ninguna base.
-- **ARCA no configurada y no habilitable** hasta completar [Habilitación de ARCA](#habilitación-de-arca-pendiente): requisitos externos, firmante CMS, autenticación WSAA compartida (A1), A2–A7 y homologación.
+- **ARCA no configurada:** la preparación técnica local no reemplaza los requisitos externos, la migración del almacén de tickets y la homologación real.
 - **Alícuotas por actividad y jurisdicción informativas.** El cálculo y las exportaciones siguen usando `defaultIibbRate` sin cambios.
 - **Pruebas pendientes en DEV** (las automáticas usan una base simulada):
   - **Concurrencia real contra PostgreSQL:**

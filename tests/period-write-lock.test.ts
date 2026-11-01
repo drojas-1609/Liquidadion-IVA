@@ -852,7 +852,7 @@ describe("cobertura estructural — helpers de bloqueo", () => {
 
   it("el único SELECT … FOR UPDATE sobre Period vive en lib/period-lock.ts; FOR UPDATE sólo en period-lock, invoice-lock, tax-record-lock y client-lock", () => {
     const forUpdate = productionFiles.filter((f) => /FOR UPDATE/.test(code(read(f))));
-    expect(forUpdate).toEqual(["lib/client-lock.ts", "lib/invoice-lock.ts", "lib/period-lock.ts", "lib/tax-record-lock.ts"]);
+    expect(forUpdate).toEqual(["lib/arca-padron/ticket-store.ts", "lib/client-lock.ts", "lib/invoice-lock.ts", "lib/period-lock.ts", "lib/tax-record-lock.ts"]);
     expect(code(read("lib/client-lock.ts"))).not.toMatch(/"Period"/);
     expect(code(read("lib/invoice-lock.ts"))).not.toMatch(/FROM "Period"/);
   });
@@ -883,3 +883,12 @@ describe("cobertura estructural — helpers de bloqueo", () => {
     expect(src).not.toMatch(/from "\.\/period-lock"|from "@\/lib\/period-lock"/);
   });
 });
+
+ describe("inventario SQL WSAA aislado",()=>{
+ it("rechaza escrituras de negocio y SQL inseguro en el almacén",()=>{
+ const file="lib/arca-padron/ticket-store.ts",source=read(file);
+ expect(codes(file,source)).toEqual([]);
+ expect(codes(file,source.replace('INSERT INTO "ArcaWsaaTicket"','INSERT INTO "Period"'))).toContain("RAW_NOT_INVENTORIED");
+ expect(codes(file,source+'\nfunction f(tx) { return tx.$executeRawUnsafe("DELETE FROM x"); }')).toContain("RAW_BANNED");
+ });
+ });
