@@ -10,7 +10,7 @@ Desde el worktree de este PR, sin DATABASE_URL, DIRECT_URL, PG* ni ARCA_* en el 
 node scripts/arca/homologate.mjs /ruta/a/carpeta-del-certificado --web
 ```
 
-Solicita URL DEV y contraseña LOCAL de la clave privada en prompts ocultos. Reutiliza el certificado y la clave de caché existentes (no crea otra en modo web). Comprueba WSDL HTTPS, certificado/clave, migraciones/huella y permisos de tickets como el runner previo. Obtiene exclusivamente configuración pública de Supabase DEV usando la autorización Netlify CLI ya existente por GET. No modifica Netlify. No solicita Clave Fiscal ni contraseña de TaxLiquidator en la terminal.
+Solicita URL DEV y contraseña LOCAL de la clave privada en prompts ocultos. Reutiliza el certificado y la clave de caché existentes (no crea otra en modo web). Comprueba WSDL HTTPS, certificado/clave, las 11 migraciones y la huella DEV vigente, y RLS, permisos y CHECK de `ArcaWsaaTicket`, las tablas de controles de producción y su secuencia (ver [PRODUCCION.md §6](PRODUCCION.md)). Obtiene exclusivamente configuración pública de Supabase DEV usando la autorización Netlify CLI ya existente por GET. No modifica Netlify. No solicita Clave Fiscal ni contraseña de TaxLiquidator en la terminal.
 
 Exige `INICIAR-WEB-LOCAL-ARCA-HOMO-DEV`. Inicia Next en127.0.0.1:3217, sólo desarrollo, sin metadatos Netlify y con variables en memoria del proceso; no escribe .env ni credenciales en archivos. Se niega si hay .env locales o puerto ocupado. Los logs internos del hijo se descartan. La sesión dura hasta30min; Ctrl+C termina antes.
 

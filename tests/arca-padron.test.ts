@@ -6,6 +6,7 @@ import { buildLoginCmsRequest, buildLoginTicketRequest, parseLoginCmsResponse, t
 import { readArcaConfig, resolveCmsSigner } from "@/lib/arca-padron/config";
 import { lookupCuit, type LookupDeps } from "@/lib/arca-padron/service";
 import { SlidingWindowLimiter } from "@/lib/arca-padron/rate-limit";
+import { TicketStoreFailure, TicketUnavailable } from "@/lib/arca-padron/ticket-store";
 
 // Datos SINTÉTICOS: CUIT ficticio con dígito verificador válido.
 function syntheticCuit(mid: string, prefix = "30"): string {
@@ -207,6 +208,16 @@ describe("configuración", () => {
     it("con firmante: configurada", () => {
         expect(readArcaConfig(full, () => signer)).toMatchObject({ configured: true, environment: "homologacion", cuitRepresentada: REPRESENTADA });
     });
+    it("clave de caché anterior opcional: válida y distinta; si no, no configurada (sin valores en el estado)", () => {
+        const previous = Buffer.alloc(32, 8).toString("base64");
+        const ok = readArcaConfig({ ...full, ARCA_WSAA_CACHE_KEY_PREVIOUS: previous }, () => signer);
+        expect(ok).toMatchObject({ configured: true, cacheKeys: { current: Buffer.alloc(32, 7), previous: Buffer.alloc(32, 8) } });
+        expect(readArcaConfig({ ...full, ARCA_WSAA_CACHE_KEY_PREVIOUS: "" }, () => signer)).toMatchObject({ configured: true, cacheKeys: { current: Buffer.alloc(32, 7) } });
+        for (const bad of ["corta", full.ARCA_WSAA_CACHE_KEY]) {
+            const r = readArcaConfig({ ...full, ARCA_WSAA_CACHE_KEY_PREVIOUS: bad }, () => signer);
+            expect(r).toEqual({ configured: false, reason: "INVALID_SETTINGS", missing: ["ARCA_WSAA_CACHE_KEY_PREVIOUS"] });
+        }
+    });
 });
 
 describe("servicio lookupCuit (red simulada)", () => {
@@ -254,15 +265,40 @@ describe("servicio lookupCuit (red simulada)", () => {
         const urls = (d.fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
         expect(urls.filter((u: string) => u.includes("LoginCms"))).toHaveLength(1);
     });
-    it("rechazo del padrón invalida el ticket compartido sin repetir LoginCms", async () => {
+    it("rechazo del padrón marca el ticket compartido (sin borrarlo) y no repite LoginCms", async () => {
         const ticket = { token: SECRET_TOKEN, sign: SECRET_SIGN, expiresAt: Date.parse("2026-10-25T12:00:00Z") + 3600000 };
-        const invalidate = vi.fn(async () => {});
+        const reject = vi.fn(async () => {});
         const fault = envelope('<soap:Fault><faultcode>auth</faultcode><faultstring>No autorizado</faultstring></soap:Fault>');
-        const d = deps(() => ok(fault, 500), { ticketStore: { getOrIssue: async () => ticket, invalidate } });
+        const d = deps(() => ok(fault, 500), { ticketStore: { getOrIssue: async () => ticket, reject } });
         expect(await lookupCuit(CUIT, d)).toEqual({ status: "ERROR", code: "AUTH" });
-        expect(invalidate).toHaveBeenCalledExactlyOnceWith(ticket);
+        expect(reject).toHaveBeenCalledExactlyOnceWith(ticket);
         expect(d.fetchImpl).toHaveBeenCalledTimes(1);
         expect((d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(PADRON_ENDPOINTS.homologacion);
+    });
+    it("un fallo al marcar el rechazo no cambia la respuesta AUTH", async () => {
+        const ticket = { token: SECRET_TOKEN, sign: SECRET_SIGN, expiresAt: Date.parse("2026-10-25T13:00:00Z") };
+        const fault = envelope('<soap:Fault><faultcode>auth</faultcode><faultstring>No autorizado</faultstring></soap:Fault>');
+        const d = deps(() => ok(fault, 500), { ticketStore: { getOrIssue: async () => ticket, reject: async () => { throw new TicketStoreFailure(); } } });
+        expect(await lookupCuit(CUIT, d)).toEqual({ status: "ERROR", code: "AUTH" });
+    });
+    it("ticket en espera -> RETRY_LATER con el instante fijo del almacén; almacén caído -> STORE_UNAVAILABLE; sin red", async () => {
+        const now = Date.parse("2026-10-25T12:00:00Z");
+        const waiting = deps(() => ok(FOUND), { ticketStore: { getOrIssue: async () => { throw new TicketUnavailable(now + 90_500); }, reject: vi.fn() } });
+        expect(await lookupCuit(CUIT, waiting)).toEqual({ status: "RETRY_LATER", retryAfterSeconds: 91 });
+        const down = deps(() => ok(FOUND), { ticketStore: { getOrIssue: async () => { throw new TicketStoreFailure(); }, reject: vi.fn() } });
+        expect(await lookupCuit(CUIT, down)).toEqual({ status: "ERROR", code: "STORE_UNAVAILABLE" });
+        expect(waiting.fetchImpl).not.toHaveBeenCalled();
+        expect(down.fetchImpl).not.toHaveBeenCalled();
+    });
+    it("producción usa sólo los destinos fijos de producción", async () => {
+        const d = deps((url) => ok(url.includes("LoginCms") ? ticketXml : FOUND), {
+            config: { configured: true, environment: "produccion", cuitRepresentada: REPRESENTADA, signer: async () => "QUJD" },
+        });
+        expect(await lookupCuit(CUIT, d)).toMatchObject({ status: "FOUND" });
+        expect((d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toEqual([
+            "https://wsaa.afip.gov.ar/ws/services/LoginCms",
+            "https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5",
+        ]);
     });
     it("homologación web rechaza otro CUIT antes de autenticar",async()=>{
         const d=deps(()=>ok(FOUND),{allowedCuits:[REPRESENTADA]});

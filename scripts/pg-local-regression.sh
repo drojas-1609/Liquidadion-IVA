@@ -5,7 +5,9 @@
 #  2. Aplica TODAS las migraciones del repositorio con `prisma migrate deploy`.
 #  3. Verifica que schema.prisma y las migraciones no difieren (prisma migrate
 #     diff con una base shadow del mismo clúster).
-#  4. Corre tests/integration/client-profile-pg.test.ts contra ese clúster.
+#  4. Corre las pruebas de integración locales (ficha de clientes, WSAA y
+#     controles de ARCA en producción) contra ese clúster, más una base con el
+#     esquema del DEV actual (sin la última migración) para probar el cierre.
 #  5. Detiene y borra el clúster (también ante errores).
 #
 # No usa ni hereda credenciales: los procesos hijos corren con `env -i` y sólo
@@ -38,6 +40,7 @@ trap cleanup EXIT
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 echo "PostgreSQL local: $("${PG_BIN}/psql" "$URL" -X -qAt -c 'SHOW server_version')"
 
+# Un único clúster compartido: los archivos corren en serie (algunos vacían tablas).
 # Roles sintéticos y permisos por defecto como los que puede heredar una tabla en Supabase.
 "${PG_BIN}/psql" "$URL" -X -v ON_ERROR_STOP=1 -q -c 'CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN; ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO anon, authenticated, service_role;' >/dev/null
 
@@ -49,6 +52,28 @@ CLEAN_ENV=(env -i PATH="$PATH" HOME="$HOME" CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPD
 "${PG_BIN}/psql" "$URL" -X -qAt -c \
   "SELECT 'FK alícuota->jurisdicción: ' || pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ClientActivityRate_clientId_organizationId_jurisdictionCod_fkey'"
 
+# Base con el esquema del DEV actual: todas las migraciones salvo la de controles de producción.
+"${PG_BIN}/psql" "$URL" -X -qAt -c "CREATE DATABASE devlike" >/dev/null
+DEVLIKE="postgresql://postgres@127.0.0.1:${PORT}/devlike"
+for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v '^20261102120000_arca_production_controls$' | sort); do
+  "${PG_BIN}/psql" "$DEVLIKE" -X -q -v ON_ERROR_STOP=1 -f "$REPO/prisma/migrations/$m/migration.sql" >/dev/null || die "falló $m en devlike"
+done
+
+# Bases propias del precheck del runner, aplicadas con Prisma (con _prisma_migrations):
+# runner_prev = las 10 previas (esquema anterior) y runner_cur = las 11. Privilegios por
+# defecto sobre tablas y secuencias como los que puede heredar un objeto en Supabase.
+RUNNER_PRISMA="$TMP/runner-prisma"
+mkdir -p "$RUNNER_PRISMA/migrations"; cp "$REPO/prisma/schema.prisma" "$RUNNER_PRISMA/"; cp "$REPO/prisma/migrations/migration_lock.toml" "$RUNNER_PRISMA/migrations/"
+for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v '^20261102120000_arca_production_controls$'); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_PRISMA/migrations/"; done
+for db in runner_prev runner_cur; do
+  "${PG_BIN}/psql" "$URL" -X -qAt -c "CREATE DATABASE $db" >/dev/null
+  "${PG_BIN}/psql" "postgresql://postgres@127.0.0.1:${PORT}/$db" -X -q -v ON_ERROR_STOP=1 -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;' >/dev/null
+done
+RUNNER_PREV="postgresql://postgres@127.0.0.1:${PORT}/runner_prev"
+RUNNER_CUR="postgresql://postgres@127.0.0.1:${PORT}/runner_cur"
+( cd "$REPO" && "${CLEAN_ENV[@]}" DATABASE_URL="$RUNNER_PREV" DIRECT_URL="$RUNNER_PREV" npx --no-install prisma migrate deploy --schema "$RUNNER_PRISMA/schema.prisma" ) >/dev/null || die "falló deploy runner_prev"
+( cd "$REPO" && "${CLEAN_ENV[@]}" DATABASE_URL="$RUNNER_CUR" DIRECT_URL="$RUNNER_CUR" npx --no-install prisma migrate deploy ) >/dev/null || die "falló deploy runner_cur"
+
 # schema.prisma y las migraciones describen el MISMO esquema (base shadow local).
 "${PG_BIN}/psql" "$URL" -X -qAt -c "CREATE DATABASE prisma_shadow" >/dev/null
 SHADOW="postgresql://postgres@127.0.0.1:${PORT}/prisma_shadow"
@@ -56,4 +81,4 @@ SHADOW="postgresql://postgres@127.0.0.1:${PORT}/prisma_shadow"
     --to-schema-datamodel prisma/schema.prisma --shadow-database-url "$SHADOW" --exit-code >/dev/null ) \
   && echo "schema.prisma == migraciones: sin diferencias" || die "schema.prisma y las migraciones difieren"
 
-( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" npx --no-install vitest run tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts )
+( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" PR17_LOCAL_PG_DEVLIKE_URL="$DEVLIKE" PR17_LOCAL_PG_RUNNER_PREV_URL="$RUNNER_PREV" PR17_LOCAL_PG_RUNNER_URL="$RUNNER_CUR" npx --no-install vitest run --no-file-parallelism tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts tests/integration/arca-production-pg.test.ts tests/integration/arca-devlike-pg.test.ts tests/integration/arca-runner-precheck-pg.test.ts )

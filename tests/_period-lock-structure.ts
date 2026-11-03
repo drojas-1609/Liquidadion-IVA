@@ -398,14 +398,17 @@ interface RawQuery {
   pos: number;
 }
 
+/** Almacenes técnicos de ARCA con SQL inventariado exacto (sin tablas de negocio). */
+const ARCA_TECH_RAW_FILES = new Set(["lib/arca-padron/ticket-store.ts", "lib/arca-padron/quota-store.ts"]);
+
 /** $queryRaw en tagged template; cualquier otra forma, o los raw prohibidos, son violaciones. */
 function collectRaw(ctx: Ctx): RawQuery[] {
   const out: RawQuery[] = [];
   forEachNode(ctx.sf, (n) => {
-    if ((ts.isIdentifier(n) || ts.isPrivateIdentifier(n) || isStringLit(n)) && BANNED_RAW.has(n.text) && !(ctx.file === "lib/arca-padron/ticket-store.ts" && n.text === "$executeRaw")) {
+    if ((ts.isIdentifier(n) || ts.isPrivateIdentifier(n) || isStringLit(n)) && BANNED_RAW.has(n.text) && !(ARCA_TECH_RAW_FILES.has(ctx.file) && n.text === "$executeRaw")) {
       add(ctx, "RAW_BANNED", n, `${n.text} prohibido`);
     }
-    if (!(ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) || !(memberName(n) === "$queryRaw" || (ctx.file === "lib/arca-padron/ticket-store.ts" && memberName(n) === "$executeRaw"))) return;
+    if (!(ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) || !(memberName(n) === "$queryRaw" || (ARCA_TECH_RAW_FILES.has(ctx.file) && memberName(n) === "$executeRaw"))) return;
     const parent = n.parent;
     if (!ts.isTaggedTemplateExpression(parent) || parent.tag !== n) {
       add(ctx, "RAW_FORM", n, `$queryRaw fuera de un tagged template: ${text(ctx.sf, parent)}`);
@@ -430,15 +433,35 @@ function collectRaw(ctx: Ctx): RawQuery[] {
 function checkRawInventory(ctx: Ctx, raws: RawQuery[]): void {
   if (ctx.file === "lib/arca-padron/ticket-store.ts") {
     // Excepción acotada al almacén técnico: SQL y parámetros exactos, sin tablas de negocio.
+    // Ninguna sentencia borra el ticket cifrado: sólo se reemplaza al emitir otro.
     const allowed = new Map([
-      ["SET LOCAL lock_timeout = '3s'", ""],
+      ["SET LOCAL lock_timeout = '2s'", ""],
       ['INSERT INTO "ArcaWsaaTicket" ("key", "updatedAt") VALUES (?, NOW()) ON CONFLICT ("key") DO NOTHING', 'scope'],
-      ['SELECT "ciphertext", "expiresAt", "blockedUntil" FROM "ArcaWsaaTicket" WHERE "key"=? FOR UPDATE', 'scope'],
-      ['UPDATE "ArcaWsaaTicket" SET "ciphertext"=?, "expiresAt"=?, "blockedUntil"=NULL, "updatedAt"=NOW() WHERE "key"=?', 'ciphertext,new Date(ticket.expiresAt),scope'],
-      ['UPDATE "ArcaWsaaTicket" SET "ciphertext"=NULL, "expiresAt"=NULL, "blockedUntil"=?, "updatedAt"=NOW() WHERE "key"=?', 'new Date(nowMs()+30000),scope|new Date(Math.max(nowMs()+30000,ticket.expiresAt)),scope'],
+      ['SELECT "ciphertext", "expiresAt", "blockedUntil", "leaseId", "leaseUntil" FROM "ArcaWsaaTicket" WHERE "key"=? FOR UPDATE', 'scope'],
+      ['UPDATE "ArcaWsaaTicket" SET "ciphertext"=?, "updatedAt"=NOW() WHERE "key"=?', 'sealTicket(opened.ticket,keys.current,scope),scope'],
+      ['UPDATE "ArcaWsaaTicket" SET "leaseId"=?, "leaseUntil"=?, "updatedAt"=NOW() WHERE "key"=?', 'leaseId,new Date(now+ISSUE_LEASE_MS),scope'],
+      ['UPDATE "ArcaWsaaTicket" SET "ciphertext"=?, "expiresAt"=?, "blockedUntil"=NULL, "leaseId"=NULL, "leaseUntil"=NULL, "updatedAt"=NOW() WHERE "key"=?', 'sealTicket(outcome.ticket,keys.current,scope),new Date(outcome.ticket.expiresAt),scope'],
+      ['UPDATE "ArcaWsaaTicket" SET "blockedUntil"=?, "leaseId"=NULL, "leaseUntil"=NULL, "updatedAt"=NOW() WHERE "key"=?', 'new Date(nowMs()+ISSUE_COOLDOWN_MS),scope'],
+      ['UPDATE "ArcaWsaaTicket" SET "blockedUntil"=?, "updatedAt"=NOW() WHERE "key"=?', 'new Date(ticket.expiresAt),scope'],
     ]);
     for (const q of raws) if (!allowed.has(q.sql) || !allowed.get(q.sql)!.split('|').some(p => p.replace(/\s/g, '') === q.params.join(',').replace(/\s/g, ''))) add(ctx, "RAW_NOT_INVENTORIED", q.node, `SQL WSAA fuera del inventario: ${q.sql}`);
     if (raws.length !== 8) add(ctx, "RAW_MISSING", null, "se esperan las 8 operaciones técnicas WSAA inventariadas");
+    return;
+  }
+  if (ctx.file === "lib/arca-padron/quota-store.ts") {
+    // Cupos propios: sólo timeouts locales y el bloqueo ordenado de sus filas técnicas.
+    const allowed = new Map([
+      ["SET LOCAL lock_timeout = '1s'", ""],
+      ["SET LOCAL statement_timeout = '2s'", ""],
+      ['SELECT "key" FROM "ArcaLookupQuota" WHERE "key" = ANY(?) ORDER BY "key" FOR UPDATE', "keys"],
+      // Única hora del cupo: del servidor, leída después de los locks.
+      ['SELECT clock_timestamp() AS "now"', ""],
+    ]);
+    for (const q of raws) if (allowed.get(q.sql) !== q.params.join(",").replace(/\s/g, "")) add(ctx, "RAW_NOT_INVENTORIED", q.node, `SQL de cupos fuera del inventario: ${q.sql}`);
+    if (raws.length !== 4) add(ctx, "RAW_MISSING", null, "se esperan las 4 operaciones técnicas de cupos inventariadas");
+    // La hora se lee DESPUÉS del FOR UPDATE (orden de las horas = orden de los commits por clave).
+    const lockAt = raws.find((q) => q.sql.includes("FOR UPDATE"))?.pos ?? -1, clockAt = raws.find((q) => q.sql.includes("clock_timestamp"))?.pos ?? -1;
+    if (!(lockAt >= 0 && clockAt > lockAt)) add(ctx, "RAW_NOT_INVENTORIED", null, "clock_timestamp() debe leerse después del FOR UPDATE");
     return;
   }
 

@@ -58,6 +58,7 @@ model Organization {
   memberships Membership[]
   clients     Client[]
   settings    OrgSetting[]
+  arcaPadron  ArcaPadronOrganization?
 
   // Tarea 3B: historial de auditoría de la organización. onDelete: Restrict
   // (una futura eliminación de Organization NO debe borrar en silencio su
@@ -565,7 +566,7 @@ model ClientActivity {
 /// informar (distinto de 0 explícito). NO se usa en la liquidación. Tabla
 /// separada para poder agregar vigencias por período en el futuro.
 model ClientActivityRate {
-  id               String   @id @default(cuid())
+  id               String        @id @default(cuid())
   organizationId   String
   clientId         String
   activityId       String
@@ -616,9 +617,43 @@ enum RateOrigin {
 /// Caché operativa del servidor. Credenciales WSAA cifradas AES-256-GCM, nunca datos del padrón.
 /// RLS habilitada sin políticas y sin GRANT a roles API; acceso del backend propietario.
 model ArcaWsaaTicket {
-  key String @id
-  ciphertext String?
-  expiresAt DateTime? @db.Timestamptz(3)
+  key          String    @id
+  ciphertext   String?
+  expiresAt    DateTime? @db.Timestamptz(3)
   blockedUntil DateTime? @db.Timestamptz(3)
-  updatedAt DateTime @db.Timestamptz(3)
+  leaseId      String?
+  leaseUntil   DateTime? @db.Timestamptz(3)
+  updatedAt    DateTime  @db.Timestamptz(3)
+}
+
+/// Interruptor global de la consulta a ARCA en producción (fila única 'global').
+/// Se cambia por SQL del operador, sin redeploy. Ausente o false: no se consulta.
+model ArcaPadronControl {
+  id        String   @id
+  enabled   Boolean  @default(false)
+  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+}
+
+/// Habilitación explícita por organización. Sin fila o false: no se consulta.
+model ArcaPadronOrganization {
+  organizationId String   @id
+  enabled        Boolean  @default(false)
+  updatedAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+/// Fila de bloqueo por cupo propio (usuario, organización o certificado). Sin datos personales en claro.
+model ArcaLookupQuota {
+  key       String   @id
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+}
+
+/// Consumos de cupo dentro de la ventana más larga; se depuran al consumir.
+model ArcaLookupQuotaEvent {
+  id  BigInt   @id @default(autoincrement())
+  key String
+  at  DateTime @db.Timestamptz(3)
+
+  @@index([key, at])
 }

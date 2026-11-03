@@ -13,9 +13,36 @@ import {PADRON_ENDPOINTS} from '../../lib/arca-padron/padron';
 import {WSAA_ENDPOINTS} from '../../lib/arca-padron/wsaa';
 
 const DEV='esyfpakajthdifhnhcew',PROD='bqqruaikbqculvmtirvy';
-const MIGRATION='20261028120000_arca_wsaa_ticket_cache';
-const SHA='a5c214cc74826994411c44953983addda81e88e4076a742a33db437609ec743d';
-const FP='37460066024602df4109ae1e6996a1d2315b8ce0da52e25f6188cf493511c9de';
+const MIGRATION='20261102120000_arca_production_controls';
+const SHA='1546bb960aee01bb4ad26871a3a22d4ba7f844b0215f64b293e5ef7f8ea2ca36';
+// Exactamente estas 11 migraciones (nombre y checksum completo), en orden.
+export const EXPECTED_MIGRATIONS:ReadonlyArray<readonly [string,string]>=[
+ ['0_init','563767d5f4bcb541b98b2a58b478f68f02d77d38877b8d4f61ffe94450cab80e'],
+ ['20260907213357_float_to_decimal','7185f475c21798ea25e2b41d379c8e4c333409efce3d8e87c4caa3e0695d60c9'],
+ ['20260908021123_org_auth_base','418543554a79cbf8a8fed61209c674880210b50a8d4040be64ec40830a03c6aa'],
+ ['20260908204819_org_scope_and_audit','0553ac56ebac85ca6ff46d9e3c366b99c162dbb14d374d22502b50c219cc91e1'],
+ ['20260925030000_invoice_accounting_model_expand','cada8178b87d401de090854e8881670f243d60b1590a1ba98fe55bff176fa005'],
+ ['20260925210133_invoice_counterparty_turiva_variant_expand','7d473da450713be42f8b1b3dd767e62a5698d33ccf16241e873f4ee0b4b93032'],
+ ['20261009120000_period_close_reopen','b86d020d7fe08f9e7f4e8f87b82084bd220230089040f016e8368d05936e30d9'],
+ ['20261025120000_client_profile_iibb_contacts','9a8be750cc3f6e73b508b02b3087678c4d201c461181558db4cd7b1d07e71293'],
+ ['20261027120000_activity_catalog_rate_origin','1905b1e9f260df9e613d0a575ab1f21aa2dae7bf10d7b32d5bfd2e6ac18465d4'],
+ ['20261028120000_arca_wsaa_ticket_cache','a5c214cc74826994411c44953983addda81e88e4076a742a33db437609ec743d'],
+ [MIGRATION,SHA],
+];
+// Huella DEV leída y verificada (no calculada): ~/arca-production-controls-dev-kit,
+// postcheck runs/20261103T015023Z-migrate y 80-h3-fingerprint.sh runs/20261103T015213Z-h3.
+// Sus 10 filas previas reproducen la huella anterior 37460066…11c9de.
+export const FP='8fdb3152a0c7aecf35581f2dd8c82ccbd25d769f9efc8be7f5a0b9d86164a04f';
+// RLS sin políticas y sin privilegios fuera del propietario: ACL exacta verificada en DEV por el postcheck.
+const TABLE_ACL='{postgres=arwdDxtm/postgres}',SEQUENCE_ACL='{postgres=rwU/postgres}';
+export const EXPECTED_RELATIONS:ReadonlyArray<{name:string;kind:'r'|'S';checks:Readonly<Record<string,string>>}>=[
+ {name:'ArcaWsaaTicket',kind:'r',checks:{ArcaWsaaTicket_lease_check:'CHECK ((("leaseId" IS NULL) = ("leaseUntil" IS NULL)))',ArcaWsaaTicket_payload_check:'CHECK (((ciphertext IS NULL) = ("expiresAt" IS NULL)))'}},
+ {name:'ArcaPadronControl',kind:'r',checks:{ArcaPadronControl_singleton_check:"CHECK ((id = 'global'::text))"}},
+ {name:'ArcaPadronOrganization',kind:'r',checks:{}},
+ {name:'ArcaLookupQuota',kind:'r',checks:{ArcaLookupQuota_key_check:"CHECK ((key ~ '^[uoc]:[A-Za-z0-9_-]{1,80}$'::text))"}},
+ {name:'ArcaLookupQuotaEvent',kind:'r',checks:{}},
+ {name:'ArcaLookupQuotaEvent_id_seq',kind:'S',checks:{}},
+];
 export const HOMO={wsaa:'https://wsaahomo.afip.gov.ar/ws/services/LoginCms',padron:'https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5'};
 // Ejemplo público getPersona_v2, manual oficial v4.1, páginas impresas9–12.
 // Es un caso documentado; no garantiza disponibilidad actual en homologación.
@@ -56,16 +83,27 @@ async function snapshot(db:PrismaClient){
  const rows=await db.$queryRaw<Array<{state:unknown}>>`SELECT json_build_object('client',(SELECT count(*) FROM "Client"),'period',(SELECT count(*) FROM "Period"),'invoice',(SELECT count(*) FROM "Invoice"),'tax_record',(SELECT count(*) FROM "TaxRecord"),'audit',(SELECT count(*) FROM "AuditLog"),'jurisdiction',(SELECT count(*) FROM "ClientJurisdiction"),'activity',(SELECT count(*) FROM "ClientActivity"),'rate',(SELECT count(*) FROM "ClientActivityRate"),'client_updated',(SELECT max("updatedAt")::text FROM "Client")) AS state`;
  return JSON.stringify(rows[0].state);
 }
-async function precheck(db:PrismaClient){
+type RelationState={name:string;kind:string|null;owner:string|null;rls:boolean|null;force_rls:boolean|null;policies:bigint|null;grants:bigint|null;acl:string|null;checks:Record<string,{def:string;validated:boolean}>|null};
+// Sólo lectura. `fingerprint` existe para probar contra PostgreSQL local (otros UUID); main usa siempre FP.
+export async function precheck(db:PrismaClient,fingerprint:string=FP){
  await db.$transaction(async tx=>{
   await tx.$executeRaw`SET TRANSACTION READ ONLY`;
-  const m=await tx.$queryRaw<Array<{migration_name:string;checksum:string;finished:boolean;bad:boolean}>>`SELECT migration_name,checksum,finished_at IS NOT NULL AS finished,(rolled_back_at IS NOT NULL OR logs IS NOT NULL) AS bad FROM "_prisma_migrations" ORDER BY migration_name`;
-  if(m.length!==10||m.some(x=>!x.finished||x.bad)||!m.some(x=>x.migration_name===MIGRATION&&x.checksum===SHA))throw Error('MIGRACIONES_DEV');
+  const m=await tx.$queryRaw<Array<{migration_name:string;checksum:string;finished:boolean;bad:boolean}>>`SELECT migration_name,checksum,finished_at IS NOT NULL AS finished,(rolled_back_at IS NOT NULL OR logs IS NOT NULL) AS bad FROM "_prisma_migrations" ORDER BY migration_name COLLATE "C",started_at`;
+  if(m.length!==EXPECTED_MIGRATIONS.length||m.some((x,i)=>!x.finished||x.bad||x.migration_name!==EXPECTED_MIGRATIONS[i][0]||x.checksum!==EXPECTED_MIGRATIONS[i][1]))throw Error('MIGRACIONES_DEV');
   const f=await tx.$queryRaw<Array<{fingerprint:string}>>`SELECT encode(sha256(convert_to(string_agg(id||':'||migration_name||':'||checksum,'|' ORDER BY migration_name),'UTF8')),'hex') AS fingerprint FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
-  if(f[0]?.fingerprint!==FP)throw Error('HUELLA_DEV');
-  const t=await tx.$queryRaw<Array<{owner:string;rls:boolean;grants:bigint;policies:bigint;check_ok:boolean}>>`SELECT pg_get_userbyid(c.relowner) AS owner,c.relrowsecurity AS rls,(SELECT count(*) FROM aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a WHERE a.grantee<>c.relowner) AS grants,(SELECT count(*) FROM pg_policy WHERE polrelid=c.oid) AS policies,EXISTS(SELECT 1 FROM pg_constraint k WHERE k.conrelid=c.oid AND k.conname='ArcaWsaaTicket_payload_check' AND k.convalidated AND pg_get_constraintdef(k.oid)='CHECK (((ciphertext IS NULL) = ("expiresAt" IS NULL)))') AS check_ok FROM pg_class c WHERE c.oid='"ArcaWsaaTicket"'::regclass`;
-  if(t.length!==1||t[0].owner!=='postgres'||!t[0].rls||t[0].grants!==BigInt(0)||t[0].policies!==BigInt(0)||!t[0].check_ok)throw Error('PERMISOS_TABLA');
+  if(f.length!==1||f[0].fingerprint!==fingerprint)throw Error('HUELLA_DEV');
+  const r=await tx.$queryRaw<RelationState[]>`SELECT s.name,c.relkind::text AS kind,pg_get_userbyid(c.relowner) AS owner,c.relrowsecurity AS rls,c.relforcerowsecurity AS force_rls,(SELECT count(*) FROM pg_policy p WHERE p.polrelid=c.oid) AS policies,(SELECT count(*) FROM aclexplode(COALESCE(c.relacl,acldefault((CASE WHEN c.relkind='S' THEN 's' ELSE 'r' END)::"char",c.relowner))) a WHERE a.grantee<>c.relowner) AS grants,c.relacl::text AS acl,(SELECT coalesce(json_object_agg(k.conname,json_build_object('def',pg_get_constraintdef(k.oid),'validated',k.convalidated)),'{}'::json) FROM pg_constraint k WHERE k.conrelid=c.oid AND k.contype='c') AS checks FROM (VALUES ('ArcaWsaaTicket'),('ArcaPadronControl'),('ArcaPadronOrganization'),('ArcaLookupQuota'),('ArcaLookupQuotaEvent'),('ArcaLookupQuotaEvent_id_seq')) s(name) LEFT JOIN (pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace AND n.nspname='public') ON c.relname=s.name`;
+  verifyRelations(r);
  },{timeout:10000});
+}
+export function verifyRelations(rows:readonly RelationState[]){
+ if(rows.length!==EXPECTED_RELATIONS.length)throw Error('PERMISOS_TABLA');
+ for(const want of EXPECTED_RELATIONS){
+  const got=rows.find(x=>x.name===want.name);const table=want.kind==='r';
+  if(!got||got.kind!==want.kind||got.owner!=='postgres'||got.rls!==table||got.force_rls!==false||got.policies!==BigInt(0)||got.grants!==BigInt(0)||got.acl!==(table?TABLE_ACL:SEQUENCE_ACL))throw Error('PERMISOS_TABLA');
+  const checks=got.checks??{},names=Object.keys(checks).sort();
+  if(names.join('|')!==Object.keys(want.checks).sort().join('|')||names.some(k=>!checks[k].validated||checks[k].def!==want.checks[k]))throw Error('RESTRICCION_TABLA');
+ }
 }
 async function publicKeyFromNetlify(){
  const file=join(homedir(),process.platform==='darwin'?'Library/Preferences/netlify/config.json':'.config/netlify/config.json');
@@ -184,5 +222,5 @@ async function main(){
  }finally{await db.$disconnect();}
  // La clave y la contraseña nunca salen de este proceso.
 }
-const SAFE_CODES=new Set(['NETLIFY_PUBLIC_CONFIG','ENV_LOCAL_PRESENTE','PUERTO_LOCAL_OCUPADO','SERVIDOR_LOCAL','ARGUMENTOS_NO_ADMITIDOS','CACHE_FALTANTE_NO_RECREAR','TERMINAL_INTERACTIVA','CANCELADO','WSDL_NO_DISPONIBLE','WSDL_NO_COINCIDE','MIGRACIONES_DEV','HUELLA_DEV','PERMISOS_TABLA','ENTORNO_NO_LIMPIO','FALTA_CARPETA_CERTIFICADO','CARPETA_O_TERMINAL','CARPETA_NO_PRIVADA','ARCHIVO_NO_ADMITIDO','CLAVE_NO_PRIVADA','CUIT_CERTIFICADO','URL_DEV_RECHAZADA','CLAVE_SIN_CIFRAR','CACHE_NO_PRIVADA','CACHE_INVALIDA','CERTIFICADO_CLAVE_O_CONTRASENA']);
+const SAFE_CODES=new Set(['NETLIFY_PUBLIC_CONFIG','ENV_LOCAL_PRESENTE','PUERTO_LOCAL_OCUPADO','SERVIDOR_LOCAL','ARGUMENTOS_NO_ADMITIDOS','CACHE_FALTANTE_NO_RECREAR','TERMINAL_INTERACTIVA','CANCELADO','WSDL_NO_DISPONIBLE','WSDL_NO_COINCIDE','MIGRACIONES_DEV','HUELLA_DEV','PERMISOS_TABLA','RESTRICCION_TABLA','ENTORNO_NO_LIMPIO','FALTA_CARPETA_CERTIFICADO','CARPETA_O_TERMINAL','CARPETA_NO_PRIVADA','ARCHIVO_NO_ADMITIDO','CLAVE_NO_PRIVADA','CUIT_CERTIFICADO','URL_DEV_RECHAZADA','CLAVE_SIN_CIFRAR','CACHE_NO_PRIVADA','CACHE_INVALIDA','CERTIFICADO_CLAVE_O_CONTRASENA']);
 if(require.main===module)main().catch(error=>{const code=error instanceof Error&&SAFE_CODES.has(error.message)?error.message:'ERROR_NO_CLASIFICADO';console.error('DETENIDO: '+code+'. No reintentes hasta revisar el resultado; no compartas secretos.');process.exitCode=1;});

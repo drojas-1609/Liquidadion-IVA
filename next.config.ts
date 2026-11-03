@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { ARCA_HOMO_BUILD_FLAG, arcaHomoBuildEligible, arcaHomoRuntimeEligible, arcaHomoLocalEligible } from "./lib/arca-padron/preview-gate";
+import { ARCA_PROD_BUILD_FLAG, arcaProdBuildEligible } from "./lib/arca-padron/production-build";
 import path from "node:path";
 import {mkdirSync,writeFileSync,rmSync} from "node:fs";
 
@@ -25,6 +26,8 @@ if (arcaBuildEligible && /^[a-f0-9]{40}$/.test(process.env.COMMIT_REF ?? "")) {
  writeFileSync(proofPath, JSON.stringify({version:1,commit:process.env.COMMIT_REF,branch:process.env.HEAD,dev:dev===true}));
 }
 
+// Producción: sólo el build de main en Netlify puede habilitar ARCA; el runtime exige además variables, certificado y base.
+const arcaProdBuild = arcaProdBuildEligible(process.env) && !arcaBuildEligible;
 if (arcaBuildEligible) console.info("[arca-homo] Build elegible; runtime exige activación, caducidad y DEV.");
 if (fixtureGate.enabled) console.warn("[catalogos-sinteticos] HABILITADOS en este build (Deploy Preview con DEV)");
 else if (process.env.CATALOGOS_SINTETICOS !== undefined) console.warn(`[catalogos-sinteticos] deshabilitados: ${fixtureGate.reasons.join("; ")}`);
@@ -39,7 +42,7 @@ const FIXTURE_DATA_MODULE = "@/lib/preview-fixtures/data";
 const fixtureDataTarget = fixtureGate.enabled ? "./lib/preview-fixtures/data.ts" : "./lib/preview-fixtures/data-disabled.ts";
 
 const nextConfig: NextConfig = {
-  env: { [BUILD_FLAG_VAR]: fixtureGate.enabled ? "1" : "0", [ARCA_HOMO_BUILD_FLAG]: (arcaBuildEligible || arcaHomoLocalEligible(process.env)) ? "1" : "0" },
+  env: { [BUILD_FLAG_VAR]: fixtureGate.enabled ? "1" : "0", [ARCA_HOMO_BUILD_FLAG]: (arcaBuildEligible || arcaHomoLocalEligible(process.env)) ? "1" : "0", [ARCA_PROD_BUILD_FLAG]: arcaProdBuild ? "1" : "0" },
   turbopack: { resolveAlias: { [FIXTURE_DATA_MODULE]: fixtureDataTarget } },
   webpack(config) {
     config.resolve ??= {};
