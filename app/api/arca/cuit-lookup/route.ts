@@ -83,6 +83,7 @@ export const POST = withApiAuthz(async (request: Request) => {
             case "LOOKUP":
                 return lookupResponse(outcome.result);
             case "NOT_ENABLED":
+                console.warn("[arca-production] lookup blocked", "CONTROL_NOT_ENABLED");
                 return lookupResponse({ status: "NOT_CONFIGURED" });
             case "RATE_LIMITED":
                 return errorJson(429, "RATE_LIMITED", `Se alcanzó el cupo interno de consultas a ARCA del estudio. Intentá de nuevo en ${waitText(outcome.retryAfterSeconds)}.`, outcome.retryAfterSeconds);
