@@ -1,6 +1,6 @@
 # ARCA en producción: compuerta, cupos, tickets y auditoría
 
-Estado: implementado y probado **sólo localmente** (rama `codex/arca-produccion-compuerta`). La migración `20261102120000_arca_production_controls` **no está aplicada** en DEV ni en PROD. No hay credenciales de producción cargadas y ARCA sigue sin consultarse en producción. Primera habilitación prevista: únicamente el estudio del titular.
+Estado: implementado y probado **sólo localmente** (rama `codex/arca-produccion-compuerta`). La migración `20261102120000_arca_production_controls` está **aplicada y verificada sólo en DEV** (03/11/2026 UTC); **PROD sigue sin aplicar**. No hay credenciales de producción cargadas y ARCA sigue sin consultarse en producción. Primera habilitación prevista: únicamente el estudio del titular.
 
 ## 1. Compuerta (deshabilitada por defecto)
 
@@ -100,7 +100,7 @@ node scripts/arca/setup-certificate.mjs --ambiente=produccion
 - **Lo ejecuta el titular:** con Clave Fiscal en ARCA, nunca en la aplicación ni en un chat.
 - **Prueba sintética:** `--selftest` genera y borra material sintético de ambos ambientes.
 
-## 6. Migración propuesta (no aplicada)
+## 6. Migración (aplicada sólo en DEV)
 
 `prisma/migrations/20261102120000_arca_production_controls/migration.sql`. Es transaccional y aditiva:
 
@@ -108,7 +108,16 @@ node scripts/arca/setup-certificate.mjs --ambiente=produccion
 - **Tablas nuevas:** `ArcaPadronControl` (fila global en `false`), `ArcaPadronOrganization`, `ArcaLookupQuota` y `ArcaLookupQuotaEvent`.
 - **Permisos:** RLS sin políticas y sin privilegios para PUBLIC, `anon`, `authenticated` ni `service_role`, incluida la secuencia.
 
-**Impacto en homologación:** el almacén de tickets nuevo usa las columnas de reserva. Hasta aplicar esta migración en DEV, la homologación web y el runner fallan cerrados. El runner exige además las 10 migraciones y la huella DEV del 28/10, y hay que actualizarlo después de migrar DEV.
+**DEV:** aplicada con `~/arca-production-controls-dev-kit` (corrida `runs/20261103T015023Z-migrate`: Prisma 0, postcheck OK). Huella DEV leída y verificada por `80-h3-fingerprint.sh` (`runs/20261103T015213Z-h3`): `8fdb3152a0c7aecf35581f2dd8c82ccbd25d769f9efc8be7f5a0b9d86164a04f`. Sus 10 filas previas reproducen la huella anterior `37460066…11c9de`. El kit cumplió su propósito y no debe repetirse.
+
+**Runner de homologación (H3).** `scripts/arca/homologation-runner.ts` verifica, en una transacción de sólo lectura y antes de cualquier consulta a ARCA:
+
+- exactamente las 11 migraciones, con nombre y checksum completo, terminadas, sin rollback ni logs → si no, `MIGRACIONES_DEV`;
+- la huella DEV verificada → si no, `HUELLA_DEV`;
+- en `ArcaWsaaTicket`, las cuatro tablas nuevas y `ArcaLookupQuotaEvent_id_seq`: owner `postgres`, RLS activo sin FORCE en las tablas, sin políticas, sin privilegios fuera del propietario y ACL exacta (`{postgres=arwdDxtm/postgres}` en tablas, `{postgres=rwU/postgres}` en la secuencia) → si no, `PERMISOS_TABLA`;
+- exactamente los CHECK esperados, validados y con su definición: reserva (`ArcaWsaaTicket_lease_check`), payload, fila única del interruptor y clave de cupo → si no, `RESTRICCION_TABLA`.
+
+La huella no se calcula: incluye los UUID que Prisma asignó en DEV. Cualquier migración futura en DEV exige repetir H3 con una huella leída y verificada.
 
 ## 7. Pruebas locales
 
@@ -117,4 +126,5 @@ node scripts/arca/setup-certificate.mjs --ambiente=produccion
   - cupos concurrentes entre dos instancias, todo o nada, ventana con la hora de PostgreSQL y reloj de instancia adelantado;
   - intento de auditoría atómico con el cupo, fallos del almacén, interruptor, auditoría por organización y RLS;
   - reservas tomadas por otra instancia y ticket emitido pero no persistido;
-  - cierre con el esquema del DEV actual, en una base con todas las migraciones salvo la última.
+  - cierre con el esquema previo, en una base con todas las migraciones salvo la última;
+  - precheck del runner (`arca-runner-precheck-pg`): rechaza el esquema anterior aplicado con Prisma (10 migraciones), acepta las 11 sólo con su propia huella y detecta historial alterado, CHECK ausentes, `NOT VALID`, con otra expresión o extra, privilegios a `anon`, `service_role` o PUBLIC, RLS desactivado o forzado, políticas, otro propietario y relaciones ausentes. Cada alteración se deshace y se verifica que el precheck vuelve a pasar.

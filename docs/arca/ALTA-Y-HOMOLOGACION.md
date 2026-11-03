@@ -30,9 +30,9 @@ Fuente: [manual oficial: autorización de acceso](https://www.afip.gob.ar/ws/WSA
 
 ## 4. Preparar DEV antes de habilitar
 
-La migración `20261028120000_arca_wsaa_ticket_cache` ya se aplicó y verificó en DEV el 28/10/2026: huella `37460066024602df4109ae1e6996a1d2315b8ce0da52e25f6188cf493511c9de`. PROD sigue sin esta migración. No repetir el kit.
+La migración `20261028120000_arca_wsaa_ticket_cache` se aplicó y verificó en DEV el 28/10/2026 (huella entonces `37460066024602df4109ae1e6996a1d2315b8ce0da52e25f6188cf493511c9de`). PROD sigue sin esta migración. No repetir el kit.
 
-El código de la etapa de producción requiere además `20261102120000_arca_production_controls` (reserva de emisión en `ArcaWsaaTicket`). Hasta aplicarla en DEV con autorización, la homologación con ese código falla cerrada y el runner rechaza la huella DEV; hay que actualizar su verificación después de migrar. La tabla técnica guarda tickets cifrados, tiene RLS y no concede permisos a PUBLIC ni a los roles anon/authenticated/service_role.
+El código de la etapa de producción requiere además `20261102120000_arca_production_controls` (reserva de emisión en `ArcaWsaaTicket`). Se aplicó y verificó en DEV el 03/11/2026 (UTC); huella DEV vigente `8fdb3152a0c7aecf35581f2dd8c82ccbd25d769f9efc8be7f5a0b9d86164a04f`. PROD sigue sin aplicar. El runner exige exactamente las 11 migraciones, esa huella y los permisos y CHECK de las tablas ARCA (ver [PRODUCCION.md §6](PRODUCCION.md)). La tabla técnica guarda tickets cifrados, tiene RLS y no concede permisos a PUBLIC ni a los roles anon/authenticated/service_role.
 
 Luego cargar secretos **sólo del servidor y sólo de una Preview/DEV**: `ARCA_PADRON_ENABLED=true`, `ARCA_PADRON_ENV=homologacion`, `ARCA_PADRON_CUIT_REPRESENTADA`, `ARCA_WSAA_CERT_PEM`, `ARCA_WSAA_KEY_PEM`, contraseña opcional `ARCA_WSAA_KEY_PASSWORD` y `ARCA_WSAA_CACHE_KEY` (32 bytes aleatorios en base64, secreto independiente). Ninguno lleva prefijo NEXT_PUBLIC. No pegar valores en chats ni comandos con historial. La contraseña de la clave se conserva como secreto del servidor; el cifrado del archivo no sustituye proteger el acceso a esas variables.
 
