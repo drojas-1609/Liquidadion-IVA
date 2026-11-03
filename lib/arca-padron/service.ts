@@ -1,7 +1,9 @@
 import "server-only";
 import { arcaHomoRuntimeEligible, ARCA_HOMO_EXAMPLE_CUIT } from "./preview-gate";
 import {LookupFailure,postSoap} from "./http";
-import {postgresTicketStore,type SharedTicketStore} from "./ticket-store";
+import {postgresTicketStore,TicketStoreFailure,TicketUnavailable,type SharedTicketStore} from "./ticket-store";
+import { arcaProdRuntimeEligible } from "./production-gate";
+import { readQuotaConfig, type QuotaConfig } from "./quota-store";
 import { normalizeCuit } from "../cuit";
 import { readArcaConfig, type ArcaConfigStatus } from "./config";
 import {
@@ -35,7 +37,9 @@ export type CuitLookupResult =
     | { status: "NOT_FOUND"; cuit: string }
     | { status: "NOT_CONFIGURED" }
     | { status: "INVALID_CUIT"; error: string }
-    | { status: "ERROR"; code: "TIMEOUT" | "UNAVAILABLE" | "AUTH" | "INVALID_RESPONSE" };
+    /** Sin ticket utilizable y todavía no corresponde pedir otro (instante fijo del almacén). */
+    | { status: "RETRY_LATER"; retryAfterSeconds: number }
+    | { status: "ERROR"; code: "TIMEOUT" | "UNAVAILABLE" | "AUTH" | "INVALID_RESPONSE" | "STORE_UNAVAILABLE" };
 
 export interface LookupDeps {
     fetchImpl: typeof fetch;
@@ -46,21 +50,29 @@ export interface LookupDeps {
     ticketStore?: SharedTicketStore;
     allowedCuits?: readonly string[];
     homologationTransport?: "afip-wsdl";
+    /** Sólo producción: el llamador exige interruptor, habilitación de la organización y cupos compartidos. */
+    production?: { quotas: QuotaConfig; certificateKey: string };
 }
 
 export const ARCA_TIMEOUT_MS = 8_000;
-export function defaultLookupDeps(): LookupDeps {
-    // La publicación de producción permanece deshabilitada en esta etapa.
-    const gate=arcaHomoRuntimeEligible(process.env,process.env.ARCA_HOMO_BUILD_ELIGIBLE,Date.now());
-    const config:ArcaConfigStatus=gate?readArcaConfig():{configured:false,reason:"DISABLED",missing:[]};
-    // Ninguna ruta de producción usa una caché en memoria como sustituto del almacén compartido.
-    const base:LookupDeps={fetchImpl:fetch,config,nowMs:Date.now,timeoutMs:ARCA_TIMEOUT_MS,ticketCache:{get:()=>null,set:()=>{throw new LookupFailure("AUTH");}}};
-    if(config.configured){
-        if(!config.ticketScope||!config.cacheKey)return {...base,config:{configured:false,reason:"MISSING_SETTINGS",missing:["ARCA_WSAA_CACHE_KEY"]}};
-        base.ticketStore=postgresTicketStore(config.ticketScope,config.cacheKey);
+const DISABLED:ArcaConfigStatus={configured:false,reason:"DISABLED",missing:[]};
+export function defaultLookupDeps(env:Readonly<Record<string,string|undefined>>=process.env,nowMs:()=>number=Date.now): LookupDeps {
+    // Barreras separadas: homologación (Preview / ensayo local) o producción; nunca ambas.
+    // Las constantes de build se leen de process.env para que Next las inlinee.
+    const homo=arcaHomoRuntimeEligible(env,process.env.ARCA_HOMO_BUILD_ELIGIBLE,nowMs());
+    const prod=!homo&&arcaProdRuntimeEligible(env,process.env.ARCA_PROD_BUILD_ELIGIBLE,process.env.ARCA_HOMO_BUILD_ELIGIBLE,process.env.NODE_ENV,nowMs()).ok;
+    const quotas=prod?readQuotaConfig(env):null;
+    const config:ArcaConfigStatus=homo||(prod&&quotas)?readArcaConfig(env):DISABLED;
+    // Ninguna ruta usa una caché en memoria como sustituto del almacén compartido.
+    const base:LookupDeps={fetchImpl:fetch,config,nowMs,timeoutMs:ARCA_TIMEOUT_MS,ticketCache:{get:()=>null,set:()=>{throw new LookupFailure("AUTH");}}};
+    if(!config.configured)return base;
+    if(!config.ticketScope||!config.cacheKeys)return {...base,config:{configured:false,reason:"MISSING_SETTINGS",missing:["ARCA_WSAA_CACHE_KEY"]}};
+    if(config.environment!==(homo?"homologacion":"produccion"))return {...base,config:DISABLED};
+    try{base.ticketStore=postgresTicketStore(config.ticketScope,config.cacheKeys);}catch{return {...base,config:DISABLED};}
+    if(homo){
         base.allowedCuits=[config.cuitRepresentada,ARCA_HOMO_EXAMPLE_CUIT];
         base.homologationTransport="afip-wsdl";
-    }
+    }else base.production={quotas:quotas!,certificateKey:config.ticketScope};
     return base;
 }
 
@@ -108,7 +120,8 @@ export async function lookupCuit(cuitInput: unknown, deps: LookupDeps = defaultL
         const parsed = parseGetPersonaV2Response(xml, idPersona);
         if (parsed.kind === "NOT_FOUND") return { status: "NOT_FOUND", cuit: cuit.value };
         if (parsed.kind === "AUTH") {
-            if(deps.ticketStore)await deps.ticketStore.invalidate(ticket);
+            // Se conserva el ticket: queda sin uso hasta su vencimiento (no se fuerza otra autenticación).
+            if(deps.ticketStore)await deps.ticketStore.reject(ticket).catch(()=>{});
             else deps.ticketCache.clear?.(ticket);
             return {status:"ERROR",code:"AUTH"};
         }
@@ -118,6 +131,8 @@ export async function lookupCuit(cuitInput: unknown, deps: LookupDeps = defaultL
         return { status: "FOUND", cuit: cuit.value, source: PADRON_SOURCE_LABEL, consultedAt, person: parsed.person };
     } catch (err) {
         if (err instanceof LookupFailure) return { status: "ERROR", code: err.code };
+        if (err instanceof TicketUnavailable) return { status: "RETRY_LATER", retryAfterSeconds: Math.max(1, Math.ceil((err.retryAt - deps.nowMs()) / 1000)) };
+        if (err instanceof TicketStoreFailure) return { status: "ERROR", code: "STORE_UNAVAILABLE" };
         return { status: "ERROR", code: "UNAVAILABLE" };
     }
 }

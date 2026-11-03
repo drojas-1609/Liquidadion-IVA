@@ -47,6 +47,8 @@ const EXPECTED = {
   // Consulta de CUIT en ARCA: responde la propuesta normalizada (strings), sin
   // modelos de la base ni Decimal; no lee ni escribe Client.
   "app/api/arca/cuit-lookup/route.ts": { models: [], serializer: null },
+  // Auditoría de consultas ARCA: fecha ISO, perfil y código de resultado; AuditLog no tiene Decimal.
+  "app/api/arca/lookup-audit/route.ts": { models: [], serializer: null },
   // Catálogos y reglas son archivos públicos versionados (sin Prisma ni Decimal);
   // las tasas viajan como strings decimales.
   "app/api/activity-catalogs/route.ts": { models: [], serializer: null },

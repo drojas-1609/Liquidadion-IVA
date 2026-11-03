@@ -7,8 +7,10 @@ Estado: preparación local. El usuario ya obtuvo certificado y autorización WSA
 En una terminal, desde este worktree:
 
 ```sh
-node scripts/arca/setup-certificate.mjs
+node scripts/arca/setup-certificate.mjs --ambiente=homologacion
 ```
+
+El ambiente es obligatorio. Para producción ver [PRODUCCION.md](PRODUCCION.md).
 
 Ingresá el CUIT de la **persona física que entra a WSASS** (el mismo del CSR), un nombre para identificar el estudio y una contraseña LOCAL nueva de al menos 16 caracteres. No es la Clave Fiscal. La contraseña no se muestra. El programa crea una clave RSA 3072 cifrada y un CSR en `~/.tax-liquidator-arca/homologacion-<fecha>/`, con directorio privado y archivos privados. No envía nada ni sobrescribe directorios existentes.
 
@@ -28,19 +30,21 @@ Fuente: [manual oficial: autorización de acceso](https://www.afip.gob.ar/ws/WSA
 
 ## 4. Preparar DEV antes de habilitar
 
-La migración `20261028120000_arca_wsaa_ticket_cache` ya se aplicó y verificó en DEV el 28/10/2026: huella `37460066024602df4109ae1e6996a1d2315b8ce0da52e25f6188cf493511c9de`. PROD sigue sin esta migración. No repetir el kit. La tabla técnica guarda tickets cifrados, tiene RLS y no concede permisos a PUBLIC ni a los roles anon/authenticated/service_role.
+La migración `20261028120000_arca_wsaa_ticket_cache` ya se aplicó y verificó en DEV el 28/10/2026: huella `37460066024602df4109ae1e6996a1d2315b8ce0da52e25f6188cf493511c9de`. PROD sigue sin esta migración. No repetir el kit.
+
+El código de la etapa de producción requiere además `20261102120000_arca_production_controls` (reserva de emisión en `ArcaWsaaTicket`). Hasta aplicarla en DEV con autorización, la homologación con ese código falla cerrada y el runner rechaza la huella DEV; hay que actualizar su verificación después de migrar. La tabla técnica guarda tickets cifrados, tiene RLS y no concede permisos a PUBLIC ni a los roles anon/authenticated/service_role.
 
 Luego cargar secretos **sólo del servidor y sólo de una Preview/DEV**: `ARCA_PADRON_ENABLED=true`, `ARCA_PADRON_ENV=homologacion`, `ARCA_PADRON_CUIT_REPRESENTADA`, `ARCA_WSAA_CERT_PEM`, `ARCA_WSAA_KEY_PEM`, contraseña opcional `ARCA_WSAA_KEY_PASSWORD` y `ARCA_WSAA_CACHE_KEY` (32 bytes aleatorios en base64, secreto independiente). Ninguno lleva prefijo NEXT_PUBLIC. No pegar valores en chats ni comandos con historial. La contraseña de la clave se conserva como secreto del servidor; el cifrado del archivo no sustituye proteger el acceso a esas variables.
 
 ## 5. Ensayo real pendiente
 
-Verificar certificado/clave/fechas y servicio; probar una consulta autorizada de homologación, caso inexistente, error de autenticación e indisponibilidad; comprobar reutilización de ticket entre instancias y ausencia de secretos en logs y navegador. No reintentar LoginCms indiscriminadamente: el almacén serializa emisiones y guarda un enfriamiento tras errores. Durante el último minuto de un ticket no se inicia otra autenticación; tras un rechazo del padrón se espera como mínimo su vencimiento antes de solicitar otro. Si se pierde el ticket o se rota la clave de caché, detener consultas y esperar la expiración del ticket emitido antes de reconfigurar; no borrar la fila para forzar una renovación.
+Verificar certificado/clave/fechas y servicio; probar una consulta autorizada de homologación, caso inexistente, error de autenticación e indisponibilidad; comprobar reutilización de ticket entre instancias y ausencia de secretos en logs y navegador. No reintentar LoginCms indiscriminadamente: el almacén serializa emisiones y guarda un enfriamiento tras errores. Durante el último minuto de un ticket no se inicia otra autenticación; tras un rechazo del padrón se espera como mínimo su vencimiento antes de solicitar otro. La clave de caché puede rotarse con `ARCA_WSAA_CACHE_KEY_PREVIOUS` (ver PRODUCCION.md §3). Si se pierde la clave, el ticket queda ilegible y el almacén espera su vencimiento sin borrarlo; no borrar la fila para forzar una renovación (WSAA, Manual del Desarrollador §10.6).
 
-El control de tasa por usuario/organización sigue siendo por instancia, no global. La respuesta de ARCA se propone en el borrador: no guarda el cliente, no confirma contactos ni determina inscripción o alícuotas IIBB.
+En homologación y ensayo local el control de tasa por usuario/organización sigue siendo por instancia; producción usa cupos compartidos en PostgreSQL (PRODUCCION.md §2). La respuesta de ARCA se propone en el borrador: no guarda el cliente, no confirma contactos ni determina inscripción o alícuotas IIBB.
 
 ## 6. Producción, después
 
-Requiere certificado y autorización propios de producción, homologación aprobada, respaldo y migración PROD autorizada, revisión del cambio y publicación. No se reutiliza el certificado de homologación. La clave fiscal se usa sólo por el titular en ARCA, nunca en la aplicación.
+Diseño y estado en [PRODUCCION.md](PRODUCCION.md). Requiere certificado y autorización propios de producción, homologación aprobada, respaldo y migración PROD autorizada, revisión del cambio y publicación. No se reutiliza el certificado de homologación. La clave fiscal se usa sólo por el titular en ARCA, nunca en la aplicación.
 
 Referencia técnica: [Constancia de Inscripción, manual oficial v4.1](https://www.arca.gob.ar/ws/WSCI/manual_ws_sr_ws_constancia_inscripcion.pdf), [WSAA](https://www.afip.gob.ar/ws/WSAA/WSAAmanualDev.pdf). Los endpoints del adaptador usan los dominios `arca.gob.ar` del manual; los namespaces SOAP mantienen los identificadores del servicio.
 

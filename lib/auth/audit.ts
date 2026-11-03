@@ -36,6 +36,9 @@ export const AUDIT_ACTIONS = [
   // Corrección de comprobantes manuales (PATCH / DELETE /api/invoices/[id])
   "invoice.update",
   "invoice.delete",
+  // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
+  // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
+  "arca.cuit_lookup",
   // Reservadas para 3B+ (NO se emiten todavía; declaradas para no migrar luego)
   "period.update",
   "taxrecord.update",
@@ -103,6 +106,8 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "changedFields",
   ],
   "invoice.delete": ["periodId", "category", "voucherCode", "pointOfSale", "number"],
+  // SÓLO el código de resultado. NUNCA el CUIT consultado, la respuesta de ARCA, tokens ni credenciales.
+  "arca.cuit_lookup": ["result"],
   // Corrección de retenciones/percepciones. `typeBefore` sale de la fila
   // BLOQUEADA (puede ser un tipo histórico fuera del catálogo: se conserva
   // saneado); `typeAfter`, de lo validado por el servidor. changedFields: ver
@@ -156,8 +161,26 @@ function taxRecordChangedFields(value: unknown): string | undefined {
  * Normalizadores por acción y clave que reemplazan a `sanitizeScalar`. Sólo
  * para las claves listadas; el resto de las acciones no cambia.
  */
+/** Resultados de `arca.cuit_lookup`: códigos fijos, nunca texto de ARCA. */
+export const ARCA_LOOKUP_AUDIT_RESULTS = [
+  "STARTED",
+  "FOUND",
+  "NOT_FOUND",
+  "RETRY_LATER",
+  "ERROR_TIMEOUT",
+  "ERROR_UNAVAILABLE",
+  "ERROR_AUTH",
+  "ERROR_INVALID_RESPONSE",
+  "ERROR_STORE_UNAVAILABLE",
+  "NOT_CONFIGURED",
+  "INVALID_CUIT",
+] as const;
+
 const METADATA_NORMALIZERS: Partial<Record<AuditAction, Readonly<Record<string, (value: unknown) => Scalar | undefined>>>> = {
   "taxrecord.update": { changedFields: taxRecordChangedFields },
+  "arca.cuit_lookup": {
+    result: (value) => (typeof value === "string" && (ARCA_LOOKUP_AUDIT_RESULTS as readonly string[]).includes(value) ? value : undefined),
+  },
 };
 
 /**

@@ -1,7 +1,7 @@
 import "server-only";
 import {createHash} from "node:crypto";
 import {createCmsSigner} from "./cms";
-import {parseCacheKey} from "./ticket-store";
+import {parseCacheKey,type TicketKeys} from "./ticket-store";
 import {PADRON_SERVICE} from "./padron";
 import { normalizeCuit } from "../cuit";
 import type { ArcaEnvironment } from "./padron";
@@ -16,6 +16,8 @@ import type { CmsSigner } from "./wsaa";
  *   ARCA_PADRON_CUIT_REPRESENTADA   CUIT del estudio que firma las consultas
  *   ARCA_WSAA_CERT_PEM              certificado X.509 emitido por ARCA (PEM)
  *   ARCA_WSAA_KEY_PEM               clave privada del certificado (PEM)
+ *   ARCA_WSAA_CACHE_KEY             clave AES-256 de la caché de tickets (base64)
+ *   ARCA_WSAA_CACHE_KEY_PREVIOUS    opcional: clave anterior, sólo lectura durante una rotación
  *
  * Firmante CMS node-forge con SHA-256 y certificado RSA; tickets cifrados en
  * almacén PostgreSQL compartido. La habilitación requiere configuración completa.
@@ -33,6 +35,7 @@ export type ArcaConfigStatus =
           signer: CmsSigner;
           ticketScope?: string;
           cacheKey?: Buffer;
+          cacheKeys?: TicketKeys;
       }
     | {
           configured: false;
@@ -74,6 +77,9 @@ export function readArcaConfig(
 
     const cacheKey = parseCacheKey(env.ARCA_WSAA_CACHE_KEY);
     if (!cacheKey) return {configured:false,reason:"INVALID_SETTINGS",missing:["ARCA_WSAA_CACHE_KEY"]};
+    const previousRaw = env.ARCA_WSAA_CACHE_KEY_PREVIOUS;
+    const previous = previousRaw === undefined || previousRaw === "" ? undefined : parseCacheKey(previousRaw);
+    if (previous === null || previous?.equals(cacheKey)) return {configured:false,reason:"INVALID_SETTINGS",missing:["ARCA_WSAA_CACHE_KEY_PREVIOUS"]};
     const signer = signerFactory(env.ARCA_WSAA_CERT_PEM!, env.ARCA_WSAA_KEY_PEM!, env.ARCA_WSAA_KEY_PASSWORD);
     if (!signer) return { configured: false, reason: "SIGNER_UNAVAILABLE", missing: [] };
 
@@ -83,6 +89,7 @@ export function readArcaConfig(
         cuitRepresentada: cuit.value.replace(/-/g, ""),
         signer,
         cacheKey,
+        cacheKeys: previous ? { current: cacheKey, previous } : { current: cacheKey },
         ticketScope: createHash("sha256").update([environment,cuit.value,PADRON_SERVICE,createHash("sha256").update(env.ARCA_WSAA_CERT_PEM!.replace(/\s/g,"" )).digest("hex")].join("|")).digest("hex"),
     };
 }

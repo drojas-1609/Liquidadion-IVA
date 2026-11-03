@@ -852,7 +852,7 @@ describe("cobertura estructural — helpers de bloqueo", () => {
 
   it("el único SELECT … FOR UPDATE sobre Period vive en lib/period-lock.ts; FOR UPDATE sólo en period-lock, invoice-lock, tax-record-lock y client-lock", () => {
     const forUpdate = productionFiles.filter((f) => /FOR UPDATE/.test(code(read(f))));
-    expect(forUpdate).toEqual(["lib/arca-padron/ticket-store.ts", "lib/client-lock.ts", "lib/invoice-lock.ts", "lib/period-lock.ts", "lib/tax-record-lock.ts"]);
+    expect(forUpdate).toEqual(["lib/arca-padron/quota-store.ts", "lib/arca-padron/ticket-store.ts", "lib/client-lock.ts", "lib/invoice-lock.ts", "lib/period-lock.ts", "lib/tax-record-lock.ts"]);
     expect(code(read("lib/client-lock.ts"))).not.toMatch(/"Period"/);
     expect(code(read("lib/invoice-lock.ts"))).not.toMatch(/FROM "Period"/);
   });
@@ -890,5 +890,17 @@ describe("cobertura estructural — helpers de bloqueo", () => {
  expect(codes(file,source)).toEqual([]);
  expect(codes(file,source.replace('INSERT INTO "ArcaWsaaTicket"','INSERT INTO "Period"'))).toContain("RAW_NOT_INVENTORIED");
  expect(codes(file,source+'\nfunction f(tx) { return tx.$executeRawUnsafe("DELETE FROM x"); }')).toContain("RAW_BANNED");
+ });
+ it("rechaza SQL ajeno o un borrado del ticket en el almacén, y SQL ajeno en los cupos",()=>{
+ const file="lib/arca-padron/ticket-store.ts",source=read(file);
+ expect(codes(file,source.replace('SET "blockedUntil"=${new Date(ticket.expiresAt)}','SET "ciphertext"=NULL, "blockedUntil"=${new Date(ticket.expiresAt)}'))).toContain("RAW_NOT_INVENTORIED");
+ const quota="lib/arca-padron/quota-store.ts",q=read(quota);
+ expect(codes(quota,q)).toEqual([]);
+ expect(codes(quota,q.replace('FROM "ArcaLookupQuota" WHERE','FROM "Client" WHERE'))).toContain("RAW_NOT_INVENTORIED");
+ expect(codes(quota,q+'\nfunction f(tx) { return tx.$executeRaw`DELETE FROM "AuditLog"`; }')).toContain("RAW_NOT_INVENTORIED");
+ const clockSql='await tx.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;';
+ expect(q.includes(clockSql)).toBe(true);
+ const moved=q.replace(clockSql,'').replace('await tx.arcaLookupQuota.createMany(',clockSql+'\n await tx.arcaLookupQuota.createMany(');
+ expect(codes(quota,moved)).toContain("RAW_NOT_INVENTORIED");
  });
  });
