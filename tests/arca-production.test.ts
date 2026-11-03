@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 import { createCipheriv, generateKeyPairSync, randomBytes, createHash } from "node:crypto";
 import forge from "node-forge";
-import { arcaProdBuildEligible, arcaProdRuntimeEligible, productionCertificateCheck, ARCA_PROD_CERT_CN } from "@/lib/arca-padron/production-gate";
+import { arcaProdBuildEligible, arcaProdRuntimeEligible, productionCertificateCheck, declaredCertificateCn } from "@/lib/arca-padron/production-gate";
 import { openTicket, sealTicket, cacheKeyId } from "@/lib/arca-padron/ticket-store";
 import { readQuotaConfig, arcaQuotaRules, ARCA_QUOTA_DEFAULTS } from "@/lib/arca-padron/quota-store";
 import { productionLookup, auditResultOf, type ProductionLookupIo } from "@/lib/arca-padron/production-lookup";
@@ -12,16 +12,19 @@ import { sanitizeAuditMetadata } from "@/lib/auth/audit";
 const CUIT = "20700000037";
 const PROD = "bqqruaikbqculvmtirvy";
 const NOW = Date.parse("2026-11-02T12:00:00Z");
+// CN del certificado de producción emitido (dato público del sujeto, no secreto); el material es sintético.
+const PROD_CN = "taxliquidatorprod";
 let prodCert: string, prodKey: string, homoCert: string, pin: string;
 
-function selfSigned(cn: string, keyPem: string, serial = `CUIT ${CUIT}`, days = 30): string {
+function selfSigned(cn: string | string[], keyPem: string, serial = `CUIT ${CUIT}`, days = 30): string {
     const key = forge.pki.privateKeyFromPem(keyPem);
     const cert = forge.pki.createCertificate();
     cert.publicKey = forge.pki.setRsaPublicKey(key.n, key.e);
     cert.serialNumber = "01";
     cert.validity.notBefore = new Date(NOW - 86400000);
     cert.validity.notAfter = new Date(NOW + days * 86400000);
-    const attrs = [{ shortName: "C", value: "AR" }, { shortName: "O", value: "ESTUDIO SINTETICO" }, { shortName: "CN", value: cn }, { name: "serialNumber", value: serial }];
+    const cns = (Array.isArray(cn) ? cn : [cn]).map((value) => ({ shortName: "CN", value }));
+    const attrs = [{ shortName: "C", value: "AR" }, { shortName: "O", value: "ESTUDIO SINTETICO" }, ...cns, { name: "serialNumber", value: serial }];
     cert.setSubject(attrs);
     cert.setIssuer(attrs);
     cert.sign(key, forge.md.sha256.create());
@@ -31,7 +34,7 @@ const fingerprint = (pem: string) => createHash("sha256").update(Buffer.from(pem
 
 beforeAll(() => {
     prodKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-    prodCert = selfSigned(ARCA_PROD_CERT_CN, prodKey);
+    prodCert = selfSigned(PROD_CN, prodKey);
     homoCert = selfSigned("TaxLiquidator homologacion", prodKey);
     pin = fingerprint(prodCert);
 });
@@ -44,6 +47,7 @@ const prodEnv = () => ({
     ARCA_PADRON_CUIT_REPRESENTADA: CUIT,
     ARCA_WSAA_CERT_PEM: prodCert,
     ARCA_WSAA_CERT_SHA256: pin,
+    ARCA_WSAA_CERT_CN: PROD_CN,
     ARCA_WSAA_KEY_PEM: prodKey,
     ARCA_WSAA_CACHE_KEY: Buffer.alloc(32, 3).toString("base64"),
     DATABASE_URL: `postgresql://postgres.${PROD}:sintetica@aws-0-sa-east-1.pooler.supabase.com:6543/postgres`,
@@ -75,6 +79,15 @@ describe("compuerta de producción — runtime (deshabilitada por defecto)", () 
         ["Supabase DEV", (e: Record<string, string | undefined>) => ({ ...e, NEXT_PUBLIC_SUPABASE_URL: "https://esyfpakajthdifhnhcew.supabase.co" }), "1", "0", "NEXT_PUBLIC_SUPABASE_URL"],
         ["sin huella", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_SHA256: undefined }), "1", "0", "ARCA_WSAA_CERT_SHA256"],
         ["huella de otro certificado", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_SHA256: "0".repeat(64) }), "1", "0", "ARCA_WSAA_CERT_SHA256"],
+        ["sin CN declarado", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_CN: undefined }), "1", "0", "ARCA_WSAA_CERT_CN"],
+        ["CN declarado vacío", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_CN: "" }), "1", "0", "ARCA_WSAA_CERT_CN"],
+        ["CN declarado con espacio final", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_CN: `${PROD_CN} ` }), "1", "0", "ARCA_WSAA_CERT_CN"],
+        ["CN declarado con salto de línea", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_CN: `${PROD_CN}\nCN=otro` }), "1", "0", "ARCA_WSAA_CERT_CN"],
+        ["CN declarado con '='", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_CN: `CN=${PROD_CN}` }), "1", "0", "ARCA_WSAA_CERT_CN"],
+        ["CN declarado de más de 64 caracteres", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_CN: "a".repeat(65) }), "1", "0", "ARCA_WSAA_CERT_CN"],
+        ["CN anterior del código", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_CN: "TaxLiquidator produccion" }), "1", "0", "CERT_CN"],
+        ["CN con otras mayúsculas", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_CN: "TaxLiquidatorProd" }), "1", "0", "CERT_CN"],
+        ["CN declarado como prefijo", (e: Record<string, string | undefined>) => ({ ...e, ARCA_WSAA_CERT_CN: "taxliquidator" }), "1", "0", "CERT_CN"],
     ])("cerrada: %s", (_label, mutate, prodBuilt, homoBuilt, reason) => {
         const r = arcaProdRuntimeEligible(mutate(prodEnv()), prodBuilt, homoBuilt, "production", NOW);
         expect(r).toEqual({ ok: false, reason });
@@ -86,14 +99,39 @@ describe("compuerta de producción — runtime (deshabilitada por defecto)", () 
         // Aunque el env de runtime no traiga NODE_ENV, el valor inlineado "production" basta para esta capa.
         expect(arcaProdRuntimeEligible({ ...prodEnv(), NODE_ENV: undefined }, "1", "0", "production", NOW)).toEqual({ ok: true });
     });
-    it("rechaza el certificado de homologación aunque su huella esté declarada, con el motivo del supuesto no confirmado", () => {
-        expect(productionCertificateCheck(homoCert, fingerprint(homoCert), NOW)).toEqual({ ok: false, reason: "CERT_SUJETO_NO_CONFIRMADO" });
+    it("acepta sólo el CN declarado, con coincidencia exacta", () => {
+        expect(productionCertificateCheck(prodCert, pin, PROD_CN, NOW)).toEqual({ ok: true });
+        expect(declaredCertificateCn(PROD_CN)).toBe(PROD_CN);
+        expect(declaredCertificateCn("TaxLiquidator produccion")).toBe("TaxLiquidator produccion");
+        for (const bad of [undefined, "", " taxliquidatorprod", "taxliquidatorprod ", "tax\tliquidator", "taxliquidatorprod\n", "CN=x", "a,b", "a".repeat(65), "producción"])
+            expect(declaredCertificateCn(bad)).toBeNull();
+        expect(declaredCertificateCn("a".repeat(64))).toBe("a".repeat(64));
     });
-    it("rechaza un certificado sin CUIT válido o vencido", () => {
-        const noCuit = selfSigned(ARCA_PROD_CERT_CN, prodKey, "CUIT 20700000030");
-        expect(productionCertificateCheck(noCuit, fingerprint(noCuit), NOW)).toEqual({ ok: false, reason: "CERT_SUJETO_NO_CONFIRMADO" });
-        expect(productionCertificateCheck(prodCert, pin, NOW + 60 * 86400000)).toEqual({ ok: false, reason: "CERT_VIGENCIA" });
-        expect(productionCertificateCheck("no-pem", pin, NOW)).toEqual({ ok: false, reason: "ARCA_WSAA_CERT_PEM" });
+    it("rechaza certificados cuyo CN no coincide exactamente, aunque su huella esté declarada", () => {
+        expect(productionCertificateCheck(homoCert, fingerprint(homoCert), PROD_CN, NOW)).toEqual({ ok: false, reason: "CERT_CN" });
+        for (const cn of ["TaxLiquidator produccion", "TAXLIQUIDATORPROD", "taxliquidatorprod2", "xtaxliquidatorprod", [PROD_CN, PROD_CN], [PROD_CN, "otro"]]) {
+            const other = selfSigned(cn, prodKey);
+            expect(productionCertificateCheck(other, fingerprint(other), PROD_CN, NOW)).toEqual({ ok: false, reason: "CERT_CN" });
+        }
+        const old = selfSigned("TaxLiquidator produccion", prodKey);
+        expect(productionCertificateCheck(old, fingerprint(old), "TaxLiquidator produccion", NOW)).toEqual({ ok: true });
+        expect(productionCertificateCheck(old, fingerprint(old), PROD_CN, NOW)).toEqual({ ok: false, reason: "CERT_CN" });
+    });
+    it("sin CN declarado o con formato inválido queda cerrada antes de mirar el certificado", () => {
+        for (const cn of [undefined, "", "taxliquidatorprod ", "x".repeat(65)])
+            expect(productionCertificateCheck(prodCert, pin, cn, NOW)).toEqual({ ok: false, reason: "ARCA_WSAA_CERT_CN" });
+    });
+    it("conserva huella, CUIT del sujeto, vigencia y PEM", () => {
+        expect(productionCertificateCheck(prodCert, "0".repeat(64), PROD_CN, NOW)).toEqual({ ok: false, reason: "ARCA_WSAA_CERT_SHA256" });
+        expect(productionCertificateCheck(prodCert, pin.toUpperCase(), PROD_CN, NOW)).toEqual({ ok: false, reason: "ARCA_WSAA_CERT_SHA256" });
+        expect(productionCertificateCheck(prodCert, undefined, PROD_CN, NOW)).toEqual({ ok: false, reason: "ARCA_WSAA_CERT_SHA256" });
+        for (const serial of ["CUIT 20700000030", "CUIT 2070000003", "20700000037", "CUIT 20700000037 "]) {
+            const noCuit = selfSigned(PROD_CN, prodKey, serial);
+            expect(productionCertificateCheck(noCuit, fingerprint(noCuit), PROD_CN, NOW)).toEqual({ ok: false, reason: "CERT_SUJETO_NO_CONFIRMADO" });
+        }
+        expect(productionCertificateCheck(prodCert, pin, PROD_CN, NOW + 60 * 86400000)).toEqual({ ok: false, reason: "CERT_VIGENCIA" });
+        expect(productionCertificateCheck(prodCert, pin, PROD_CN, NOW - 2 * 86400000)).toEqual({ ok: false, reason: "CERT_VIGENCIA" });
+        expect(productionCertificateCheck("no-pem", pin, PROD_CN, NOW)).toEqual({ ok: false, reason: "ARCA_WSAA_CERT_PEM" });
     });
 });
 
@@ -113,6 +151,25 @@ describe("defaultLookupDeps — barreras separadas", () => {
         expect(d.homologationTransport).toBeUndefined();
         expect(d.allowedCuits).toBeUndefined();
         expect(d.ticketStore).toBeDefined();
+    });
+    it("CN no declarado o distinto: sin producción ni configuración", () => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("ARCA_PROD_BUILD_ELIGIBLE", "1");
+        vi.stubEnv("ARCA_HOMO_BUILD_ELIGIBLE", "0");
+        for (const cn of [undefined, "TaxLiquidator produccion"]) {
+            const d = defaultLookupDeps({ ...prodEnv(), ARCA_WSAA_CERT_CN: cn }, () => NOW);
+            expect(d.config.configured).toBe(false);
+            expect(d.production).toBeUndefined();
+        }
+    });
+    it("certificado y clave que no se corresponden: sin firmante ni producción", () => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("ARCA_PROD_BUILD_ELIGIBLE", "1");
+        vi.stubEnv("ARCA_HOMO_BUILD_ELIGIBLE", "0");
+        const otherKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+        const d = defaultLookupDeps({ ...prodEnv(), ARCA_WSAA_KEY_PEM: otherKey }, () => NOW);
+        expect(d.config).toMatchObject({ configured: false, reason: "SIGNER_UNAVAILABLE" });
+        expect(d.production).toBeUndefined();
     });
     it("cupo configurado inválido o build de producción ausente: cerrada", () => {
         vi.stubEnv("NODE_ENV", "production");

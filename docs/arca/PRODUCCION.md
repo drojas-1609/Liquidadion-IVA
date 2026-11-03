@@ -13,14 +13,14 @@ La consulta en producción exige **todas** estas capas. Si falta cualquiera, o u
 | Separación | Ninguna de `ARCA_HOMO_PREVIEW`, `ARCA_HOMO_HASTA`, `ARCA_LOCAL_HOMO`, `ARCA_LOCAL_BIND`; build de homologación ≠ `1` | `production-gate.ts` |
 | Base | `DATABASE_URL`/`DIRECT_URL` y `NEXT_PUBLIC_SUPABASE_URL` del proyecto PROD | `production-gate.ts` |
 | Destinos | Constantes fijas `https://wsaa.afip.gov.ar/ws/services/LoginCms` y `https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5`; sin perfil de transporte de homologación | `production-gate.ts`, `service.ts` |
-| Certificado | Acreditados: `ARCA_WSAA_CERT_SHA256` (huella declarada) igual a la del PEM, PEM legible y vigencia; pareja con la clave y RSA ≥ 2048 (`cms.ts`); cadena validada por WSAA (manual §10.2). Por supuesto no confirmado: CN `TaxLiquidator produccion` y `serialNumber=CUIT <11 dígitos válidos>` | `productionCertificateCheck` |
+| Certificado | Declarados por el operador y con coincidencia exacta: `ARCA_WSAA_CERT_SHA256` (huella del PEM) y `ARCA_WSAA_CERT_CN` (único CN del sujeto). Además: PEM legible, vigencia, `serialNumber=CUIT <11 dígitos válidos>`, pareja con la clave y RSA ≥ 2048 (`cms.ts`); cadena validada por WSAA (manual §10.2) | `productionCertificateCheck`, `config.ts` |
 | Configuración | Variables ARCA completas y válidas (`config.ts`), cupos válidos | `service.ts` |
 | Interruptor | Fila `ArcaPadronControl('global').enabled = true`, leída en cada consulta | `production-switch.ts` |
 | Organización | Fila `ArcaPadronOrganization(organizationId).enabled = true` | `production-switch.ts` |
 
 Las barreras de homologación (`preview-gate.ts`) no cambiaron: una variable de producción no abre homologación y viceversa.
 
-**Supuesto a verificar en la etapa del certificado:** que el certificado que emita ARCA conserve el CN y el `serialNumber` del CSR. Su rechazo usa el motivo propio `CERT_SUJETO_NO_CONFIRMADO`, distinto de los controles acreditados (`ARCA_WSAA_CERT_SHA256`, `ARCA_WSAA_CERT_PEM`, `CERT_VIGENCIA`). Los motivos no incluyen material del certificado. Si ARCA emite otro sujeto, la compuerta queda cerrada (falla segura) y esa comprobación sólo se cambia con una modificación revisada, nunca quitándola. Las fuentes oficiales consultadas no publican el nombre del emisor por ambiente, por eso no se valida el emisor; la cadena la valida WSAA.
+**CN y CUIT del sujeto.** El CN esperado **no está fijado en el código**: el operador lo declara en `ARCA_WSAA_CERT_CN`, sin valor por defecto, y debe coincidir exactamente (mayúsculas, espacios y longitud) con el único CN del certificado. El certificado de producción emitido tiene `CN=taxliquidatorprod`, distinto del CN `TaxLiquidator produccion` que usa el generador de CSR. Si la variable falta o tiene otro formato, la compuerta queda cerrada con `ARCA_WSAA_CERT_CN`; si no coincide, o el sujeto tiene más de un CN, queda cerrada con `CERT_CN`. El `serialNumber` debe ser `CUIT <11 dígitos con DV válido>`; si no lo es, el motivo es `CERT_SUJETO_NO_CONFIRMADO`. Los motivos no incluyen material del certificado. Las fuentes oficiales consultadas no publican el nombre del emisor por ambiente, por eso no se valida el emisor; la cadena la valida WSAA.
 
 ### Apagado sin redeploy (SQL del operador, no ejecutado)
 
@@ -99,6 +99,27 @@ node scripts/arca/setup-certificate.mjs --ambiente=produccion
 - **Perfil:** usa la carpeta `~/.tax-liquidator-arca/produccion-<fecha>/`, el CN `TaxLiquidator produccion` y un LEEME que indica subir sólo el CSR en «Administración de Certificados Digitales».
 - **Lo ejecuta el titular:** con Clave Fiscal en ARCA, nunca en la aplicación ni en un chat.
 - **Prueba sintética:** `--selftest` genera y borra material sintético de ambos ambientes.
+- **CN del CSR:** el generador usa `TaxLiquidator produccion`. La compuerta no depende de ese valor: exige el CN declarado en `ARCA_WSAA_CERT_CN`.
+
+### Configuración requerida del certificado (operador)
+
+Variables **sólo del servidor y sólo del contexto de producción**, sin prefijo `NEXT_PUBLIC`:
+
+| Variable | Valor | Si falta o es inválida |
+|---|---|---|
+| `ARCA_WSAA_CERT_PEM` | Certificado emitido por ARCA (PEM) | `ARCA_WSAA_CERT_SHA256` / `ARCA_WSAA_CERT_PEM` |
+| `ARCA_WSAA_CERT_SHA256` | SHA-256 del certificado: 64 caracteres hexadecimales en minúscula, sin `:` | `ARCA_WSAA_CERT_SHA256` |
+| `ARCA_WSAA_CERT_CN` | CN exacto del certificado: hoy `taxliquidatorprod`. Formato admitido: 1–64 caracteres `[A-Za-z0-9 ._-]`, sin espacios al inicio ni al final | `ARCA_WSAA_CERT_CN`; si no coincide, `CERT_CN` |
+| `ARCA_WSAA_KEY_PEM` y, si corresponde, `ARCA_WSAA_KEY_PASSWORD` | Clave privada que corresponde al certificado | Si no corresponden: `SIGNER_UNAVAILABLE` |
+
+Para obtener la huella y el sujeto se lee **sólo el certificado público**, nunca la clave privada, desde la carpeta del certificado y sin pegar los valores en chats:
+
+```sh
+openssl x509 -in certificado.pem -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f'   # ARCA_WSAA_CERT_SHA256
+openssl x509 -in certificado.pem -noout -subject -nameopt multiline                                      # commonName = ARCA_WSAA_CERT_CN
+```
+
+Verificar que el sujeto muestre un único `commonName` y `serialNumber = CUIT <titular>`. Copiar el CN tal cual, sin espacios adicionales. Cargar o cambiar estas variables en Netlify es un paso aparte que requiere autorización. Con cualquier diferencia, la consulta en producción queda deshabilitada y la UI mantiene el alta manual.
 
 ## 6. Migración (aplicada sólo en DEV)
 
