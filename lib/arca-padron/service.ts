@@ -60,12 +60,23 @@ export function defaultLookupDeps(env:Readonly<Record<string,string|undefined>>=
     // Barreras separadas: homologación (Preview / ensayo local) o producción; nunca ambas.
     // Las constantes de build se leen de process.env para que Next las inlinee.
     const homo=arcaHomoRuntimeEligible(env,process.env.ARCA_HOMO_BUILD_ELIGIBLE,nowMs());
-    const prod=!homo&&arcaProdRuntimeEligible(env,process.env.ARCA_PROD_BUILD_ELIGIBLE,process.env.ARCA_HOMO_BUILD_ELIGIBLE,process.env.NODE_ENV,nowMs()).ok;
+    const gate = homo ? null : arcaProdRuntimeEligible(
+        env, process.env.ARCA_PROD_BUILD_ELIGIBLE, process.env.ARCA_HOMO_BUILD_ELIGIBLE, process.env.NODE_ENV, nowMs(),
+    );
+    const prod = gate?.ok === true;
+    const diagnose = (reason: string) => {
+        if (env === process.env && process.env.NODE_ENV === "production" && env.ARCA_PADRON_ENABLED === "true" && !homo) {
+            console.warn("[arca-production] lookup blocked", reason);
+        }
+    };
     const quotas=prod?readQuotaConfig(env):null;
     const config:ArcaConfigStatus=homo||(prod&&quotas)?readArcaConfig(env):DISABLED;
     // Ninguna ruta usa una caché en memoria como sustituto del almacén compartido.
     const base:LookupDeps={fetchImpl:fetch,config,nowMs,timeoutMs:ARCA_TIMEOUT_MS,ticketCache:{get:()=>null,set:()=>{throw new LookupFailure("AUTH");}}};
-    if(!config.configured)return base;
+    if (!config.configured) {
+        diagnose(gate && !gate.ok ? gate.reason : prod && !quotas ? "QUOTA_CONFIG" : config.reason);
+        return base;
+    }
     if(!config.ticketScope||!config.cacheKeys)return {...base,config:{configured:false,reason:"MISSING_SETTINGS",missing:["ARCA_WSAA_CACHE_KEY"]}};
     if(config.environment!==(homo?"homologacion":"produccion"))return {...base,config:DISABLED};
     try{base.ticketStore=postgresTicketStore(config.ticketScope,config.cacheKeys);}catch{return {...base,config:DISABLED};}
