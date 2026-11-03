@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { CSR_PROFILES, csrSubject, parseAmbiente } from "../scripts/arca/csr-profile.mjs";
-import { ARCA_PROD_CERT_CN } from "@/lib/arca-padron/production-gate";
 
 const CUIT = "30999999170"; // sintético, DV válido
 
@@ -11,9 +10,9 @@ describe("perfil del CSR por ambiente", () => {
         for (const argv of [[], ["--ambiente=prod"], ["--ambiente=produccion", "--ambiente=homologacion"], ["produccion"]])
             expect(() => parseAmbiente(argv)).toThrow(/--ambiente=/);
     });
-    it("CN distinto por ambiente; el de producción es el que exige la compuerta", () => {
+    it("CN distinto por ambiente (la compuerta no lo fija: exige el CN declarado en ARCA_WSAA_CERT_CN)", () => {
         expect(csrSubject("homologacion", "ESTUDIO SINTETICO", CUIT)).toBe(`/C=AR/O=ESTUDIO SINTETICO/CN=TaxLiquidator homologacion/serialNumber=CUIT ${CUIT}`);
-        expect(csrSubject("produccion", "ESTUDIO SINTETICO", CUIT)).toBe(`/C=AR/O=ESTUDIO SINTETICO/CN=${ARCA_PROD_CERT_CN}/serialNumber=CUIT ${CUIT}`);
+        expect(csrSubject("produccion", "ESTUDIO SINTETICO", CUIT)).toBe(`/C=AR/O=ESTUDIO SINTETICO/CN=TaxLiquidator produccion/serialNumber=CUIT ${CUIT}`);
         expect(CSR_PROFILES.homologacion.cn).not.toBe(CSR_PROFILES.produccion.cn);
     });
     it("producción pide confirmación escrita, carpeta propia e indica el servicio de ARCA correcto", () => {

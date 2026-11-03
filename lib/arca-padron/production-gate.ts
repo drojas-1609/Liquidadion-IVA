@@ -15,12 +15,20 @@ export { ARCA_PROD_BUILD_FLAG, ARCA_PROD_BRANCH, arcaProdBuildEligible } from ".
  * Capas, todas obligatorias:
  *   1. Build: Netlify, contexto production, rama main (constante inlineada).
  *   2. Runtime: variables ARCA de producción, base y Supabase de PROD.
- *   3. Certificado: huella SHA-256 declarada y perfil del CSR de producción.
+ *   3. Certificado: huella SHA-256 y CN declarados por el operador, CUIT del
+ *      sujeto y vigencia (la pareja con la clave la exige cms.ts).
  *   4. Base: interruptor global y habilitación de la organización
  *      (production-switch.ts), leídos en cada consulta.
  */
-/** CN que fija scripts/arca/csr-profile.mjs para producción (convención propia, no de ARCA). */
-export const ARCA_PROD_CERT_CN = "TaxLiquidator produccion";
+/**
+ * CN esperado del certificado de producción, declarado por el operador en
+ * ARCA_WSAA_CERT_CN (sin valor por defecto). Formato conservador: 1–64
+ * caracteres [A-Za-z0-9 ._-], sin espacios al inicio ni al final. Ausente o
+ * con otro formato: la compuerta queda cerrada. La comparación es exacta.
+ */
+export function declaredCertificateCn(raw: string | undefined): string | null {
+    return typeof raw === "string" && /^[A-Za-z0-9](?:[A-Za-z0-9 ._-]{0,62}[A-Za-z0-9])?$/.test(raw) ? raw : null;
+}
 const PROD_REF = "bqqruaikbqculvmtirvy";
 const EXPECTED_ENDPOINTS = {
     padron: "https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5",
@@ -55,18 +63,18 @@ function subjectFields(subject: string): Map<string, string[]> {
 }
 
 /**
- * Certificado de producción. Controles acreditados: huella declarada por el
- * operador (ARCA_WSAA_CERT_SHA256), PEM X.509 legible y vigencia (la pareja
+ * Certificado de producción. Controles: huella declarada por el operador
+ * (ARCA_WSAA_CERT_SHA256), CN declarado (ARCA_WSAA_CERT_CN, coincidencia
+ * exacta con un único CN del sujeto), PEM X.509 legible y vigencia (la pareja
  * con la clave y RSA >= 2048 los exige cms.ts; la cadena la valida WSAA,
- * manual §10.2). Control por SUPUESTO no confirmado: que el certificado
- * emitido conserve el CN y el serialNumber del CSR de producción
- * (scripts/arca/csr-profile.mjs). Su rechazo usa un motivo propio,
- * CERT_SUJETO_NO_CONFIRMADO, para no confundirlo con un control acreditado;
- * sólo se cambia con una modificación revisada, nunca por omisión. No se
- * valida el emisor: las fuentes consultadas no publican su nombre por ambiente.
+ * manual §10.2). Control por supuesto: serialNumber "CUIT <11 dígitos válidos>"
+ * en el sujeto (motivo propio CERT_SUJETO_NO_CONFIRMADO). No se valida el
+ * emisor: las fuentes consultadas no publican su nombre por ambiente.
  */
-export function productionCertificateCheck(certPem: string | undefined, pin: string | undefined, nowMs: number): ProdGateResult {
+export function productionCertificateCheck(certPem: string | undefined, pin: string | undefined, expectedCn: string | undefined, nowMs: number): ProdGateResult {
     if (!certPem || !pin || !/^[a-f0-9]{64}$/.test(pin)) return { ok: false, reason: "ARCA_WSAA_CERT_SHA256" };
+    const cnWanted = declaredCertificateCn(expectedCn);
+    if (!cnWanted) return { ok: false, reason: "ARCA_WSAA_CERT_CN" };
     let cert: X509Certificate;
     try {
         cert = new X509Certificate(certPem);
@@ -78,7 +86,7 @@ export function productionCertificateCheck(certPem: string | undefined, pin: str
     if (!Number.isFinite(from) || !Number.isFinite(to) || nowMs < from || nowMs >= to) return { ok: false, reason: "CERT_VIGENCIA" };
     const subject = subjectFields(cert.subject);
     const cn = subject.get("CN") ?? [], serial = subject.get("serialNumber") ?? [];
-    if (cn.length !== 1 || cn[0] !== ARCA_PROD_CERT_CN) return { ok: false, reason: "CERT_SUJETO_NO_CONFIRMADO" };
+    if (cn.length !== 1 || cn[0] !== cnWanted) return { ok: false, reason: "CERT_CN" };
     const cuit = /^CUIT (\d{11})$/.exec(serial.length === 1 ? serial[0] : "");
     if (!cuit || !normalizeCuit(cuit[1]).ok) return { ok: false, reason: "CERT_SUJETO_NO_CONFIRMADO" };
     return { ok: true };
@@ -106,5 +114,5 @@ export function arcaProdRuntimeEligible(env: Env, prodBuilt: string | undefined,
         return { ok: false, reason: "NEXT_PUBLIC_SUPABASE_URL" };
     }
     if (PADRON_ENDPOINTS.produccion !== EXPECTED_ENDPOINTS.padron || WSAA_ENDPOINTS.produccion !== EXPECTED_ENDPOINTS.wsaa) return { ok: false, reason: "DESTINOS" };
-    return productionCertificateCheck(env.ARCA_WSAA_CERT_PEM, env.ARCA_WSAA_CERT_SHA256, nowMs);
+    return productionCertificateCheck(env.ARCA_WSAA_CERT_PEM, env.ARCA_WSAA_CERT_SHA256, env.ARCA_WSAA_CERT_CN, nowMs);
 }
