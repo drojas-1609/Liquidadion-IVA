@@ -17,10 +17,10 @@ function LoginForm() {
     <form action={formAction} className="card" style={{ width: "100%", maxWidth: "360px" }}>
       <header className={styles.brand}>
         <Image
-          src="/branding/dero-company.png"
+          src="/branding/dero-company-isotipo.png"
           alt=""
-          width={125}
-          height={100}
+          width={146}
+          height={140}
           className={styles.logo}
         />
         <h1>Dero Company Gestión</h1>
@@ -73,7 +73,7 @@ function LoginForm() {
 
       <div className={styles.studio}>
         <h2>Estudio Contable y Jurídico</h2>
-        <p>Asesoramiento para tu empresa, desde los impuestos hasta las decisiones de todos los días.</p>
+        <p>Su tranquilidad es prioridad</p>
         <a href="https://www.derocompany.com.ar/" target="_blank" rel="noopener noreferrer">
           Conocé el estudio <span aria-hidden="true">↗</span><span className={styles.srOnly}>(abre en una pestaña nueva)</span>
         </a>
