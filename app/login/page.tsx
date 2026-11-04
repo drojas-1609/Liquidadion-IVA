@@ -16,13 +16,9 @@ function LoginForm() {
   return (
     <form action={formAction} className="card" style={{ width: "100%", maxWidth: "360px" }}>
       <header className={styles.brand}>
-        <Image
-          src="/branding/dero-company-isotipo.png"
-          alt=""
-          width={146}
-          height={140}
-          className={styles.logo}
-        />
+        <span className={styles.logo} aria-hidden="true">
+          <Image src="/branding/dero-company-isotipo.png" alt="" width={146} height={140} />
+        </span>
         <h1>Dero Company Gestión</h1>
         <p>Gestión integral para estudios contables</p>
       </header>
