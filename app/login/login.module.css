@@ -1,0 +1,38 @@
+.login {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  min-height: 100svh;
+}
+
+.cover {
+  padding: clamp(1.25rem, 5vw, 4rem);
+  background: linear-gradient(180deg, rgb(8 15 26 / 32%), transparent 70%),
+    url("/branding/estudio.jpg") center / cover;
+}
+
+.logo {
+  display: block;
+  width: 9rem;
+  height: auto;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.access {
+  display: grid;
+  place-items: center;
+  padding: clamp(1rem, 5vw, 3rem);
+}
+
+@media (max-width: 720px) {
+  .login {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .cover {
+    min-height: 12rem;
+    background-position: center 65%;
+  }
+}

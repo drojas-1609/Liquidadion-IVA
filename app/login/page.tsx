@@ -1,8 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { Suspense, useActionState } from "react";
 import { useSearchParams } from "next/navigation";
 
+import styles from "./login.module.css";
 import { loginAction, type LoginState } from "./actions";
 
 const INITIAL: LoginState = { error: null };
@@ -14,8 +16,11 @@ function LoginForm() {
   return (
     <form action={formAction} className="card" style={{ width: "100%", maxWidth: "360px" }}>
       <h1 style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "var(--spacing-md)" }}>
-        Ingresar
+        Dero Company Gestión
       </h1>
+      <p style={{ fontSize: "0.9rem", marginBottom: "var(--spacing-md)" }}>
+        Gestión integral para estudios contables
+      </p>
 
       <input type="hidden" name="next" value={next} />
 
@@ -66,18 +71,21 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div
-      style={{
-        minHeight: "60vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "var(--spacing-xl)",
-      }}
-    >
-      <Suspense fallback={null}>
-        <LoginForm />
-      </Suspense>
-    </div>
+    <main className={styles.login}>
+      <div className={styles.cover}>
+        <Image
+          src="/branding/dero-company.png"
+          alt="Dero Company"
+          width={125}
+          height={100}
+          className={styles.logo}
+        />
+      </div>
+      <div className={styles.access}>
+        <Suspense fallback={null}>
+          <LoginForm />
+        </Suspense>
+      </div>
+    </main>
   );
 }
