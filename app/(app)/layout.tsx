@@ -38,7 +38,7 @@ export default async function AppShellLayout({
       >
         <div style={{ marginBottom: "var(--spacing-xl)", padding: "0 var(--spacing-sm)" }}>
           <h1 style={{ fontSize: "1.25rem", fontWeight: "bold", color: "var(--primary)" }}>
-            TaxLiquidator
+            Dero Company Gestión
           </h1>
         </div>
         <nav style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
