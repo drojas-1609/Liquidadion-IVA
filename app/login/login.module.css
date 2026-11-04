@@ -18,13 +18,27 @@
 }
 
 .logo {
+  position: relative;
   display: block;
-  width: 4.5rem;
+  width: 3.7rem;
+  margin: 0.4rem 0 0.75rem;
+}
+
+.logo img {
+  display: block;
+  width: 100%;
   height: auto;
-  margin-bottom: 0.35rem;
-  padding: 0.4rem;
-  border-radius: 0.65rem;
-  background: #f8fafc;
+  filter: brightness(1.2);
+}
+
+/* Lift the original dark-blue initials against the dark card. */
+.logo::after {
+  position: absolute;
+  inset: 0;
+  background: url("/branding/dero-company-isotipo.png") center / 100% 100% no-repeat;
+  clip-path: inset(40% 40% 44% 38%);
+  filter: grayscale(1) brightness(4);
+  content: "";
 }
 
 .brand h1 {
