@@ -65,6 +65,13 @@ function LoginForm() {
       <p style={{ marginTop: "var(--spacing-md)", fontSize: "0.8rem" }}>
         <a href="/reset-password">¿Olvidaste tu contraseña?</a>
       </p>
+
+      <div className={styles.studio}>
+        <p>Estudio Contable y Jurídico</p>
+        <a href="https://www.derocompany.com.ar/" target="_blank" rel="noopener noreferrer">
+          www.derocompany.com.ar <span className={styles.srOnly}>(abre en una pestaña nueva)</span>
+        </a>
+      </div>
     </form>
   );
 }
