@@ -341,6 +341,36 @@ describe.skipIf(!URL_LOCAL)("PostgreSQL local: usuarios del estudio, permisos y 
     }
   });
 
+  it("estudio bloqueado más de 3 s por otra operación: 409 busy (no 500) y nada escrito; luego entra", async () => {
+    as(OWNER_A);
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => (locked = r));
+    const holder = db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM "Organization" WHERE "id" = 'org_a' FOR UPDATE`;
+      locked();
+      await held;
+    }, { maxWait: 5000, timeout: 20000 });
+    await isLocked;
+    const t0 = Date.now();
+    const res = await invite(json("POST", "/api/organization/invitations", inviteBody(ANA_EMAIL)));
+    const waited = Date.now() - t0;
+    release();
+    await holder;
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.field).toBe("busy");
+    expect(waited).toBeGreaterThanOrEqual(2900);
+    expect(waited).toBeLessThan(8000);
+    expect(await db.organizationInvitation.count({ where: { email: ANA_EMAIL } })).toBe(0);
+    expect(await db.auditLog.count({ where: { action: "member.invite" } })).toBe(0);
+    // SET LOCAL: al terminar la transacción la conexión vuelve a su lock_timeout.
+    expect((await invite(json("POST", "/api/organization/invitations", inviteBody(ANA_EMAIL)))).status).toBe(201);
+    const [{ lt }] = await db.$queryRaw<{ lt: string }[]>`SELECT current_setting('lock_timeout') AS lt`;
+    expect(lt).toBe("0");
+  });
+
   it("la misma persona invitada dos veces a la vez: una sola invitación pendiente", async () => {
     as(OWNER_A);
     const results = await Promise.all([1, 2, 3].map(() => invite(json("POST", "/api/organization/invitations", inviteBody(ANA_EMAIL)))));

@@ -110,7 +110,12 @@ async function foreignDigest(db: PrismaClient): Promise<string> {
   return rows[0].d;
 }
 
-describe.skipIf(!URL_DEV)("DEV: usuarios del estudio con dos usuarias sintéticas y cupo concurrente", () => {
+// Con la latencia real a DEV (~150 ms de ida y vuelta) la primera prueba tarda ~30 s: el plazo
+// por defecto de vitest (5 s) la cortaba y, como vitest no cancela la promesa vencida, la prueba
+// siguiente corría en paralelo con ella (smoke DEV 04/11/2026, runs/20261104T135910Z-smoke).
+const DEV_TIMEOUT_MS = 180_000;
+
+describe.skipIf(!URL_DEV)("DEV: usuarios del estudio con dos usuarias sintéticas y cupo concurrente", { timeout: DEV_TIMEOUT_MS }, () => {
   let db: PrismaClient;
   let before = "";
   const report: Record<string, unknown> = { org: ORG };
@@ -137,7 +142,7 @@ describe.skipIf(!URL_DEV)("DEV: usuarios del estudio con dos usuarias sintética
         { id: P2, clientId: C2, organizationId: ORG, month: 1, year: 2026 },
       ],
     });
-  });
+  }, DEV_TIMEOUT_MS);
 
   afterAll(async () => {
     if (db) {
@@ -146,7 +151,7 @@ describe.skipIf(!URL_DEV)("DEV: usuarios del estudio con dos usuarias sintética
       console.info(`[users-dev-smoke] ${JSON.stringify(report)}`);
       await db.$disconnect();
     }
-  });
+  }, DEV_TIMEOUT_MS);
 
   const names = async () => {
     const r = await listClients(req("GET", "/api/clients"));
@@ -155,6 +160,7 @@ describe.skipIf(!URL_DEV)("DEV: usuarios del estudio con dos usuarias sintética
   const exp = async (c: string, p: string) => (await exportLiquidation(req("GET", "/x"), ctx({ id: c, periodId: p }))).status;
 
   it("dos usuarias de distinto alcance: invitación, aceptación, listados, URL ajena y revocación con sesión abierta", async () => {
+    const t0 = Date.now();
     as(OWNER);
     const a = await invite(req("POST", "/api/organization/invitations", { email: mail("ana"), role: "ACCOUNTANT", clientScope: "SELECTED", clientIds: [C1], modules: ["IVA"] }));
     const b = await invite(req("POST", "/api/organization/invitations", { email: mail("bea"), role: "VIEWER", clientScope: "ALL", modules: ["CLIENTS", "IVA"] }));
@@ -196,38 +202,65 @@ describe.skipIf(!URL_DEV)("DEV: usuarios del estudio con dos usuarias sintética
     as(ANA, mail("ana"));
     expect(await names()).toBe(403);
     report.two_users = "OK";
+    report.two_users_ms = Date.now() - t0;
   });
 
   it("cupo concurrente: con una plaza libre, de cuatro altas simultáneas entra exactamente una (5 rondas)", async () => {
+    const t0 = Date.now();
+    // Independiente de la prueba anterior: dos accesos propios, sintéticos y desactivados.
+    const CAR = randomUUID(), DAN = randomUUID();
+    await db.profile.createMany({ data: [{ id: CAR, email: mail("car") }, { id: DAN, email: mail("dan") }] });
+    await db.membership.createMany({
+      data: [CAR, DAN].map((profileId) => ({ profileId, organizationId: ORG, role: "VIEWER" as const, modules: ["IVA" as const], status: "DISABLED" as const })),
+    });
+    const ms = await db.membership.findMany({ where: { organizationId: ORG, profileId: { in: [CAR, DAN] } }, select: { id: true } });
+    expect(ms).toHaveLength(2);
     as(OWNER);
-    const anaM = await db.membership.findFirstOrThrow({ where: { profileId: ANA, organizationId: ORG } });
-    const beaM = await db.membership.findFirstOrThrow({ where: { profileId: BEA, organizationId: ORG } });
     const outcomes: number[][] = [];
+    const conflicts: Record<string, number> = {};
     for (let round = 0; round < 5; round++) {
       const pend = await db.organizationInvitation.findMany({ where: { organizationId: ORG, status: "PENDING" }, select: { id: true } });
       for (const p of pend) expect((await revoke(req("POST", "/x"), ctx({ id: p.id }))).status).toBe(204);
-      for (const m of [anaM, beaM]) {
+      for (const m of ms) {
         const cur = await db.membership.findUniqueOrThrow({ where: { id: m.id } });
         if (cur.status === "ACTIVE") expect((await disableMember(req("POST", "/x"), ctx({ id: m.id }))).status).toBe(200);
       }
-      await db.organization.update({ where: { id: ORG }, data: { seatLimit: 3 } }); // propietario + 1 base + 1 libre
+      // Activas + 1 invitación base + 1 plaza libre.
+      const active = await db.membership.count({ where: { organizationId: ORG, status: "ACTIVE" } });
+      const limit = active + 2;
+      await db.organization.update({ where: { id: ORG }, data: { seatLimit: limit } });
       expect((await invite(req("POST", "/api/organization/invitations", { email: mail(`base${round}`), role: "VIEWER", clientScope: "ALL", modules: ["IVA"] }))).status).toBe(201);
       const rs = await Promise.all([
-        enableMember(req("POST", "/x"), ctx({ id: anaM.id })),
-        enableMember(req("POST", "/x"), ctx({ id: beaM.id })),
+        enableMember(req("POST", "/x"), ctx({ id: ms[0].id })),
+        enableMember(req("POST", "/x"), ctx({ id: ms[1].id })),
         invite(req("POST", "/api/organization/invitations", { email: mail(`x${round}`), role: "VIEWER", clientScope: "ALL", modules: ["IVA"] })),
         invite(req("POST", "/api/organization/invitations", { email: mail(`y${round}`), role: "VIEWER", clientScope: "ALL", modules: ["IVA"] })),
       ]);
       const st = rs.map((r) => r.status);
       outcomes.push(st);
-      expect(st.filter((s) => s === 200 || s === 201)).toHaveLength(1);
-      expect(st.filter((s) => s === 409)).toHaveLength(3);
+      report.concurrent_rounds = outcomes;
+      for (const r of rs) {
+        const body = (await r.clone().json().catch(() => null)) as { field?: string; error?: { code?: string } } | null;
+        if (r.status === 409) {
+          const k = body?.field ?? "otro";
+          conflicts[k] = (conflicts[k] ?? 0) + 1;
+        } else if (r.status !== 200 && r.status !== 201) {
+          (report.concurrent_unexpected ??= [] as unknown[]) as unknown[];
+          (report.concurrent_unexpected as unknown[]).push({ round, status: r.status, code: body?.error?.code ?? null });
+        }
+      }
+      report.concurrent_conflicts = conflicts;
+      expect(st.filter((x) => x >= 500)).toEqual([]);
+      expect(st.filter((x) => x === 200 || x === 201)).toHaveLength(1);
+      expect(st.filter((x) => x === 409)).toHaveLength(3);
       const used =
         (await db.membership.count({ where: { organizationId: ORG, status: "ACTIVE" } })) +
         (await db.organizationInvitation.count({ where: { organizationId: ORG, status: "PENDING", expiresAt: { gt: new Date() } } }));
-      expect(used).toBe(3);
+      expect(used).toBe(limit);
     }
-    report.concurrent_rounds = outcomes;
+    // 409 válidos: "seats" (sin plazas) o "busy" (el estudio estaba bloqueado > 3 s).
+    expect(Object.keys(conflicts).every((k) => k === "seats" || k === "busy")).toBe(true);
+    report.concurrent_ms = Date.now() - t0;
   });
 
   it("protección del propietario en la base y Data API cerrada (catálogo, sólo lectura)", async () => {

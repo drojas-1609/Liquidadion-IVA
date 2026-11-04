@@ -128,7 +128,7 @@ export async function inviteMember(actor: UsersActor, input: InviteInput, redire
       },
     });
     return created;
-  });
+  }, { maxWait: 5000, timeout: 12000 });
 
   const delivery = await deliver(invitation.id, invitation.email, redirectTo);
   return { invitationId: invitation.id, delivery };
@@ -184,7 +184,7 @@ export async function resendInvitation(actor: UsersActor, invitationId: string, 
       metadata: {},
     });
     return row;
-  });
+  }, { maxWait: 5000, timeout: 12000 });
   const delivery = await deliver(inv.id, inv.email, redirectTo);
   return { invitationId: inv.id, delivery };
 }
@@ -211,7 +211,7 @@ export async function revokeInvitation(actor: UsersActor, invitationId: string):
       targetId: row.id,
       metadata: {},
     });
-  });
+  }, { maxWait: 5000, timeout: 12000 });
 }
 
 // ── Miembros: permisos, desactivar, reactivar ─────────────────────────────
@@ -281,7 +281,7 @@ export async function updateMemberPermissions(
       },
     });
     return { changed };
-  });
+  }, { maxWait: 5000, timeout: 12000 });
 }
 
 export async function disableMember(actor: UsersActor, membershipId: string): Promise<{ changed: boolean }> {
@@ -298,7 +298,7 @@ export async function disableMember(actor: UsersActor, membershipId: string): Pr
       metadata: { role: m.role },
     });
     return { changed: true };
-  });
+  }, { maxWait: 5000, timeout: 12000 });
 }
 
 export async function enableMember(actor: UsersActor, membershipId: string): Promise<{ changed: boolean }> {
@@ -322,7 +322,7 @@ export async function enableMember(actor: UsersActor, membershipId: string): Pro
       metadata: { role: m.role },
     });
     return { changed: true };
-  });
+  }, { maxWait: 5000, timeout: 12000 });
 }
 
 // ── Aceptar (la persona invitada) ─────────────────────────────────────────
@@ -439,7 +439,7 @@ export async function acceptInvitation(identity: AcceptIdentity): Promise<{ orga
       metadata: { membershipId, role: inv.role },
     });
     return { organizationId, membershipId };
-  });
+  }, { maxWait: 5000, timeout: 12000 });
 }
 
 // ── Vista del propietario ─────────────────────────────────────────────────
