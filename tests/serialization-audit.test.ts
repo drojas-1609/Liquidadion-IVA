@@ -48,6 +48,9 @@ const EXPECTED = {
   // strings (serializePreview); la confirmación responde sólo conteos.
   "app/api/periods/[id]/libro-iva-import/preview/route.ts": { models: ["Invoice"], serializer: "serializePreview" },
   "app/api/periods/[id]/libro-iva-import/confirm/route.ts": { models: [], serializer: null },
+  // Resultado de cada confirmación (operationId) según el AuditLog: estados y
+  // conteos, sin importes ni Decimal.
+  "app/api/periods/[id]/libro-iva-import/route.ts": { models: [], serializer: null },
   // Consulta de CUIT en ARCA: responde la propuesta normalizada (strings), sin
   // modelos de la base ni Decimal; no lee ni escribe Client.
   "app/api/arca/cuit-lookup/route.ts": { models: [], serializer: null },

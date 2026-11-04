@@ -51,6 +51,7 @@ Esperado para 202610 (verificado en local con la vista previa real):
 | 8 | Período 11/2026: vista previa del ZIP de ventas de `~/lid-smoke-202611`; cerrar el período en otra pestaña; Confirmar | 409 «El período está cerrado…»; nada escrito. Reabrir y confirmar: se importa. |
 | 9 | Auditoría (lectura de `AuditLog`) | Una fila `invoice.import` por confirmación, con `format` (`PORTAL_CSV` o `LID_TXT`), conteos y huellas; sin CUIT, nombres ni importes |
 | 10 | VIEWER intenta importar | Sin botón; por la API, 403 |
+| 10b | Corte o recarga: confirmar y recargar la página antes de la respuesta; reintentar | La pantalla muestra «Verificando…» y luego «Confirmación aplicada (recuperada…)» o «no se aplicó». «Confirmaciones registradas» lista la operación. Reintentar devuelve el mismo resultado sin escribir |
 | 11 | Volumen (opcional): ventas TXT 7.500 y ZIP de Portal IVA de unas 9.000 ventas (`--sales 7500` / `--sales 9000` en otra carpeta y otro período) | Medir vista previa y confirmación. Ver límites abajo. |
 
 Registrá los tiempos, las respuestas y las capturas, sin datos reales.
@@ -75,7 +76,7 @@ En Portal IVA el límite efectivo es el CSV descomprimido de 2 MB (unas 10.800 v
 
 **Medido en DEV:** ver la tabla de volumen en [README.md](README.md). En resumen:
 - 4.001, 6.001 y 7.503 filas confirman bien (20–29 s);
-- con 9.001, la respuesta da 504 a los 30 s aunque la transacción se confirma completa;
+- con 9.001, la respuesta da 504 a los 30 s aunque la transacción se confirma completa: la pantalla recupera el resultado por `operationId`;
 - para correlacionar con los logs de Netlify, buscar `[libro-iva-import] confirm` y el `x-nf-request-id` de la respuesta.
 
 ## 3. Limpieza (sólo DEV, con autorización; mostrar las sentencias antes)

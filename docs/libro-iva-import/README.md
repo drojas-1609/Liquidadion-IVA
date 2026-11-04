@@ -55,7 +55,18 @@ Detalle de la descarga de Portal IVA:
 
    Revisala antes de confirmar.
 5. **Confirmar.** Si hay filas «Revisar» o «Error», hay que tildar la importación parcial. La confirmación vuelve a calcular todo con los mismos archivos. Si algo cambió desde la vista previa (otra carga, la configuración del período o los archivos), responde 409 y hay que generarla de nuevo. Un período cerrado en el medio se rechaza y no se escribe nada.
-6. **Registro.** Los comprobantes quedan con origen `IMPORT`. Se registra un único AuditLog `invoice.import` con conteos y huellas sha256 de los archivos; sin CUIT, nombres ni importes.
+6. **Registro.** Los comprobantes quedan con origen `IMPORT`. Se registra un único AuditLog `invoice.import` con conteos, huellas sha256 de los archivos y el `operationId` de la confirmación; sin CUIT, nombres ni importes.
+7. **Si la respuesta no llega** (corte de Netlify, red o recarga de la página), la pantalla consulta el resultado de esa confirmación y lo muestra (ver «Resultado de cada confirmación»).
+
+## Resultado de cada confirmación
+
+- **Identificador:** el navegador genera un `operationId` (UUID) antes de enviar la confirmación y lo guarda localmente. La API lo exige.
+- **Aplicada:** existe el AuditLog `invoice.import` con ese `operationId`. Se escribe en la **misma transacción** que los comprobantes, así que si existe la importación está completa, y si no existe no se escribió nada.
+- **Fallida:** existe `invoice.import.failed` con ese `operationId` y el código del error (período cerrado, vista previa vencida, tiempo agotado…). Se registra después de que la transacción se revirtió.
+- **En curso:** no hay ninguna de las dos y no pasaron 75 s desde el envío. La función no vive más de 60 s; si muere, la conexión se cierra y la transacción se revierte.
+- **No aplicada:** pasaron 75 s sin registro.
+- **Reintento de la misma operación:** si ya se aplicó, la API devuelve ese resultado (200, `replayed: true`) sin escribir. Lo comprueba antes del recálculo y otra vez bajo el bloqueo del período. Con otros archivos, responde 409. La pantalla reutiliza el mismo `operationId` cuando se reintenta con los mismos archivos.
+- **Consulta:** `GET /api/periods/[id]/libro-iva-import?operationId=…` (sólo lectura, cualquier rol del período, filtrado por organización) devuelve el estado y las últimas confirmaciones. La pantalla las muestra en «Confirmaciones registradas en este período», también desde otro navegador.
 
 ## Cómo leer la conciliación
 
@@ -123,7 +134,7 @@ Detalle de la descarga de Portal IVA:
 
 - Postgres ejecuta cada lote de ~665 filas en ~70 ms; el resto es la latencia entre la función y la base (~1,1 s por lote).
 - Con la región actual, el máximo práctico es de unas 7.500 filas por confirmación.
-- Arriba de eso el operador puede ver un error aunque la importación haya quedado hecha. Es completa y atómica: al volver a subir el archivo, todo figura «Ya cargado».
+- Arriba de eso, la respuesta se corta, pero la pantalla recupera el resultado por `operationId` (aplicada, fallida o no aplicada). La importación es completa y atómica, y reintentarla no duplica nada.
 - Mover las funciones a `gru` (São Paulo), donde están las bases de DEV y de PROD, ataca la causa. Es una configuración del sitio: afecta también a producción.
 
 Cada confirmación registra en los logs de la función una línea `[libro-iva-import] confirm` con el `x-nf-request-id`, la etapa, conteos y milisegundos por fase (y el código de Prisma si falla), y devuelve `Server-Timing`.

@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { readApiError } from "@/lib/new-client-submit";
+import { failureText, operatorState, RESULT_WAIT_MS, resultText, type ImportOperationView, type OperationResult } from "@/lib/libro-iva-import/operation";
 
 /**
  * Importación del Libro IVA Digital: el operador elige el libro (ventas o
@@ -58,6 +59,47 @@ const TOTAL_LABELS: [string, string][] = [
     ["otherTaxes", "Otros tributos"], ["total", "Total"], ["turivaRefund", "Reintegro TurIVA"], ["computableCredit", "Crédito computable"],
 ];
 
+/**
+ * Confirmación pendiente de este período, guardada en el navegador ANTES de
+ * enviarla: si la respuesta se corta o la página se recarga, se consulta su
+ * resultado por operationId. Es sólo una comodidad local: la verdad está en el
+ * AuditLog (GET /api/periods/[id]/libro-iva-import).
+ */
+interface PendingOp {
+    operationId: string;
+    startedAt: number;
+    category: Category;
+    format: Format;
+    vouchersSha256: string;
+    aliquotsSha256: string;
+}
+const pendingKey = (periodId: string) => `lid-import-op:${periodId}`;
+function readPending(periodId: string): PendingOp | null {
+    try {
+        const raw = window.localStorage.getItem(pendingKey(periodId));
+        const v = raw ? (JSON.parse(raw) as PendingOp) : null;
+        return v && typeof v.operationId === "string" && typeof v.startedAt === "number" ? v : null;
+    } catch {
+        return null;
+    }
+}
+function writePending(periodId: string, v: PendingOp | null) {
+    try {
+        if (v) window.localStorage.setItem(pendingKey(periodId), JSON.stringify(v));
+        else window.localStorage.removeItem(pendingKey(periodId));
+    } catch {
+        // Sin almacenamiento: la operación igual queda en el historial del período.
+    }
+}
+async function sha256Hex(file: File | null): Promise<string> {
+    if (!file) return "";
+    const d = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+    return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+const POLL_MS = 4000;
+const CATEGORY_LABEL: Record<string, string> = { SALES: "Ventas", PURCHASES: "Compras" };
+const FORMAT_LABEL: Record<string, string> = { LID_TXT: "TXT", PORTAL_CSV: "Portal IVA" };
+
 async function toBase64(file: File): Promise<string> {
     const bytes = new Uint8Array(await file.arrayBuffer());
     let bin = "";
@@ -76,39 +118,130 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const [done, setDone] = useState<string>("");
+    const [tracking, setTracking] = useState<PendingOp | null>(null);
+    const [trackingNote, setTrackingNote] = useState("");
+    const [recent, setRecent] = useState<ImportOperationView[]>([]);
     const inFlight = useRef(false);
+
+    const loadRecent = useCallback(async () => {
+        try {
+            const res = await fetch(`/api/periods/${periodId}/libro-iva-import`, { cache: "no-store" });
+            if (res.ok) setRecent(((await res.json()) as { recent: ImportOperationView[] }).recent);
+        } catch {
+            // Sin red: el historial se vuelve a pedir en la próxima acción.
+        }
+    }, [periodId]);
+
+    // Al abrir (o recargar) la página: historial y, si había una confirmación sin respuesta, seguirla.
+    useEffect(() => {
+        void loadRecent();
+        const p = readPending(periodId);
+        if (p) setTracking(p);
+    }, [periodId, loadRecent]);
+
+    // Seguimiento de una confirmación cuya respuesta no llegó: aplicada, fallida, en curso o no aplicada.
+    useEffect(() => {
+        if (!tracking) return;
+        let stop = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const tick = async () => {
+            let view: ImportOperationView | null = null;
+            try {
+                const res = await fetch(`/api/periods/${periodId}/libro-iva-import?operationId=${tracking.operationId}`, { cache: "no-store" });
+                if (res.ok) view = ((await res.json()) as { operation: ImportOperationView }).operation;
+            } catch {
+                // Sin red: se reintenta en el próximo ciclo.
+            }
+            if (stop) return;
+            const state = operatorState(view ?? { status: "NOT_FOUND" }, tracking.startedAt, Date.now());
+            const ref = `operación ${tracking.operationId.slice(0, 8)}`;
+            if (state === "APPLIED" && view?.result) {
+                writePending(periodId, null);
+                setTracking(null);
+                setTrackingNote("");
+                setError("");
+                setPreview(null);
+                setDone(`Confirmación aplicada (${ref}, recuperada después de un corte). ${resultText(view.result)}`);
+                router.refresh();
+                void loadRecent();
+                return;
+            }
+            if (state === "FAILED") {
+                setTracking(null);
+                setTrackingNote("");
+                setError(`La confirmación no se aplicó (${ref}): ${failureText(view?.failure?.code ?? "INTERNAL")}. No se escribió nada.`);
+                void loadRecent();
+                return;
+            }
+            if (state === "NOT_APPLIED") {
+                setTracking(null);
+                setTrackingNote("");
+                setError(`No hay registro de la confirmación (${ref}) ${Math.round(RESULT_WAIT_MS / 1000)} s después de enviarla: no se aplicó. Podés generar la vista previa y confirmar de nuevo; si llegara a estar aplicada, no se duplica.`);
+                return;
+            }
+            setTrackingNote(`La respuesta no llegó. Verificando si la confirmación se aplicó (${ref}, enviada hace ${Math.round((Date.now() - tracking.startedAt) / 1000)} s)…`);
+            timer = setTimeout(tick, POLL_MS);
+        };
+        void tick();
+        return () => {
+            stop = true;
+            if (timer) clearTimeout(timer);
+        };
+    }, [tracking, periodId, router, loadRecent]);
 
     async function send(kind: "preview" | "confirm") {
         if (inFlight.current || !vouchers || (format === "LID_TXT" && !aliquots)) return;
         inFlight.current = true;
         setBusy(true);
         setError("");
+        setDone("");
+        let op: PendingOp | null = null;
         try {
             const body: Record<string, unknown> = { clientId, category, format, vouchersFile: await toBase64(vouchers) };
             if (format === "LID_TXT" && aliquots) body.aliquotsFile = await toBase64(aliquots);
-            if (kind === "confirm" && preview) Object.assign(body, { token: preview.token, acceptPartial });
+            if (kind === "confirm" && preview) {
+                // Mismo operationId si se reintenta lo mismo después de un corte: si ya se aplicó, la API devuelve ese resultado.
+                const hashes = { vouchersSha256: await sha256Hex(vouchers), aliquotsSha256: format === "LID_TXT" ? await sha256Hex(aliquots) : "" };
+                const prev = readPending(periodId);
+                const same = prev && prev.category === category && prev.format === format && prev.vouchersSha256 === hashes.vouchersSha256 && prev.aliquotsSha256 === hashes.aliquotsSha256;
+                op = { operationId: same ? prev.operationId : crypto.randomUUID(), startedAt: Date.now(), category, format, ...hashes };
+                writePending(periodId, op);
+                Object.assign(body, { token: preview.token, acceptPartial, operationId: op.operationId });
+            }
             const res = await fetch(`/api/periods/${periodId}/libro-iva-import/${kind}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
             });
             const json: unknown = await res.json().catch(() => null);
+            const appError = readApiError(json);
             if (!res.ok) {
-                setError(readApiError(json)?.message ?? "No se pudo procesar la importación.");
+                // Sin respuesta de la app (corte de Netlify: 502/504, cuerpo ajeno): el resultado se consulta por operationId.
+                if (kind === "confirm" && op && !appError?.code) {
+                    setTracking(op);
+                    return;
+                }
+                if (op) writePending(periodId, null);
+                setError(appError?.message ?? "No se pudo procesar la importación.");
                 if (kind === "confirm" && res.status === 409) setPreview(null);
+                if (kind === "confirm") void loadRecent();
                 return;
             }
             if (kind === "preview") {
                 setPreview(json as Preview);
                 setAcceptPartial(false);
             } else {
-                const r = json as { imported: number; turiva: number; duplicates: number; notImported: number };
-                setDone(`Importados ${r.imported} comprobantes (${r.turiva} de TurIVA). Omitidos por ya cargados: ${r.duplicates}. No importados (error o revisión): ${r.notImported}.`);
+                writePending(periodId, null);
+                const r = json as OperationResult & { replayed?: boolean };
+                setDone(resultText(r) + (r.replayed ? " Esta operación ya se había aplicado: no se escribió de nuevo." : ""));
                 setPreview(null);
                 router.refresh();
+                void loadRecent();
             }
         } catch {
-            setError("Ocurrió un error inesperado. Intentá de nuevo.");
+            // Corte de red durante la confirmación: puede haberse aplicado igual.
+            if (kind === "confirm" && op) setTracking(op);
+            else setError("Ocurrió un error inesperado. Intentá de nuevo.");
         } finally {
             inFlight.current = false;
             setBusy(false);
@@ -117,7 +250,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
 
     const counts = preview?.reconciliation.statusCounts;
     const partial = counts ? counts.ERROR + counts.REVIEW > 0 : false;
-    const canConfirm = !!preview && preview.periodOpen && preview.fileErrors.length === 0 && (counts?.OK ?? 0) > 0 && (!partial || acceptPartial);
+    const canConfirm = !tracking && !!preview && preview.periodOpen && preview.fileErrors.length === 0 && (counts?.OK ?? 0) > 0 && (!partial || acceptPartial);
 
     return (
         <div>
@@ -163,6 +296,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
 
             {error && <div role="alert" className="card" style={{ border: "1px solid var(--error)", marginBottom: "var(--spacing-md)" }}>{error}</div>}
             {done && <div role="status" className="card" style={{ marginBottom: "var(--spacing-md)" }}>{done}</div>}
+            {tracking && <div role="status" data-tracking className="card" style={{ marginBottom: "var(--spacing-md)" }}>{trackingNote || "Verificando el resultado de la confirmación…"}</div>}
 
             {preview && counts && (
                 <div>
@@ -253,6 +387,29 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                     <button type="button" className="btn btn-primary" disabled={busy || !canConfirm} onClick={() => send("confirm")}>
                         Confirmar importación
                     </button>
+                </div>
+            )}
+
+            {recent.length > 0 && (
+                <div className="card" style={{ marginTop: "var(--spacing-lg)", overflowX: "auto" }} data-recent-imports>
+                    <h2 style={{ fontSize: "1.1rem", marginBottom: "var(--spacing-sm)" }}>Confirmaciones registradas en este período</h2>
+                    <table className="table">
+                        <thead><tr><th>Fecha</th><th>Libro</th><th>Formato</th><th>Resultado</th><th>Importados</th><th>Ya cargados</th><th>No importados</th><th>Operación</th></tr></thead>
+                        <tbody>
+                            {recent.map((o, i) => (
+                                <tr key={`${o.operationId}-${o.status}-${i}`} data-op-status={o.status}>
+                                    <td>{o.at ? new Date(o.at).toLocaleString("es-AR") : "—"}</td>
+                                    <td>{CATEGORY_LABEL[o.category ?? ""] ?? "—"}</td>
+                                    <td>{FORMAT_LABEL[o.format ?? ""] ?? "—"}</td>
+                                    <td>{o.status === "APPLIED" ? "Aplicada" : `Fallida: ${failureText(o.failure?.code ?? "INTERNAL")}`}</td>
+                                    <td>{o.result?.imported ?? "—"}</td>
+                                    <td>{o.result?.duplicates ?? "—"}</td>
+                                    <td>{o.result?.notImported ?? "—"}</td>
+                                    <td><code>{o.operationId ? o.operationId.slice(0, 8) : "—"}</code></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             )}
         </div>

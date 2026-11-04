@@ -272,7 +272,18 @@ describe("solicitud: archivos en base64 y token", () => {
     it("acepta archivos válidos y exige el token sólo para confirmar", () => {
         expect(parseImportRequest(body, { requireToken: false }).ok).toBe(true);
         expect(parseImportRequest(body, { requireToken: true })).toMatchObject({ ok: false, field: "token" });
-        expect(parseImportRequest({ ...body, token: "a".repeat(64) }, { requireToken: true }).ok).toBe(true);
+        expect(parseImportRequest({ ...body, token: "a".repeat(64) }, { requireToken: true })).toMatchObject({ ok: false, field: "operationId" });
+        const op = "0f3b9a2e-1c4d-4e5f-8a6b-7c8d9e0f1a2b";
+        const ok = parseImportRequest({ ...body, token: "a".repeat(64), operationId: op }, { requireToken: true });
+        expect(ok).toMatchObject({ ok: true, data: { operationId: op } });
+        // La vista previa no lleva operationId.
+        expect(parseImportRequest({ ...body, operationId: op }, { requireToken: false })).toMatchObject({ ok: true, data: { operationId: null } });
+    });
+    it("operationId: sólo UUID en minúsculas", () => {
+        const t = { ...body, token: "a".repeat(64) };
+        for (const bad of ["", "x", "0F3B9A2E-1C4D-4E5F-8A6B-7C8D9E0F1A2B", "0f3b9a2e1c4d4e5f8a6b7c8d9e0f1a2b", "0f3b9a2e-1c4d-4e5f-8a6b-7c8d9e0f1a2b'; --", 123, null]) {
+            expect(parseImportRequest({ ...t, operationId: bad }, { requireToken: true })).toMatchObject({ ok: false, field: "operationId" });
+        }
     });
     it("rechaza categoría, base64 inválido, archivo vacío o demasiado grande y acceptPartial no booleano", () => {
         expect(parseImportRequest({ ...body, category: "OTRA" }, { requireToken: false })).toMatchObject({ ok: false, field: "category" });

@@ -1,5 +1,6 @@
 import type { LidCategory } from "./format";
 import type { ImportSource } from "./build";
+import { isOperationId } from "./operation";
 
 /**
  * Cuerpo de las rutas de importación del Libro IVA Digital. Los archivos viajan
@@ -19,6 +20,8 @@ export interface ImportRequest {
     aliquots: Uint8Array;
     token: string | null;
     acceptPartial: boolean;
+    /** Sólo confirmación: identificador de la operación generado por el navegador (UUID). */
+    operationId: string | null;
 }
 
 export type ImportRequestResult = { ok: true; data: ImportRequest } | { ok: false; field: string; error: string };
@@ -51,10 +54,12 @@ export function parseImportRequest(body: unknown, opts: { requireToken: boolean 
     if (opts.requireToken) {
         if (typeof b.token !== "string" || !/^[a-f0-9]{64}$/.test(b.token)) return { ok: false, field: "token", error: "token de vista previa requerido" };
         token = b.token;
+        if (!isOperationId(b.operationId)) return { ok: false, field: "operationId", error: "operationId requerido (UUID en minúsculas generado al confirmar)" };
     }
     if (b.acceptPartial !== undefined && typeof b.acceptPartial !== "boolean") return { ok: false, field: "acceptPartial", error: "acceptPartial debe ser booleano" };
     return {
         ok: true,
-        data: { clientId: b.clientId, category: b.category, format, vouchers: vouchers.bytes, aliquots: aliquots.bytes, token, acceptPartial: b.acceptPartial === true },
+        data: { clientId: b.clientId, category: b.category, format, vouchers: vouchers.bytes, aliquots: aliquots.bytes, token, acceptPartial: b.acceptPartial === true,
+            operationId: opts.requireToken ? (b.operationId as string) : null },
     };
 }

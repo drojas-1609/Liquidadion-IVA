@@ -8,11 +8,12 @@ import { Prisma } from "@prisma/client";
  *  - lock:  bloqueo del período + relectura de duplicados, ya en la transacción;
  *  - write: los dos createMany;
  *  - commit: auditoría + COMMIT.
- * Sólo registra conteos, milisegundos, el id de la solicitud y el código o la
+ * Sólo registra conteos, milisegundos, el id de la solicitud, el operationId
+ * (UUID generado por el navegador) y el código o la
  * clase del error: nunca CUIT, nombres, importes ni mensajes (que podrían traer
  * cadenas de conexión).
  */
-export function startConfirmTiming(request: Request, now: () => number = Date.now) {
+export function startConfirmTiming(request: Request, operationId: string | null = null, now: () => number = Date.now) {
     const t0 = now();
     const requestId = request.headers.get("x-nf-request-id");
     const ms: Record<string, number> = {};
@@ -25,7 +26,7 @@ export function startConfirmTiming(request: Request, now: () => number = Date.no
         last = t;
     };
     const log = (outcome: string) => {
-        console.info("[libro-iva-import] confirm " + JSON.stringify({ requestId, outcome, stage, ...counts, ms: { ...ms, total: now() - t0 } }));
+        console.info("[libro-iva-import] confirm " + JSON.stringify({ requestId, operationId, outcome, stage, ...counts, ms: { ...ms, total: now() - t0 } }));
     };
     return {
         mark(name: "plan" | "lock" | "write", c?: { rows: number; vatLines: number }) {

@@ -37,8 +37,13 @@ export const AUDIT_ACTIONS = [
   "invoice.update",
   "invoice.delete",
   // Importación masiva del Libro IVA Digital (TXT de comprobantes y alícuotas):
-  // una fila por confirmación, con conteos y huella de los archivos.
+  // una fila por confirmación, con conteos y huella de los archivos. Se escribe
+  // en la MISMA transacción que los comprobantes: si existe, la operación
+  // (operationId) se aplicó completa.
   "invoice.import",
+  // Confirmación que terminó con error DESPUÉS de revertirse: no escribió nada.
+  // Permite consultar el resultado si la respuesta no llegó al navegador.
+  "invoice.import.failed",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
   // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
   "arca.cuit_lookup",
@@ -73,7 +78,10 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "errorCount",
     "vouchersFileSha256",
     "aliquotsFileSha256",
+    "operationId",
   ],
+  // Sólo el identificador de la operación, el libro, el formato y el código del error.
+  "invoice.import.failed": ["operationId", "periodId", "category", "format", "code", "httpStatus"],
   "taxrecord.create": ["periodId", "type"],
   "liquidation.export": [
     "periodId",

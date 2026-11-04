@@ -15,6 +15,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import { POST as PREVIEW } from "@/app/api/periods/[id]/libro-iva-import/preview/route";
 import { POST as CONFIRM } from "@/app/api/periods/[id]/libro-iva-import/confirm/route";
+import { randomUUID } from "node:crypto";
 import { MAX_FILE_BYTES } from "@/lib/libro-iva-import/request";
 import { ansiFile, cuit, nthCuit, portalCsv, zipOne, type SynthPortalRow, purchaseAliquotLine, purchaseVoucherLine, salesAliquotLine, salesVoucherLine, type SynthAliquot, type SynthVoucher } from "../helpers/libro-iva-synth";
 
@@ -80,6 +81,7 @@ function portalBook(n: number): { csv: Uint8Array; book: Book } {
 }
 async function call(route: typeof PREVIEW, periodId: string, b: Book, extra: Record<string, unknown> = {}) {
     H.sub = PROFILE;
+    if (route === CONFIRM && !("operationId" in extra)) extra = { ...extra, operationId: randomUUID() };
     const body = JSON.stringify(b.format === "PORTAL_CSV"
         ? { clientId: "c_lid_vol", category: b.category, format: "PORTAL_CSV", vouchersFile: Buffer.from(b.vouchers).toString("base64"), ...extra }
         : { clientId: "c_lid_vol", category: b.category, vouchersFile: Buffer.from(b.vouchers).toString("base64"), aliquotsFile: Buffer.from(b.aliquots).toString("base64"), ...extra });

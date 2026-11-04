@@ -7,6 +7,9 @@ import { ConflictError, NotFoundError, ValidationError } from "../auth/errors";
 import { parseLidFile, type LidCategory } from "./format";
 import { buildImportPreview, voucherKey, type ImportPreview, type ImportSource, type SectionTotals } from "./build";
 import { parsePortalDownload } from "./portal-csv";
+import { recordAudit } from "../auth/audit";
+import { isAuthError } from "../auth/errors";
+import type { ImportOperationView, OperationResult } from "./operation";
 
 /**
  * Importación del Libro IVA Digital: vista previa y confirmación.
@@ -25,6 +28,7 @@ import { parsePortalDownload } from "./portal-csv";
  */
 
 type Db = Pick<PrismaClient, "period" | "periodVatSettings" | "invoice" | "$transaction">;
+type AuditReadDb = Pick<PrismaClient, "auditLog"> | Prisma.TransactionClient;
 
 export interface ImportScope {
     organizationId: string;
@@ -193,13 +197,108 @@ export function importWriteData(plan: ConfirmPlan, scope: ImportScope, profileId
     return { invoices, vatLines };
 }
 
-/** Metadatos del AuditLog invoice.import: conteos y huellas; sin CUIT, nombres ni importes. */
-export function importAuditMetadata(plan: ConfirmPlan, scope: ImportScope) {
+/** Metadatos del AuditLog invoice.import: conteos, huellas y operationId; sin CUIT, nombres ni importes. */
+export function importAuditMetadata(plan: ConfirmPlan, scope: ImportScope, operationId: string) {
     return {
         periodId: scope.periodId, category: plan.category, format: plan.format, importedCount: plan.result.imported, turivaCount: plan.result.turiva,
         duplicateCount: plan.statusCounts.DUPLICATE, reviewCount: plan.statusCounts.REVIEW, errorCount: plan.statusCounts.ERROR,
-        vouchersFileSha256: plan.vouchersSha256, aliquotsFileSha256: plan.aliquotsSha256,
+        vouchersFileSha256: plan.vouchersSha256, aliquotsFileSha256: plan.aliquotsSha256, operationId,
     };
+}
+
+// ── Resultado de cada confirmación (operationId), desde el AuditLog ──
+
+const IMPORT_ACTIONS = ["invoice.import", "invoice.import.failed"];
+
+type AuditRow = { action: string; metadata: Prisma.JsonValue; createdAt: Date };
+
+const metaOf = (r: AuditRow): Record<string, unknown> => (r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata) ? (r.metadata as Record<string, unknown>) : {});
+const num = (v: unknown) => (typeof v === "number" ? v : 0);
+const str = (v: unknown) => (typeof v === "string" ? v : null);
+
+/** Resultado guardado en una fila invoice.import (mismo cálculo que planConfirm). */
+export function appliedResult(meta: Record<string, unknown>): OperationResult {
+    return { imported: num(meta.importedCount), turiva: num(meta.turivaCount), duplicates: num(meta.duplicateCount), notImported: num(meta.reviewCount) + num(meta.errorCount) };
+}
+
+function viewOf(operationId: string, rows: AuditRow[]): ImportOperationView {
+    const applied = rows.find((r) => r.action === "invoice.import");
+    const failed = rows.find((r) => r.action === "invoice.import.failed");
+    const pick = applied ?? failed;
+    if (!pick) return { operationId, status: "NOT_FOUND", at: null, category: null, format: null, result: null, failure: null };
+    const m = metaOf(pick);
+    return {
+        operationId,
+        status: applied ? "APPLIED" : "FAILED",
+        at: pick.createdAt.toISOString(),
+        category: str(m.category),
+        format: str(m.format),
+        result: applied ? appliedResult(m) : null,
+        failure: applied ? null : { code: str(m.code) ?? "INTERNAL", httpStatus: typeof m.httpStatus === "number" ? m.httpStatus : null },
+    };
+}
+
+const opWhere = (scope: ImportScope) => ({ organizationId: scope.organizationId, targetType: "Period", targetId: scope.periodId, action: { in: IMPORT_ACTIONS } });
+
+/**
+ * Estado de una operación del período, filtrado por organización y período
+ * (ya autorizados por la ruta). APPLIED tiene prioridad sobre FAILED: un
+ * reintento exitoso de la misma operación la deja aplicada.
+ */
+export async function findImportOperation(db: AuditReadDb, scope: ImportScope, operationId: string): Promise<ImportOperationView & { meta: Record<string, unknown> | null }> {
+    const rows = await db.auditLog.findMany({
+        where: { ...opWhere(scope), metadata: { path: ["operationId"], equals: operationId } },
+        select: { action: true, metadata: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+    });
+    const applied = rows.find((r) => r.action === "invoice.import");
+    return { ...viewOf(operationId, rows), meta: applied ? metaOf(applied) : null };
+}
+
+/** Vista para la API, sin los metadatos crudos (huellas de archivos). */
+export function publicOperationView(v: ImportOperationView & { meta?: unknown }): ImportOperationView {
+    return { operationId: v.operationId, status: v.status, at: v.at, category: v.category, format: v.format, result: v.result, failure: v.failure };
+}
+
+/** Últimas confirmaciones registradas del período (aplicadas y fallidas). */
+export async function listImportOperations(db: AuditReadDb, scope: ImportScope, take = 10): Promise<ImportOperationView[]> {
+    const rows = await db.auditLog.findMany({ where: opWhere(scope), select: { action: true, metadata: true, createdAt: true }, orderBy: { createdAt: "desc" }, take });
+    return rows.map((r) => viewOf(str(metaOf(r).operationId) ?? "", [r]));
+}
+
+/** Huellas de los archivos recibidos, para comparar un reintento con la operación ya aplicada. */
+export function requestFileHashes(files: ImportFiles) {
+    return { vouchersSha256: sha256(files.vouchers), aliquotsSha256: sha256(files.aliquots) };
+}
+
+/** ¿El reintento trae lo mismo que la operación aplicada? */
+export function sameOperation(meta: Record<string, unknown>, files: ImportFiles): boolean {
+    const h = requestFileHashes(files);
+    return meta.category === files.category && meta.format === (files.format ?? "LID_TXT") && meta.vouchersFileSha256 === h.vouchersSha256 && meta.aliquotsFileSha256 === h.aliquotsSha256;
+}
+
+export const OPERATION_REUSED_MESSAGE = "Ese identificador de operación ya se usó con otros archivos: generá la vista previa de nuevo.";
+
+/**
+ * Registra que la confirmación terminó con error (la transacción ya se
+ * revirtió o no llegó a empezar): sólo operationId, libro, formato y código.
+ * Best-effort: si no se puede escribir, no oculta el error original.
+ */
+export async function recordImportFailure(db: Pick<PrismaClient, "auditLog">, scope: ImportScope, actorProfileId: string, files: ImportFiles, operationId: string, err: unknown): Promise<void> {
+    const code = isAuthError(err) ? err.code : err instanceof Prisma.PrismaClientKnownRequestError ? err.code : "INTERNAL";
+    const httpStatus = isAuthError(err) ? err.status : 500;
+    try {
+        await recordAudit(db, {
+            organizationId: scope.organizationId,
+            actorProfileId,
+            action: "invoice.import.failed",
+            targetType: "Period",
+            targetId: scope.periodId,
+            metadata: { operationId, periodId: scope.periodId, category: files.category, format: files.format ?? "LID_TXT", code, httpStatus },
+        });
+    } catch (e) {
+        console.info("[libro-iva-import] no se pudo registrar la falla: " + (e instanceof Error ? e.name : typeof e));
+    }
 }
 
 // ── Serialización para la API (importes como string exacto; sin clave ni modelo) ──

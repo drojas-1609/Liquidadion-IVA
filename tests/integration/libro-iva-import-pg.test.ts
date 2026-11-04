@@ -15,8 +15,10 @@ vi.mock("@/lib/prisma", () => ({
 
 import { POST as PREVIEW } from "@/app/api/periods/[id]/libro-iva-import/preview/route";
 import { POST as CONFIRM } from "@/app/api/periods/[id]/libro-iva-import/confirm/route";
+import { GET as STATUS } from "@/app/api/periods/[id]/libro-iva-import/route";
+import { randomUUID } from "node:crypto";
 import { computeLiquidation } from "@/lib/liquidation-calc";
-import { STALE_PREVIEW_MESSAGE, PARTIAL_IMPORT_MESSAGE } from "@/lib/libro-iva-import/service";
+import { STALE_PREVIEW_MESSAGE, PARTIAL_IMPORT_MESSAGE, OPERATION_REUSED_MESSAGE } from "@/lib/libro-iva-import/service";
 import { ansiFile, cuit, portalCsv, zipOne, purchaseAliquotLine, purchaseVoucherLine, salesAliquotLine, salesVoucherLine } from "../helpers/libro-iva-synth";
 
 /**
@@ -38,6 +40,8 @@ const b64 = (u: Uint8Array) => Buffer.from(u).toString("base64");
 type Files = { category: "SALES" | "PURCHASES"; vouchers: Uint8Array; aliquots: Uint8Array; format?: "PORTAL_CSV" };
 async function call(route: typeof PREVIEW, as: string, periodId: string, clientId: string, f: Files, extra: Record<string, unknown> = {}) {
     H.sub = as;
+    // Toda confirmación lleva el operationId que genera el navegador.
+    if (route === CONFIRM && !("operationId" in extra)) extra = { ...extra, operationId: randomUUID() };
     const req = new Request(`http://localhost/api/periods/${periodId}/libro-iva-import`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -46,7 +50,16 @@ async function call(route: typeof PREVIEW, as: string, periodId: string, clientI
             : { clientId, category: f.category, vouchersFile: b64(f.vouchers), aliquotsFile: b64(f.aliquots), ...extra }),
     });
     const res = await route(req, { params: Promise.resolve({ id: periodId }) });
-    return { status: res.status, body: (await res.json()) as Record<string, unknown> & { error?: { code?: string; message?: string } } };
+    const json = (await res.json()) as Record<string, unknown> & { error?: { code?: string; message?: string } };
+    // La confirmación devuelve además su operationId: se separa para comparar el resultado.
+    const { operationId, ...body } = json;
+    return { status: res.status, body: body as typeof json, operationId: operationId as string | undefined };
+}
+async function status(as: string, periodId: string, operationId?: string) {
+    H.sub = as;
+    const url = `http://localhost/api/periods/${periodId}/libro-iva-import${operationId ? `?operationId=${operationId}` : ""}`;
+    const res = await STATUS(new Request(url), { params: Promise.resolve({ id: periodId }) });
+    return { status: res.status, body: (await res.json()) as { operation: Record<string, unknown> | null; recent: Record<string, unknown>[]; error?: { code?: string } } };
 }
 
 describe.skipIf(!raw)("importación Libro IVA Digital por las rutas, en PostgreSQL", () => {
@@ -257,5 +270,81 @@ describe.skipIf(!raw)("importación Libro IVA Digital por las rutas, en PostgreS
         // Volver a subir cualquiera de los dos archivos ya no agrega nada.
         expect((((await call(PREVIEW, ACCOUNTANT, period, "c_lid_a3", portal)).body.rows) as { status: string }[]).map((r) => r.status)).toEqual(["DUPLICATE", "DUPLICATE", "DUPLICATE"]);
         expect((((await call(PREVIEW, ACCOUNTANT, period, "c_lid_a3", txt)).body.rows) as { status: string }[]).map((r) => r.status)).toEqual(["DUPLICATE", "DUPLICATE", "DUPLICATE"]);
+    });
+
+    describe("resultado de cada confirmación (operationId)", () => {
+        let period: string;
+        const audits = (operationId: string, action = "invoice.import") =>
+            db.auditLog.count({ where: { organizationId: ORG_A, action, targetId: period, metadata: { path: ["operationId"], equals: operationId } } });
+        beforeAll(async () => {
+            await db.client.create({ data: { id: "c_lid_a4", organizationId: ORG_A, name: "CLIENTE LID A4", cuit: cuit("3070000006"), condition: "Responsable Inscripto" } });
+            period = (await db.period.create({ data: { clientId: "c_lid_a4", organizationId: ORG_A, month: 10, year: 2026 } })).id;
+        });
+
+        it("aplicada: el reintento de la misma operación devuelve el resultado sin escribir; con otros archivos, 409", async () => {
+            const op = randomUUID();
+            const files = purchaseFiles(9101);
+            const pv = await call(PREVIEW, ACCOUNTANT, period, "c_lid_a4", files);
+            const first = await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: op });
+            expect([first.status, first.body, first.operationId]).toEqual([201, { imported: 1, turiva: 0, duplicates: 0, notImported: 0 }, op]);
+            const again = await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: op });
+            expect([again.status, again.body]).toEqual([200, { imported: 1, turiva: 0, duplicates: 0, notImported: 0, replayed: true }]);
+            expect([await count(period), await audits(op)]).toEqual([1, 1]);
+
+            const otherFiles = purchaseFiles(9102);
+            const pv2 = await call(PREVIEW, ACCOUNTANT, period, "c_lid_a4", otherFiles);
+            const reused = await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", otherFiles, { token: pv2.body.token, operationId: op });
+            expect([reused.status, reused.body.error?.message]).toEqual([409, OPERATION_REUSED_MESSAGE]);
+            expect(await count(period)).toBe(1);
+
+            const st = await status(ACCOUNTANT, period, op);
+            expect(st.status).toBe(200);
+            expect(st.body.operation).toMatchObject({ operationId: op, status: "APPLIED", category: "PURCHASES", format: "LID_TXT", result: { imported: 1, turiva: 0, duplicates: 0, notImported: 0 }, failure: null });
+            expect(st.body.recent[0]).toMatchObject({ operationId: op, status: "APPLIED" });
+            expect(JSON.stringify(st.body)).not.toMatch(new RegExp(`${SELLER}|PROVEEDOR|1210|Sha256`));
+            // VIEWER puede consultar; otra organización no ve el período.
+            expect((await status(VIEWER, period, op)).body.operation).toMatchObject({ status: "APPLIED" });
+            expect((await status(OTHER_ORG, period, op)).status).toBe(404);
+            expect((await status(ACCOUNTANT, periodB, op)).status).toBe(404);
+            expect((await status(ACCOUNTANT, period, randomUUID())).body.operation).toMatchObject({ status: "NOT_FOUND", result: null });
+            expect((await status(ACCOUNTANT, period, "no-es-uuid")).status).toBe(422);
+        });
+
+        it("fallida: período cerrado entre la vista previa y la confirmación; el reintento con el mismo id la aplica", async () => {
+            const op = randomUUID();
+            const files = purchaseFiles(9103);
+            const pv = await call(PREVIEW, ACCOUNTANT, period, "c_lid_a4", files);
+            const before = await count(period);
+            await db.period.update({ where: { id: period }, data: { status: "CLOSED", closedAt: new Date() } });
+            try {
+                const res = await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: op });
+                expect([res.status, res.body.error?.code]).toEqual([409, "PERIOD_CLOSED"]);
+                expect(await count(period)).toBe(before);
+                expect((await status(ACCOUNTANT, period, op)).body.operation).toMatchObject({ status: "FAILED", result: null, failure: { code: "PERIOD_CLOSED", httpStatus: 409 } });
+                const failed = await db.auditLog.findFirstOrThrow({ where: { organizationId: ORG_A, action: "invoice.import.failed", targetId: period, metadata: { path: ["operationId"], equals: op } } });
+                expect(Object.keys(failed.metadata as object).sort()).toEqual(["category", "code", "format", "httpStatus", "operationId", "periodId"]);
+            } finally {
+                await db.period.update({ where: { id: period }, data: { status: "OPEN", closedAt: null } });
+            }
+            const retry = await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: op });
+            expect(retry.status).toBe(201);
+            expect(await count(period)).toBe(before + 1);
+            // APPLIED tiene prioridad sobre el intento fallido.
+            expect((await status(ACCOUNTANT, period, op)).body.operation).toMatchObject({ status: "APPLIED", result: { imported: 1 } });
+            expect([await audits(op), await audits(op, "invoice.import.failed")]).toEqual([1, 1]);
+        });
+
+        it("la misma operación enviada dos veces a la vez: una escribe y la otra devuelve su resultado; sin duplicados", async () => {
+            const op = randomUUID();
+            const files = purchaseFiles(9104);
+            const pv = await call(PREVIEW, ACCOUNTANT, period, "c_lid_a4", files);
+            const before = await count(period);
+            // Dos clientes de la base para que las transacciones compitan de verdad por el bloqueo.
+            const send = () => call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: op });
+            const results = await Promise.all([send(), send()]);
+            expect(results.map((r) => r.status).sort()).toEqual([200, 201]);
+            expect(results.find((r) => r.status === 200)?.body).toMatchObject({ imported: 1, replayed: true });
+            expect([await count(period), await audits(op)]).toEqual([before + 1, 1]);
+        });
     });
 });
