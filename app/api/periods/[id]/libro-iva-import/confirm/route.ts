@@ -16,6 +16,7 @@ import { lockPeriodForWrite } from "@/lib/period-lock";
 import { assertTurivaIncludedUnderLock } from "@/lib/invoice-write";
 import { parseImportRequest } from "@/lib/libro-iva-import/request";
 import { importAuditMetadata, importedVoucherKeys, importWriteData, planConfirm, STALE_PREVIEW_MESSAGE } from "@/lib/libro-iva-import/service";
+import { startConfirmTiming } from "@/lib/libro-iva-import/timing";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -42,17 +43,24 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const scope = { organizationId, periodId: access.period.id, clientId: access.period.clientId };
     const files = { category: input.category, format: input.format, vouchers: input.vouchers, aliquots: input.aliquots };
 
+    const timing = startConfirmTiming(request);
     const plan = await planConfirm(scope, files, { token: input.token as string, acceptPartial: input.acceptPartial });
     const data = importWriteData(plan, scope, profileId);
+    timing.mark("plan", { rows: data.invoices.length, vatLines: data.vatLines.length });
 
+    // timeout 40000: excepción inventariada (tests/_period-lock-structure.ts,
+    // HANDLER_TX_TIMEOUT_OVERRIDES). El volumen de escritura no entra en 10 s
+    // con la latencia de la Preview; el total queda bajo los 60 s de Netlify.
     await prisma.$transaction(async (tx) => {
         await lockPeriodForWrite(tx, scope.periodId, organizationId);
         if (plan.result.turiva > 0) await assertTurivaIncludedUnderLock(tx, scope.periodId, organizationId);
         // Otra carga del mismo comprobante entre la vista previa y este bloqueo.
         const loaded = await importedVoucherKeys(tx, scope, files.category);
         if (plan.rows.some((r) => loaded.has(r.key))) throw new ConflictError(STALE_PREVIEW_MESSAGE);
+        timing.mark("lock");
         await tx.invoice.createMany({ data: data.invoices });
         if (data.vatLines.length > 0) await tx.invoiceVatLine.createMany({ data: data.vatLines });
+        timing.mark("write");
         await recordAudit(tx, {
             organizationId,
             actorProfileId: profileId,
@@ -61,11 +69,12 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
             targetId: scope.periodId,
             metadata: importAuditMetadata(plan, scope),
         });
-    }, { maxWait: 5000, timeout: 10000 }).catch((err: unknown) => {
+    }, { maxWait: 5000, timeout: 40000 }).catch((err: unknown) => {
+        timing.fail(err);
         // Carrera con un alta sobre los índices únicos parciales.
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") throw new ConflictError(STALE_PREVIEW_MESSAGE);
         throw err;
     });
 
-    return NextResponse.json(plan.result, { status: 201 });
+    return NextResponse.json(plan.result, { status: 201, headers: { "Server-Timing": timing.done() } });
 });
