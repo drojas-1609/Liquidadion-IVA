@@ -35,6 +35,21 @@ Aditiva. **DEV: aplicada y verificada el 04/11/2026** con `~/studio-users-dev-ki
 - `SUPABASE_SERVICE_ROLE_KEY` sólo en el servidor (`lib/users/invitation-mailer.ts`, `server-only`). Sin ella: `NOT_CONFIGURED`. Verificado con un build aislado con valor centinela: no aparece en `.next/` y el nombre sólo en un chunk de servidor.
 - Configuración exacta para el piloto con dos cuentas: [DEV-PILOTO.md](DEV-PILOTO.md).
 
+## Evidencia en DEV (Preview #28, `a185cc5`, 04/11/2026)
+- **Aceptación:** dos cuentas reales del titular, con enlaces generados por el servidor (`96-invite-link.mjs`), definieron su contraseña en "Activar acceso". Las invitaciones pasaron a ACCEPTED, con correo confirmado y Membership creada con los permisos exactos de la invitación.
+  - **A:** Contable, solo IVA, 1 cliente asignado. Membership `cmw2id8zp0001l2096rasoiw3`.
+  - **B:** Consulta, solo Fichas, otro cliente. Membership `cmw2idvvf0001jp095rxar1rb`.
+  - **Cupo:** pasó de 2 invitaciones pendientes a 3 accesos activos (3 de 5 en ambos casos).
+- **Permisos:**
+  - A ve solo su cliente y abre período y liquidación. El tablero, el período y la exportación de otro cliente dan 404 (verificado también por API). `/settings/users`: sin permiso.
+  - B ve solo la ficha de su cliente, sin períodos. Otro cliente da 404; el período de su propio cliente, sin módulo IVA, da sin permiso.
+- **Desactivación con sesión abierta:** el OWNER desactivó a A y después a B. En la solicitud siguiente, con la misma sesión, las dos ventanas mostraron "Sin organización", y la API de A respondió 403 `NO_ORGANIZATION` (también en su propio cliente).
+- **Cierre:** ambos accesos DISABLED, cupo 1 de 5, ninguna invitación pendiente. Auditoría: `member.invite` ×2, `member.invite_accept` ×2 y `member.disable` ×2, sin correos ni ids de clientes en los metadatos.
+- **Envío:** sin clave en Netlify, la invitación queda pendiente con "solo envía a direcciones de prueba autorizadas"; revocarla libera la plaza.
+
+## Producción
+Procedimiento en dos pasos (migración, y después correo y piloto con una sola dirección), con el alcance exacto de la clave, la URL de activación y la allowlist: [PRODUCCION.md](PRODUCCION.md). Kit: `~/studio-users-prod-kit`.
+
 ## Pruebas
 - `scripts/pg-local-regression.sh`: integración en PostgreSQL 17 local (dos usuarias, revocación con sesión abierta, vencimiento, reenvío, correo ya registrado, dos estudios, cupo concurrente con invitaciones y reactivaciones, aceptaciones simultáneas, Data API cerrada) y ensayo de la prueba DEV.
 - `tests/dev-smoke/users-dev-smoke.test.ts`: la misma lógica contra DEV en un estudio sintético `syn_users_*`; sólo con habilitación explícita (kit, paso 90).
