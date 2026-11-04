@@ -22,13 +22,13 @@ import { NotFoundError, ValidationError } from "@/lib/auth/errors";
 export const POST = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_CREATE);
+    await requireOrganizationRole(profileId, organizationId, ROLES_CREATE, { module: "IVA" });
 
     const body = await parseJsonBody(request);
     const parsed = buildPeriodInput(body);
     if (!parsed.ok) throw new ValidationError(parsed.error, parsed.field);
 
-    const access = await requireClientAccess(profileId, parsed.data.clientId, ROLES_CREATE);
+    const access = await requireClientAccess(profileId, parsed.data.clientId, ROLES_CREATE, { module: "IVA" });
     // Defensa en profundidad: el Client debe ser de la organización ACTIVA. Si
     // no, mismo 404 que un cliente inexistente (la FK compuesta lo rechazaría
     // igual, pero como 500).

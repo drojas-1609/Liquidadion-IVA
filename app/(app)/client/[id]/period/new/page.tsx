@@ -15,7 +15,7 @@ export default async function NewPeriodPage({ params }: { params: Promise<{ id: 
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
-        const { organizationId } = await requireClientAccess(profileId, id, ROLES_CREATE);
+        const { organizationId } = await requireClientAccess(profileId, id, ROLES_CREATE, { module: "IVA" });
         const client = await prisma.client.findFirst({
             where: { id, organizationId },
             select: { id: true, name: true },

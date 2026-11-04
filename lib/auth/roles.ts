@@ -32,6 +32,16 @@ export const ROLES_PERIOD_CLOSE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTAN
 /** Reabrir un período cerrado: sólo OWNER y ADMIN (más sensible que cerrar). */
 export const ROLES_PERIOD_REOPEN: readonly Role[] = ["OWNER", "ADMIN"];
 
+// ── Usuarios del estudio (Configuración → Usuarios) ────────────────────────
+/**
+ * Invitar, reenviar o revocar invitaciones, cambiar permisos y desactivar o
+ * reactivar accesos: SÓLO el propietario en esta primera entrega (más estricto
+ * que `ROLES_MEMBERS`, que queda reservada para una delegación futura).
+ */
+export const ROLES_USER_MANAGE: readonly Role[] = ["OWNER"];
+/** Roles que se pueden asignar a otra persona. OWNER nunca se asigna ni se quita desde la app. */
+export const ASSIGNABLE_ROLES: readonly Role[] = ["ADMIN", "ACCOUNTANT", "VIEWER"];
+
 // ── Futuras (matriz preparada, sin implementar) ────────────────────────────
 export const ROLES_UPDATE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT"];
 export const ROLES_DELETE: readonly Role[] = ["OWNER", "ADMIN"];

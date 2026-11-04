@@ -19,10 +19,12 @@ const sql = readFileSync(migrationsDir + MIGRATION + "/migration.sql", "utf8");
 const code = sql.split("\n").map((l) => l.replace(/--.*$/, "")).join(" ").replace(/\s+/g, " ").trim();
 
 describe(`migración ${MIGRATION} — revisión estática`, () => {
-    it("es la última y no cambia la migración ARCA previa", () => {
+    it("sigue a la migración ARCA previa sin cambiarla; sólo la siguen migraciones posteriores conocidas", () => {
         const dirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-        expect(dirs.at(-1)).toBe(MIGRATION);
-        expect(dirs.at(-2)).toBe("20261028120000_arca_wsaa_ticket_cache");
+        // Posteriores, revisadas en su propio test (tests/schema/*).
+        const LATER = ["20261104120000_studio_users_permissions"];
+        expect(dirs.slice(-1 - LATER.length)).toEqual([MIGRATION, ...LATER]);
+        expect(dirs.at(-2 - LATER.length)).toBe("20261028120000_arca_wsaa_ticket_cache");
         expect(createHash("sha256").update(readFileSync(migrationsDir + "20261028120000_arca_wsaa_ticket_cache/migration.sql")).digest("hex")).toBe(PREVIOUS_ARCA_SHA256);
     });
     it("transaccional, con timeouts y sin operaciones destructivas", () => {

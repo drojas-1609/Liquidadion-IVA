@@ -20,7 +20,10 @@ model Profile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships Membership[]
+  memberships     Membership[]
+  // Usuarios del estudio: invitaciones emitidas por este Profile (SetNull: la
+  // invitación sobrevive al borrado de quien invitó; la autoría queda en AuditLog).
+  sentInvitations OrganizationInvitation[] @relation("InvitationInvitedBy")
 
   createdClients           Client[]            @relation("ClientCreatedBy")
   updatedClients           Client[]            @relation("ClientUpdatedBy")
@@ -60,6 +63,14 @@ model Organization {
   settings    OrgSetting[]
   arcaPadron  ArcaPadronOrganization?
 
+  // Usuarios del estudio: cupo de plazas. Ocupan plaza las Membership ACTIVE
+  // (incluido el propietario) y las invitaciones PENDING no vencidas (ver
+  // lib/users/seats.ts). CHECK en la base: seatLimit >= 1. El valor lo
+  // provisionará el plan comercial (docs/usuarios/README.md); hoy se configura
+  // por estudio.
+  seatLimit   Int                      @default(5)
+  invitations OrganizationInvitation[]
+
   // Tarea 3B: historial de auditoría de la organización. onDelete: Restrict
   // (una futura eliminación de Organization NO debe borrar en silencio su
   // historial; antes hay que definir política de conservación/archivo).
@@ -74,12 +85,99 @@ model Membership {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  profile      Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // Usuarios del estudio. Defaults = acceso previo intacto: las membresías
+  // existentes quedan ACTIVE, con todos los clientes y todos los módulos.
+  // El OWNER tiene siempre alcance y módulos completos (lib/auth/permissions):
+  // estas columnas no lo restringen. Un trigger impide dejar al estudio sin
+  // OWNER activo (migración 20261104120000_studio_users_permissions).
+  status      MembershipStatus @default(ACTIVE)
+  clientScope ClientScope      @default(ALL)
+  modules     AppModule[]      @default([CLIENTS, IVA, ARCA_PADRON])
+  disabledAt  DateTime?
+
+  profile      Profile            @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientAccess MembershipClient[]
 
   @@unique([profileId, organizationId])
+  // Destino de la FK compuesta desde MembershipClient (misma organización).
+  @@unique([id, organizationId])
   @@index([organizationId])
   @@index([profileId])
+}
+
+enum MembershipStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ClientScope {
+  ALL
+  SELECTED
+}
+
+/// Módulos implementados que se pueden habilitar por usuaria. Un módulo nuevo
+/// NO se agrega solo a las membresías existentes (fail-closed): lo habilita el
+/// propietario.
+enum AppModule {
+  CLIENTS
+  IVA
+  ARCA_PADRON
+}
+
+/// Clientes visibles para una Membership con clientScope = SELECTED. FKs
+/// compuestas con organizationId: imposible asignar un cliente de otro estudio.
+/// Cascade: borrar el cliente o la membresía borra la asignación.
+model MembershipClient {
+  membershipId   String
+  clientId       String
+  organizationId String
+  createdAt      DateTime @default(now())
+
+  membership Membership @relation(fields: [membershipId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  client     Client     @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@id([membershipId, clientId])
+  @@index([clientId])
+  @@index([organizationId])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+}
+
+/// Invitación por correo a sumarse al estudio. `email` normalizado (trim +
+/// minúsculas). Vencida = PENDING con expiresAt <= now (no ocupa plaza).
+/// Índice único parcial (sólo SQL): una sola PENDING por (organizationId, email).
+/// Los permisos se copian a la Membership al aceptar; `clientIds` se vuelve a
+/// filtrar contra los clientes vigentes del estudio en ese momento.
+model OrganizationInvitation {
+  id             String           @id @default(cuid())
+  organizationId String
+  email          String
+  role           Role
+  clientScope    ClientScope
+  modules        AppModule[]
+  clientIds      String[]
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  invitedById    String?          @db.Uuid
+  /// auth.users.id devuelto por Supabase al invitar (null si la cuenta ya existía).
+  authUserId     String?          @db.Uuid
+  lastSentAt     DateTime?
+  sendCount      Int              @default(0)
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    Profile?     @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([email])
 }
 
 /// Reemplazo conceptual del Settings global. En 3A no se inventan claves
@@ -128,7 +226,9 @@ model Client {
   createdBy      Profile?     @relation("ClientCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy      Profile?     @relation("ClientUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
-  periods Period[]
+  periods      Period[]
+  // Usuarias con alcance SELECTED que pueden ver este cliente.
+  memberAccess MembershipClient[]
 
   @@unique([organizationId, cuit])
   // Tarea 3B: habilita que (id, organizationId) sea destino de FK compuesta

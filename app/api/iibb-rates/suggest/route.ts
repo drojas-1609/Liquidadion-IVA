@@ -24,7 +24,7 @@ const MONEY = /^\d{1,15}(\.\d{1,2})?$/;
 export const POST = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_CREATE);
+    await requireOrganizationRole(profileId, organizationId, ROLES_CREATE, { module: "CLIENTS" });
 
     const body = await parseJsonBody(request);
     if (typeof body !== "object" || body === null || Array.isArray(body)) throw new ValidationError("cuerpo inválido", "body");

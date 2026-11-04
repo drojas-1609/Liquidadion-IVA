@@ -23,6 +23,18 @@ export default function SettingsPage() {
         <p style={{ color: "var(--secondary)" }}>Parámetros globales de liquidación de impuestos.</p>
       </div>
 
+      <div className="card" style={{ marginBottom: "var(--spacing-lg)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-md)", flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ fontSize: "1.125rem", fontWeight: 600 }}>Usuarios</h2>
+          <p style={{ color: "var(--secondary)", fontSize: "0.875rem" }}>
+            Invitaciones, roles, clientes y módulos de cada persona del estudio. Sólo para el propietario.
+          </p>
+        </div>
+        <Link href="/settings/users" className="btn btn-secondary">
+          Gestionar usuarios
+        </Link>
+      </div>
+
       <form onSubmit={handleSave} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
         {saved && (
           <div style={{ padding: "var(--spacing-sm)", backgroundColor: "rgba(34, 197, 94, 0.1)", color: "var(--success)", borderRadius: "var(--radius-sm)" }}>

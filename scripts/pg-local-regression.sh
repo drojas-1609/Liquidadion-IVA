@@ -5,7 +5,7 @@
 #  2. Aplica TODAS las migraciones del repositorio con `prisma migrate deploy`.
 #  3. Verifica que schema.prisma y las migraciones no difieren (prisma migrate
 #     diff con una base shadow del mismo clúster).
-#  4. Corre las pruebas de integración locales (ficha de clientes, WSAA y
+#  4. Corre las pruebas de integración locales (ficha de clientes, usuarios del estudio, WSAA y
 #     controles de ARCA en producción) contra ese clúster, más una base con el
 #     esquema del DEV actual (sin la última migración) para probar el cierre.
 #  5. Detiene y borra el clúster (también ante errores).
@@ -52,19 +52,30 @@ CLEAN_ENV=(env -i PATH="$PATH" HOME="$HOME" CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPD
 "${PG_BIN}/psql" "$URL" -X -qAt -c \
   "SELECT 'FK alícuota->jurisdicción: ' || pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ClientActivityRate_clientId_organizationId_jurisdictionCod_fkey'"
 
+# Migraciones posteriores al DEV actual (todavía no aplicadas en DEV): quedan fuera
+# de las bases "tipo DEV" y del precheck del runner, que verifica la lista exacta
+# de DEV (scripts/arca/homologation-runner.ts EXPECTED_MIGRATIONS). Hoy ninguna.
+NOT_IN_DEV='^$'
+# Última migración aplicada en DEV: runner_prev representa el DEV anterior a ella.
+LAST_IN_DEV='^20261104120000_studio_users_permissions$'
+
 # Base con el esquema del DEV actual: todas las migraciones salvo la de controles de producción.
 "${PG_BIN}/psql" "$URL" -X -qAt -c "CREATE DATABASE devlike" >/dev/null
 DEVLIKE="postgresql://postgres@127.0.0.1:${PORT}/devlike"
-for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v '^20261102120000_arca_production_controls$' | sort); do
+for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v '^20261102120000_arca_production_controls$' | grep -v "$NOT_IN_DEV" | sort); do
   "${PG_BIN}/psql" "$DEVLIKE" -X -q -v ON_ERROR_STOP=1 -f "$REPO/prisma/migrations/$m/migration.sql" >/dev/null || die "falló $m en devlike"
 done
 
 # Bases propias del precheck del runner, aplicadas con Prisma (con _prisma_migrations):
-# runner_prev = las 10 previas (esquema anterior) y runner_cur = las 11. Privilegios por
+# runner_prev = las 11 previas (esquema anterior) y runner_cur = las 12. Privilegios por
 # defecto sobre tablas y secuencias como los que puede heredar un objeto en Supabase.
 RUNNER_PRISMA="$TMP/runner-prisma"
 mkdir -p "$RUNNER_PRISMA/migrations"; cp "$REPO/prisma/schema.prisma" "$RUNNER_PRISMA/"; cp "$REPO/prisma/migrations/migration_lock.toml" "$RUNNER_PRISMA/migrations/"
-for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v '^20261102120000_arca_production_controls$'); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_PRISMA/migrations/"; done
+for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v "$LAST_IN_DEV" | grep -v "$NOT_IN_DEV"); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_PRISMA/migrations/"; done
+# runner_cur = el DEV actual (las 12), también sin las migraciones posteriores.
+RUNNER_CUR_PRISMA="$TMP/runner-cur-prisma"
+mkdir -p "$RUNNER_CUR_PRISMA/migrations"; cp "$REPO/prisma/schema.prisma" "$RUNNER_CUR_PRISMA/"; cp "$REPO/prisma/migrations/migration_lock.toml" "$RUNNER_CUR_PRISMA/migrations/"
+for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v "$NOT_IN_DEV"); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_CUR_PRISMA/migrations/"; done
 for db in runner_prev runner_cur; do
   "${PG_BIN}/psql" "$URL" -X -qAt -c "CREATE DATABASE $db" >/dev/null
   "${PG_BIN}/psql" "postgresql://postgres@127.0.0.1:${PORT}/$db" -X -q -v ON_ERROR_STOP=1 -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;' >/dev/null
@@ -72,7 +83,7 @@ done
 RUNNER_PREV="postgresql://postgres@127.0.0.1:${PORT}/runner_prev"
 RUNNER_CUR="postgresql://postgres@127.0.0.1:${PORT}/runner_cur"
 ( cd "$REPO" && "${CLEAN_ENV[@]}" DATABASE_URL="$RUNNER_PREV" DIRECT_URL="$RUNNER_PREV" npx --no-install prisma migrate deploy --schema "$RUNNER_PRISMA/schema.prisma" ) >/dev/null || die "falló deploy runner_prev"
-( cd "$REPO" && "${CLEAN_ENV[@]}" DATABASE_URL="$RUNNER_CUR" DIRECT_URL="$RUNNER_CUR" npx --no-install prisma migrate deploy ) >/dev/null || die "falló deploy runner_cur"
+( cd "$REPO" && "${CLEAN_ENV[@]}" DATABASE_URL="$RUNNER_CUR" DIRECT_URL="$RUNNER_CUR" npx --no-install prisma migrate deploy --schema "$RUNNER_CUR_PRISMA/schema.prisma" ) >/dev/null || die "falló deploy runner_cur"
 
 # schema.prisma y las migraciones describen el MISMO esquema (base shadow local).
 "${PG_BIN}/psql" "$URL" -X -qAt -c "CREATE DATABASE prisma_shadow" >/dev/null
@@ -81,4 +92,8 @@ SHADOW="postgresql://postgres@127.0.0.1:${PORT}/prisma_shadow"
     --to-schema-datamodel prisma/schema.prisma --shadow-database-url "$SHADOW" --exit-code >/dev/null ) \
   && echo "schema.prisma == migraciones: sin diferencias" || die "schema.prisma y las migraciones difieren"
 
-( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" PR17_LOCAL_PG_DEVLIKE_URL="$DEVLIKE" PR17_LOCAL_PG_RUNNER_PREV_URL="$RUNNER_PREV" PR17_LOCAL_PG_RUNNER_URL="$RUNNER_CUR" npx --no-install vitest run --no-file-parallelism tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts tests/integration/arca-production-pg.test.ts tests/integration/arca-devlike-pg.test.ts tests/integration/arca-runner-precheck-pg.test.ts )
+( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" PR17_LOCAL_PG_DEVLIKE_URL="$DEVLIKE" PR17_LOCAL_PG_RUNNER_PREV_URL="$RUNNER_PREV" PR17_LOCAL_PG_RUNNER_URL="$RUNNER_CUR" npx --no-install vitest run --no-file-parallelism tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts tests/integration/arca-production-pg.test.ts tests/integration/arca-devlike-pg.test.ts tests/integration/arca-runner-precheck-pg.test.ts tests/integration/users-permissions-pg.test.ts )
+
+# Ensayo de la prueba DEV de usuarias sintéticas (tests/dev-smoke) contra el clúster local,
+# DESPUÉS de las pruebas anteriores: sus datos hacen de "estudio real" que no debe cambiar.
+( cd "$REPO" && "${CLEAN_ENV[@]}" USERS_DEV_SMOKE_REHEARSAL_URL="$URL" npx --no-install vitest run tests/dev-smoke/users-dev-smoke.test.ts )

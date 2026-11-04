@@ -8,6 +8,6 @@ import { listLookupAudit } from "@/lib/arca-padron/lookup-audit";
 export const GET = withApiAuthz(async () => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_AUDIT_READ);
+    await requireOrganizationRole(profileId, organizationId, ROLES_AUDIT_READ, { module: "ARCA_PADRON" });
     return NextResponse.json({ entries: await listLookupAudit(organizationId) }, { headers: { "Cache-Control": "no-store, max-age=0" } });
 });
