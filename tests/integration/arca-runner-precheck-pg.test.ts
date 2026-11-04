@@ -4,8 +4,8 @@ import { precheck, FP, EXPECTED_MIGRATIONS, EXPECTED_RELATIONS } from "../../scr
 
 /**
  * Precheck del runner de homologación contra PostgreSQL LOCAL y descartable
- * (scripts/pg-local-regression.sh): runner_prev tiene las 10 migraciones previas y
- * runner_cur las 11, ambas aplicadas con Prisma. Datos sintéticos. Cada alteración
+ * (scripts/pg-local-regression.sh): runner_prev tiene las 11 migraciones previas y
+ * runner_cur las 12, ambas aplicadas con Prisma. Datos sintéticos. Cada alteración
  * se deshace y se comprueba que el precheck vuelve a pasar, para atribuir el rechazo
  * exactamente a esa alteración. La huella local difiere de la de DEV (otros UUID).
  */
@@ -49,13 +49,14 @@ describe.skipIf(!prevUrl || !curUrl)("runner de homologación: precheck de DEV",
     });
     afterAll(async () => { await prev?.$disconnect(); await cur?.$disconnect(); });
 
-    it("fija 11 migraciones y la huella verificada en DEV", () => {
-        expect(EXPECTED_MIGRATIONS).toHaveLength(11);
+    it("fija 12 migraciones y la huella verificada en DEV", () => {
+        expect(EXPECTED_MIGRATIONS).toHaveLength(12);
         expect(EXPECTED_MIGRATIONS[10]).toEqual(["20261102120000_arca_production_controls", "1546bb960aee01bb4ad26871a3a22d4ba7f844b0215f64b293e5ef7f8ea2ca36"]);
-        expect(FP).toBe("8fdb3152a0c7aecf35581f2dd8c82ccbd25d769f9efc8be7f5a0b9d86164a04f");
+        expect(EXPECTED_MIGRATIONS[11]).toEqual(["20261104120000_studio_users_permissions", "cc70bc0be6b90df80151da841aa58f64b3e275ce72c96373d977f40492c3a512"]);
+        expect(FP).toBe("3cdc65111945aaf0d49289066690f71a2c604792258aef4efe382b501c4f16bf");
     });
 
-    it("rechaza el esquema anterior (10 migraciones), con cualquier huella", async () => {
+    it("rechaza el esquema anterior (11 migraciones), con cualquier huella", async () => {
         expect(await outcome(prev)).toBe("MIGRACIONES_DEV");
         const prevFp = (await prev.$queryRaw<Array<{ fp: string }>>`SELECT encode(sha256(convert_to(string_agg(id||':'||migration_name||':'||checksum,'|' ORDER BY migration_name),'UTF8')),'hex') AS fp FROM "_prisma_migrations"`)[0].fp;
         expect(await outcome(prev, prevFp)).toBe("MIGRACIONES_DEV");

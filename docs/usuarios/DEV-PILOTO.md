@@ -19,15 +19,16 @@ Requieren autorización explícita: la migración, los datos sintéticos, la car
 
   `main` y el #25 siguen funcionando después de la migración.
 - **Objetos futuros:** una tabla, secuencia o función creada por `postgres` (el rol que migra) queda sin privilegios para `anon`, `authenticated` y `service_role`. Las tablas que cree `supabase_admin` (la plataforma) sí los reciben, por los privilegios por defecto de Supabase, que la migración no puede cambiar. Regla: crear tablas **solo por migraciones** y mantener la Data API sin esquemas expuestos. El `api_exposure` del kit lo detecta.
-- **Netlify (sitio `liquidadoriva`):**
-  - La cuenta **no tiene** alcances granulares de variables (`env_var_scopes`: 403, ver `docs/arca/PREVIEW.md`). Netlify los limita a los planes Pro y Enterprise. **No se puede dejar una variable solo para Functions**: queda con los alcances por defecto (builds, functions, runtime).
-  - Sí se puede marcar **`is_secret`** (`DATABASE_URL` ya lo está): queda de solo escritura, no admite el alcance *post processing* y el *secret scanning* hace fallar el build si el valor aparece en lo que se publica.
-  - Sí se puede asignar un **valor por rama**, que "will be used for deploy permalinks, Deploy Previews, and branch deploys for the specified branch". En el build aislado, con un valor centinela, la clave no aparece en `.next/`.
+- **Netlify (sitio `liquidadoriva`), metadatos leídos el 04/11/2026:**
+  - La cuenta `drojas-s83-g` está en el plan **Pro** (`env_var_scopes`, `env_var_secrets` y `enhanced_secret_scanning` incluidos). Las `ARCA_*` ya tienen alcance **solo `functions`**. El 403 de `docs/arca/PREVIEW.md` es anterior al cambio de plan.
+  - El alcance se fija por variable y el contexto por valor: se puede combinar `scopes: ["functions"]` + `is_secret` + un único valor `branch:codex/usuarios-permisos-estudio`. Netlify exige que los secretos tengan contextos y alcances explícitos y no admite *post processing*. El *secret scanning* hace fallar el build si el valor aparece en lo publicado.
+  - **A qué se aplica el valor por rama:** a todo deploy "initiated from" esa rama. Eso incluye cada Deploy Preview del PR #28 (de cualquier commit), sus *deploy permalinks* (`<id>--liquidadoriva.netlify.app`, el mismo deploy con otra URL) y los branch deploys de la rama. Estos últimos **hoy no existen**, porque `allowed_branches = ["main"]`; si alguien los habilitara para esta rama, también recibirían la clave. No llega a Production ni a las Previews de otras ramas. Fuera de Netlify (`netlify dev --context branch:…`) los secretos se leen enmascarados.
+  - La app limita el **envío** a `USER_INVITE_REDIRECT_URL`. Desde un permalink, la request trae otro host y el envío queda en `NOT_CONFIGURED`, aunque la clave esté disponible en esas funciones.
 - **Supabase Auth:** la lista de redirecciones es una **unión** de patrones. Agregar la URL exacta no restringe mientras exista `https://deploy-preview-*--liquidadoriva.netlify.app/**`, que usan la recuperación y el callback de todas las Previews. La restricción exacta se hace **en la app**: el envío exige que el destino sea `USER_INVITE_REDIRECT_URL`; si falta o difiere, devuelve `NOT_CONFIGURED`.
 
-## 1. Variables de Netlify (sin cargar todavía)
+## 1. Variables de Netlify (pendiente; no cargar todavía)
 
-Contexto: **valor por rama `codex/usuarios-permisos-estudio`** (aplica a la Deploy Preview #28). Ningún otro contexto: ni Production, ni Deploy Previews en general, ni `dev`.
+Cada variable con **alcance solo `functions`** y **un único valor** en el contexto `branch:codex/usuarios-permisos-estudio`. Ningún otro contexto: ni Production, ni Deploy Previews generales, ni `dev`.
 
 | Variable | Valor | `is_secret` |
 |---|---|---|
@@ -35,7 +36,7 @@ Contexto: **valor por rama `codex/usuarios-permisos-estudio`** (aplica a la Depl
 | `USER_INVITE_EMAIL_ALLOWLIST` | `<cuenta-A>,<cuenta-B>` (direcciones exactas) | no |
 | `USER_INVITE_REDIRECT_URL` | `https://deploy-preview-28--liquidadoriva.netlify.app/auth/accept-invite` | no |
 
-Después de cargarlas hace falta un **nuevo deploy** de la Preview. Comprobar luego en los metadatos que existen solo con el contexto `branch:codex/usuarios-permisos-estudio`.
+Cargarlas solo si se acepta que la clave quede disponible en **todos** los deploys iniciados desde la rama (Previews y sus permalinks). Mantener deshabilitados los branch deploys de esa rama. Después de la carga hace falta un nuevo deploy; releer los metadatos (`scopes` y `values[].context`) sin valores. Para el ensayo del §4 **no hace falta** ninguna de estas variables.
 
 ## 2. Supabase DEV · Authentication
 
@@ -67,17 +68,25 @@ Comprobaciones:
 4. Reenviar antes de un minuto: rechazado. Revocar: el enlace ya no da acceso.
 5. Con el cupo al uso actual, invitar responde "sin plazas".
 
-## 4. Si el correo integrado bloquea: enlaces generados por el servidor
+## 4. Ensayo con enlaces generados en terminal (sin secretos en Netlify y sin correo)
 
-`~/studio-users-dev-kit/96-invite-link.mjs` (requiere autorización, porque usa la clave secreta de DEV en tu terminal):
-- Pide la clave en un prompt oculto. Comprueba contra DEV que sea una clave admin válida de ese proyecto y se niega con PROD.
-- Acepta solo las direcciones que le pasás como argumento (A y B).
-- Llama a `auth.admin.generateLink`: tipo `invite` para una cuenta nueva y `magiclink` si ya existe, con `redirectTo` = la URL exacta de la Preview. **No envía correos.**
-- Muestra el enlace `…/auth/accept-invite?token_hash=…&type=…` **solo en la terminal**, sin guardarlo. Es de un solo uso y vence según *Email OTP Expiration*.
+Recomendado para el piloto con dos cuentas bajo tu control, mientras la clave no esté cargada en Netlify. La clave de DEV se usa **solo en tu terminal**, durante la ejecución, y nunca llega a Netlify. El enlace va directo a la página de la Preview y no pasa por la redirección de Supabase, así que tampoco hace falta tocar Auth (salvo *Email OTP Expiration*, que define cuánto dura el enlace).
 
-Requisito: la invitación tiene que existir pendiente en la app (se creó en el §3, aunque el envío diera `FAILED`). La aceptación la ubica por el correo confirmado. Abrir el enlace en una **ventana privada** con la cuenta correspondiente y seguir las comprobaciones del §3.
+Requisitos: migración DEV aplicada y verificada; push hecho y Preview #28 compilada; dos direcciones **distintas** de la del OWNER, bajo tu control. Ningún secreto en Netlify.
 
-El envío real queda como **verificación aparte**, cuando haya SMTP propio o las cuentas sean miembros del equipo.
+1. En la Preview, como OWNER: Configuración → Usuarios → invitar a A (Contable · un cliente · solo IVA) y a B (Consulta · todos · Clientes + IVA). Sin allowlist ni clave, la respuesta es `BLOCKED_RECIPIENT` o `NOT_CONFIGURED`. La invitación **queda pendiente** y ocupa plaza.
+2. En una terminal limpia:
+   ```sh
+   cd ~/studio-users-dev-kit
+   env -i PATH="$PATH" HOME="$HOME" TERM="$TERM" USERS_DEV_LINK=yes-esyfpakajthdifhnhcew node 96-invite-link.mjs <cuenta-A> <cuenta-B>
+   ```
+   Pide la clave en un prompt oculto. Comprueba que sea admin de DEV y se niega con PROD. Para una cuenta nueva genera un enlace `type=invite` (definirá contraseña); para una ya confirmada, `type=magiclink`. Muestra los enlaces solo en la terminal. Si una cuenta todavía no existía, `generateLink` la crea sin confirmar.
+3. Abrir el enlace de A en una ventana privada → «Activar acceso» → contraseña → entra. Seguir las comprobaciones del §3. Repetir con B en otra ventana privada.
+4. Casos negativos:
+   - **reabrir el mismo enlace:** "no es válido o ya fue usado";
+   - **revocar antes de abrir:** generar el enlace, revocar en la app y abrir: "No encontramos una invitación vigente". La cuenta de Auth queda creada pero sin acceso.
+   - **vencimiento:** la invitación vencida no se acepta; Reenviar la renueva.
+5. El envío real por correo queda como verificación aparte: con las variables del §1 y SMTP propio, o con cuentas que sean miembros del equipo de Supabase.
 
 ## 5. Reservado para la integración #25 + #28
 

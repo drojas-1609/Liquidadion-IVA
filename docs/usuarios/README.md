@@ -21,7 +21,12 @@ La migración cierra eso en la base: RLS sin políticas en cada tabla de `public
 Recomendado además: mantener la Data API sin esquemas expuestos en DEV y PROD.
 
 ## Migración `20261104120000_studio_users_permissions`
-Aditiva; NO aplicada en DEV/PROD. Membresías existentes quedan ACTIVE/ALL/todos los módulos.
+Aditiva. **DEV: aplicada y verificada el 04/11/2026** con `~/studio-users-dev-kit`:
+- migración `runs/20261104T132722Z-migrate`: Prisma 0, postcheck OK, `api_exposure` vacío;
+- huella `runs/20261104T135730Z-h3`: `3cdc6511…16bf`; las 11 filas previas reproducen `8fdb3152…`;
+- smoke sintético `runs/20261104T150808Z-smoke`: 3/3 en el estudio `syn_users_20261104150834_e87281`, con lo ajeno intacto.
+
+**PROD: sin aplicar.** Las membresías existentes quedan ACTIVE/ALL/todos los módulos.
 **Orden de despliegue:** aplicar la migración ANTES del código (el cliente Prisma nuevo lee `seatLimit`). En DEV se aplica con `~/studio-users-dev-kit` (preflight, un único intento, postcheck, huella). Después: actualizar `EXPECTED_MIGRATIONS`/`FP` de `scripts/arca/homologation-runner.ts` con la huella leída de DEV y quitar la migración de `NOT_IN_DEV` en `scripts/pg-local-regression.sh` (lo hace `85-runner-update.sh` del kit, sin commit).
 
 ## Correo
