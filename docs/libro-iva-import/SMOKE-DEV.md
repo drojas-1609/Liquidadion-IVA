@@ -67,14 +67,16 @@ Registrá los tiempos, las respuestas y las capturas, sin datos reales.
 
 **Límites del código:**
 - 2 MB por archivo; en el ZIP, por CSV descomprimido;
-- transacción de 10 s;
-- solicitud y respuesta de hasta 6 MB en Netlify Functions.
+- transacción de la confirmación de 40 s (excepción inventariada);
+- solicitud y respuesta de hasta 6 MB en Netlify Functions;
+- respuesta cortada con 504 a los 30 s en la Preview.
 
 En Portal IVA el límite efectivo es el CSV descomprimido de 2 MB (unas 10.800 ventas con dos alícuotas). A ese tamaño, la respuesta de la vista previa estimada es de unos 3,5 MB.
 
-**Falta medir en DEV:**
-- la latencia al pooler de Supabase en la confirmación (lotes de `createMany` dentro de los 10 s);
-- el timeout de la función de Netlify y el tamaño real de la respuesta a través de la Preview.
+**Medido en DEV:** ver la tabla de volumen en [README.md](README.md). En resumen:
+- 4.001, 6.001 y 7.503 filas confirman bien (20–29 s);
+- con 9.001, la respuesta da 504 a los 30 s aunque la transacción se confirma completa;
+- para correlacionar con los logs de Netlify, buscar `[libro-iva-import] confirm` y el `x-nf-request-id` de la respuesta.
 
 ## 3. Limpieza (sólo DEV, con autorización; mostrar las sentencias antes)
 

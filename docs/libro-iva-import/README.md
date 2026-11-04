@@ -109,10 +109,24 @@ Detalle de la descarga de Portal IVA:
 
 **Límites:**
 - 2 MB por archivo, así que dos archivos al máximo dan unos 5,6 MB de solicitud, por debajo de los 6 MB de Netlify Functions;
-- la transacción tiene 10 s;
-- el timeout de la función de Netlify.
+- la transacción de la confirmación tiene 40 s (única excepción inventariada al plazo de 10 s; ver `tests/_period-lock-structure.ts`);
+- la respuesta de la función: en la Deploy Preview se cortó con 504 a los 30 s, antes de los 60 s documentados por Netlify.
 
-En DEV hay que medir otra vez: la latencia al pooler de Supabase no está en esta medición local.
+**Medido en DEV** (Deploy Preview del 04/11/2026; función en Ohio, base en São Paulo):
+
+| Carga | Vista previa | Confirmación | Plan | Bloqueo | Escritura | Commit |
+|---|---|---|---|---|---|---|
+| ZIP, 4.001 ventas | 9,4 s | 201 en 20,3 s | 3,6 s | 2,0 s | 10,5 s | 0,4 s |
+| TXT, 6.001 compras | 12,8 s | 201 en 23,0 s | 3,6 s | 1,7 s | 13,2 s | 0,4 s |
+| TXT, 7.503 ventas | 11,2 s | 201 en 28,8 s (un primer intento: 502 del runtime a los 13 s, sin escribir) | 5,3 s | 2,4 s | 15,9 s | 0,4 s |
+| ZIP, 9.001 ventas | 10,3 s | **504 a los 30,1 s, pero la transacción se confirmó** a los 38,8 s | — | — | — | — |
+
+- Postgres ejecuta cada lote de ~665 filas en ~70 ms; el resto es la latencia entre la función y la base (~1,1 s por lote).
+- Con la región actual, el máximo práctico es de unas 7.500 filas por confirmación.
+- Arriba de eso el operador puede ver un error aunque la importación haya quedado hecha. Es completa y atómica: al volver a subir el archivo, todo figura «Ya cargado».
+- Mover las funciones a `gru` (São Paulo), donde están las bases de DEV y de PROD, ataca la causa. Es una configuración del sitio: afecta también a producción.
+
+Cada confirmación registra en los logs de la función una línea `[libro-iva-import] confirm` con el `x-nf-request-id`, la etapa, conteos y milisegundos por fase (y el código de Prisma si falla), y devuelve `Server-Timing`.
 
 **Datos sintéticos para el smoke:** `scripts/libro-iva-import/generate-synthetic.ts` (se niega a escribir dentro del repositorio). Guion: [SMOKE-DEV.md](SMOKE-DEV.md).
 
