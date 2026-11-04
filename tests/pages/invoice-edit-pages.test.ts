@@ -113,6 +113,9 @@ const setWorld = (rows: Array<ReturnType<typeof stored>> = [stored("inv_s", "SAL
     invoiceVatLines: rows.flatMap((r) => r.lines),
   });
   wireDb(db, world, freshRecorder());
+  db.invoice.count.mockImplementation(async ({ where }: any) =>
+    (world.invoices ?? []).filter((i) => i.periodId === where.periodId && i.organizationId === where.organizationId && i.category === where.category).length,
+  );
   // Listas: filtra como Prisma y adjunta sólo los códigos de alícuota (include de la página).
   db.invoice.findMany.mockImplementation(async ({ where }: any) =>
     (world.invoices ?? [])
@@ -393,9 +396,12 @@ describe.each(LISTS)("lista de %s — acciones por rol", (_name, Page, direction
     await call();
     expect(db.invoice.findMany).toHaveBeenCalledWith({
       where: { periodId: "p_a", organizationId: ORG_A, category: direction },
-      orderBy: { date: "desc" },
+      orderBy: [{ date: "desc" }, { id: "desc" }],
+      skip: 0,
+      take: 100,
       include: { vatLines: { select: { vatRateCode: true } } },
     });
+    expect(db.invoice.count).toHaveBeenCalledWith({ where: { periodId: "p_a", organizationId: ORG_A, category: direction } });
   });
 
   it.each([

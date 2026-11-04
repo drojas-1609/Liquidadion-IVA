@@ -6,6 +6,7 @@ import { ROLES_READ } from "@/lib/auth/roles";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-calc";
+import { loadPeriodLiquidationInput } from "@/lib/liquidation-totals";
 import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { formatMoney } from "@/lib/format";
 import { LIQUIDATION_RATE_NOTE } from "@/lib/legacy-iibb-rate";
@@ -23,12 +24,15 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
         const { organizationId } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
             expectClientId: id,
         });
+        // Totales del período COMPLETO agregados en la base (lib/liquidation-totals).
         const found = await prisma.period.findFirst({
             where: { id: periodId, organizationId },
-            include: { invoices: { include: { vatLines: true } }, taxRecords: true, client: true, vatSettings: true },
+            include: { client: { select: { name: true } } },
         });
         if (!found) throw new NotFoundError();
-        return found;
+        const liquidation = await loadPeriodLiquidationInput(prisma, { organizationId, periodId: found.id });
+        if (!liquidation) throw new NotFoundError();
+        return { ...found, liquidation };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
     const period = guard.data;
@@ -37,7 +41,7 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
     // se muestra una liquidación parcial.
     let r: LiquidationResult;
     try {
-        r = computeLiquidation(period);
+        r = computeLiquidation(period.liquidation);
     } catch (err) {
         if (!(err instanceof MissingGlobalProrationCoefficientError)) throw err;
         return (
