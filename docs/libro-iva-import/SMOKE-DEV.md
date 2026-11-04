@@ -81,11 +81,18 @@ En Portal IVA el límite efectivo es el CSV descomprimido de 2 MB (unas 10.800 v
 - con 9.001, la respuesta da 504 a los 30 s aunque la transacción se confirma completa: la pantalla recupera el resultado por `operationId`;
 - para correlacionar con los logs de Netlify, buscar `[libro-iva-import] confirm` y el `x-nf-request-id` de la respuesta.
 
-## 3. Limpieza (sólo DEV, con autorización; mostrar las sentencias antes)
+## 3. Limpieza (sólo DEV, con autorización; revisar el SQL antes)
 
-La app no tiene borrado masivo de comprobantes, así que se limpia por SQL, acotado al cliente sintético. El AuditLog se conserva como historial.
+La app no tiene borrado masivo de comprobantes, así que se limpia por SQL: [`cleanup-dev-smoke.sql`](cleanup-dev-smoke.sql). Es un único bloque `DO`:
 
-Conteos finales esperados (DEV, 04/11/2026, al cerrar el ensayo de recuperación; cliente `cmw1kqvuy0001jq09pc7luasa`):
+- acotado por id, nombre y organización del cliente sintético;
+- la pertenencia de los comprobantes se prueba por `Period` (`Invoice.clientId` es nullable), y además exige que ningún comprobante tenga otro `clientId` u otra organización;
+- verifica cada conteo esperado y cada dependencia (FK revisadas contra `pg_constraint` de DEV; falla si aparece una FK no contemplada);
+- cualquier diferencia hace `RAISE EXCEPTION` y revierte todo, también los `DELETE` ya hechos;
+- conserva el `AuditLog` y verifica que su total no cambie;
+- con `dry_run = true` (por defecto) recorre todo y aborta a propósito; para borrar, `false`.
+
+Conteos esperados (DEV, 04/11/2026, al cerrar el ensayo de recuperación; cliente `cmw1kqvuy0001jq09pc7luasa`, organización `cmts8llsg0000vg437y8tzjna`):
 
 | Período | Comprobantes (todos IMPORT) | Líneas de IVA | TaxRecord | PeriodVatSettings |
 |---|---|---|---|---|
@@ -95,31 +102,6 @@ Conteos finales esperados (DEV, 04/11/2026, al cerrar el ensayo de recuperación
 | 01/2027 | 42.011 | 56.010 | 0 | 0 |
 | **Total** | **60.064** | **80.076** | **0** | **0** |
 
-```sql
--- 1) Verificar: exactamente 1 fila con periodos=4, comprobantes=60064, importados=60064, lineas_iva=80076.
-SELECT c.id, c.name,
-       (SELECT count(*) FROM "Period" p WHERE p."clientId" = c.id) AS periodos,
-       (SELECT count(*) FROM "Invoice" i JOIN "Period" p ON p.id = i."periodId" WHERE p."clientId" = c.id) AS comprobantes,
-       (SELECT count(*) FROM "Invoice" i JOIN "Period" p ON p.id = i."periodId" WHERE p."clientId" = c.id AND i.source = 'IMPORT') AS importados,
-       (SELECT count(*) FROM "InvoiceVatLine" l JOIN "Invoice" i ON i.id = l."invoiceId" JOIN "Period" p ON p.id = i."periodId" WHERE p."clientId" = c.id) AS lineas_iva,
-       (SELECT count(*) FROM "TaxRecord" t JOIN "Period" p ON p.id = t."periodId" WHERE p."clientId" = c.id) AS tax_records,
-       (SELECT count(*) FROM "PeriodVatSettings" s JOIN "Period" p ON p.id = s."periodId" WHERE p."clientId" = c.id) AS vat_settings
-FROM "Client" c
-WHERE c.id = 'cmw1kqvuy0001jq09pc7luasa' AND c.name = 'CLIENTE SINTETICO LID SMOKE';
+Sin `ClientActivity` ni `ClientJurisdiction`. El cliente y sus períodos tienen 24 filas de `AuditLog`, que se conservan.
 
--- 2) Borrar en una transacción. Las líneas de IVA (80.076) caen en cascada con el comprobante.
-BEGIN;
-DELETE FROM "Invoice" i USING "Period" p
- WHERE i."periodId" = p.id AND p."clientId" = 'cmw1kqvuy0001jq09pc7luasa';            -- esperado: DELETE 60064
-DELETE FROM "TaxRecord" t USING "Period" p
- WHERE t."periodId" = p.id AND p."clientId" = 'cmw1kqvuy0001jq09pc7luasa';            -- esperado: DELETE 0
-DELETE FROM "PeriodVatSettings" s USING "Period" p
- WHERE s."periodId" = p.id AND p."clientId" = 'cmw1kqvuy0001jq09pc7luasa';            -- esperado: DELETE 0
-DELETE FROM "Period" WHERE "clientId" = 'cmw1kqvuy0001jq09pc7luasa';                   -- esperado: DELETE 4
-DELETE FROM "Client" WHERE id = 'cmw1kqvuy0001jq09pc7luasa' AND name = 'CLIENTE SINTETICO LID SMOKE';  -- esperado: DELETE 1
--- 3) Antes de confirmar: debe dar 0 y 0.
-SELECT (SELECT count(*) FROM "Invoice" WHERE "clientId" = 'cmw1kqvuy0001jq09pc7luasa') AS comprobantes_restantes,
-       (SELECT count(*) FROM "InvoiceVatLine" l LEFT JOIN "Invoice" i ON i.id = l."invoiceId" WHERE i.id IS NULL) AS lineas_huerfanas;
--- Si algún conteo no coincide: ROLLBACK;
-COMMIT;
-```
+Probado en un PostgreSQL 17 local descartable con todas las migraciones: el recorrido completo en `dry_run` revierte (el cliente sigue), con `false` borra y conserva el `AuditLog`, y un conteo o un nombre distinto aborta.
