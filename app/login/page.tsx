@@ -67,9 +67,10 @@ function LoginForm() {
       </p>
 
       <div className={styles.studio}>
-        <p>Estudio Contable y Jurídico</p>
+        <h2>Estudio Contable y Jurídico</h2>
+        <p>Asesoramiento para tu empresa, desde los impuestos hasta las decisiones de todos los días.</p>
         <a href="https://www.derocompany.com.ar/" target="_blank" rel="noopener noreferrer">
-          www.derocompany.com.ar <span className={styles.srOnly}>(abre en una pestaña nueva)</span>
+          Conocé el estudio <span aria-hidden="true">↗</span><span className={styles.srOnly}>(abre en una pestaña nueva)</span>
         </a>
       </div>
     </form>
