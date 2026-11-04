@@ -15,12 +15,17 @@ function LoginForm() {
 
   return (
     <form action={formAction} className="card" style={{ width: "100%", maxWidth: "360px" }}>
-      <h1 style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "var(--spacing-md)" }}>
-        Dero Company Gestión
-      </h1>
-      <p style={{ fontSize: "0.9rem", marginBottom: "var(--spacing-md)" }}>
-        Gestión integral para estudios contables
-      </p>
+      <header className={styles.brand}>
+        <Image
+          src="/branding/dero-company.png"
+          alt=""
+          width={125}
+          height={100}
+          className={styles.logo}
+        />
+        <h1>Dero Company Gestión</h1>
+        <p>Gestión integral para estudios contables</p>
+      </header>
 
       <input type="hidden" name="next" value={next} />
 
@@ -80,15 +85,7 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <main className={styles.login}>
-      <div className={styles.cover}>
-        <Image
-          src="/branding/dero-company.png"
-          alt="Dero Company"
-          width={125}
-          height={100}
-          className={styles.logo}
-        />
-      </div>
+      <div className={styles.cover} aria-hidden="true" />
       <div className={styles.access}>
         <Suspense fallback={null}>
           <LoginForm />
