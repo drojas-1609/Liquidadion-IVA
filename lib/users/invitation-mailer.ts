@@ -55,8 +55,28 @@ function alreadyRegistered(err: { status?: number; code?: string } | null): bool
   return err.code === "email_exists" || err.code === "user_already_exists";
 }
 
+/**
+ * El destino del enlace debe ser EXACTAMENTE `USER_INVITE_REDIRECT_URL` (p. ej. la URL de
+ * la Deploy Preview del PR, cargada como valor por rama en Netlify). La allow-list de
+ * Supabase es una unión con comodines para todas las Previews; esto restringe el envío
+ * a un único origen aunque la request llegue por otro host permitido.
+ */
+export function redirectAllowed(redirectTo: string, env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  const exact = (env.USER_INVITE_REDIRECT_URL ?? "").trim();
+  if (!exact) return false;
+  try {
+    const u = new URL(exact);
+    if (u.search || u.hash || !u.pathname.endsWith("/auth/accept-invite")) return false;
+    if (u.protocol !== "https:" && !(u.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(u.hostname))) return false;
+  } catch {
+    return false;
+  }
+  return redirectTo === exact;
+}
+
 export async function sendInvitationEmail(email: string, redirectTo: string): Promise<DeliveryResult> {
   if (!recipientAllowed(email)) return { status: "BLOCKED_RECIPIENT" };
+  if (!redirectAllowed(redirectTo)) return { status: "NOT_CONFIGURED" };
 
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   let url: string;

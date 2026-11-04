@@ -67,6 +67,9 @@ vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new Error("NOTFOUND_PAGE");
   },
+  useRouter: () => ({ push: () => undefined, refresh: () => undefined, replace: () => undefined }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 import { GET as listClients } from "@/app/api/clients/route";
@@ -78,6 +81,8 @@ import { POST as disableMember } from "@/app/api/organization/members/[id]/disab
 import { POST as enableMember } from "@/app/api/organization/members/[id]/enable/route";
 import { acceptInvitation } from "@/lib/users/service";
 import ClientDashboard from "@/app/(app)/client/[id]/dashboard/page";
+import PeriodPage from "@/app/(app)/client/[id]/period/[periodId]/page";
+import { renderToStaticMarkup } from "react-dom/server";
 
 const as = (sub: string, email = mail("owner")) => {
   H.claims.value = { sub, email, authRole: "authenticated", raw: {} };
@@ -160,9 +165,21 @@ describe.skipIf(!URL_DEV)("DEV: usuarios del estudio con dos usuarias sintética
 
     as(ANA, mail("ana"));
     expect(await names()).toEqual(["Sintético Uno"]);
-    expect(await exp(C1, P1)).not.toBe(404);
+    // Cliente asignado, con módulo IVA: historial de períodos, período y exportación.
+    const dash = renderToStaticMarkup((await ClientDashboard({ params: Promise.resolve({ id: C1 }) })) as React.ReactElement);
+    expect(dash).toContain("Sintético Uno");
+    expect(dash).toContain("Períodos fiscales");
+    expect(dash).toContain(`/client/${C1}/period/${P1}`);
+    const period = renderToStaticMarkup((await PeriodPage({ params: Promise.resolve({ id: C1, periodId: P1 }) })) as React.ReactElement);
+    expect(period).toContain("Período 01/2026");
+    expect(period).toContain(`/client/${C1}/period/${P1}/liquidation`);
+    expect(await exp(C1, P1)).toBe(200);
+    // Fuera de su alcance: 404 idéntico a inexistente (tablero, período y exportación).
     expect(await exp(C2, P2)).toBe(404);
+    expect(await exp(C1, P2)).toBe(404);
     await expect(ClientDashboard({ params: Promise.resolve({ id: C2 }) })).rejects.toThrow("NOTFOUND_PAGE");
+    await expect(PeriodPage({ params: Promise.resolve({ id: C2, periodId: P2 }) })).rejects.toThrow("NOTFOUND_PAGE");
+    // Importar (PR #25) queda para la prueba de integración entre ambos PR (docs/usuarios/DEV-PILOTO.md §5).
 
     as(BEA, mail("bea"));
     expect(await names()).toEqual(["Sintético Dos", "Sintético Uno"]);

@@ -4,7 +4,7 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: vi.fn() }));
 
 import { normalizeEmail, parseInvite, parsePermissions } from "@/lib/users/input";
 import { effectivePermissions, modulesAllow, APP_MODULES } from "@/lib/auth/permissions";
-import { recipientAllowed } from "@/lib/users/invitation-mailer";
+import { recipientAllowed, redirectAllowed } from "@/lib/users/invitation-mailer";
 import { sanitizeAuditMetadata } from "@/lib/auth/audit";
 import { ASSIGNABLE_ROLES, ROLES_USER_MANAGE } from "@/lib/auth/roles";
 
@@ -88,6 +88,17 @@ describe("guarda de destinatarios del correo de invitación", () => {
   it("CONTEXT=production no abre la guarda (en runtime de Netlify CONTEXT no existe; etapa DEV)", () => {
     expect(recipientAllowed("ana@example.test", { CONTEXT: "production" })).toBe(false);
     expect(recipientAllowed("ana@example.test", { CONTEXT: "production", USER_INVITE_EMAIL_ALLOWLIST: "otra@example.test" })).toBe(false);
+  });
+  it("destino del enlace: sólo la URL exacta configurada (https o localhost), sin parámetros", () => {
+    const P = "https://deploy-preview-28--liquidadoriva.netlify.app/auth/accept-invite";
+    expect(redirectAllowed(P, {})).toBe(false);
+    expect(redirectAllowed(P, { USER_INVITE_REDIRECT_URL: P })).toBe(true);
+    expect(redirectAllowed(P, { USER_INVITE_REDIRECT_URL: ` ${P} ` })).toBe(true);
+    expect(redirectAllowed("https://deploy-preview-25--liquidadoriva.netlify.app/auth/accept-invite", { USER_INVITE_REDIRECT_URL: P })).toBe(false);
+    expect(redirectAllowed(P + "?x=1", { USER_INVITE_REDIRECT_URL: P + "?x=1" })).toBe(false);
+    expect(redirectAllowed("http://evil.test/auth/accept-invite", { USER_INVITE_REDIRECT_URL: "http://evil.test/auth/accept-invite" })).toBe(false);
+    expect(redirectAllowed("https://x.test/otra", { USER_INVITE_REDIRECT_URL: "https://x.test/otra" })).toBe(false);
+    expect(redirectAllowed("http://localhost:3000/auth/accept-invite", { USER_INVITE_REDIRECT_URL: "http://localhost:3000/auth/accept-invite" })).toBe(true);
   });
   it("el comodín no cruza la @ ni admite espacios", () => {
     const env = { USER_INVITE_EMAIL_ALLOWLIST: "pruebas+*@example.test" };

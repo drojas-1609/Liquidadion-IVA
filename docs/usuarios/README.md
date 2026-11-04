@@ -17,7 +17,7 @@
 
 ## Data API de Supabase (cierre en la misma migración)
 Observado en DEV (solo lectura, 04/11/2026): las tablas de negocio de `public` tenían RLS desactivado y `arwdDxtm` para `anon`/`authenticated`/`service_role` (privilegios por defecto de Supabase). Hoy PostgREST arranca **sin esquemas expuestos** (`db-schemas=pg_pgrst_no_exposed_schemas`) y `pg_graphql` no está instalado: no hay acceso efectivo, pero bastaba con exponer `public` en el panel para que la clave publicable leyera y escribiera todo.
-La migración cierra eso en la base: RLS sin políticas en cada tabla de `public`, `REVOKE ALL` a PUBLIC y a los tres roles de la API en tablas, secuencias y funciones, y los privilegios por defecto del rol que migra (las tablas futuras tampoco quedan expuestas). La app no usa la Data API (todo pasa por Prisma como propietario). Probado en PostgreSQL local (`tests/integration/users-permissions-pg.test.ts`).
+La migración cierra eso en la base: RLS sin políticas en cada tabla de `public`, `REVOKE ALL` a PUBLIC y a los tres roles de la API en tablas, secuencias y funciones, y los privilegios por defecto del rol que migra, incluido el `EXECUTE` implícito de PUBLIC en funciones: tablas, secuencias y funciones futuras creadas por `postgres` tampoco quedan expuestas. **Límite:** las que cree `supabase_admin` (la plataforma) reciben los privilegios por defecto de Supabase; crear objetos solo por migraciones. La app no usa la Data API (todo pasa por Prisma como propietario). Probado en PostgreSQL local (`tests/integration/users-permissions-pg.test.ts`).
 Recomendado además: mantener la Data API sin esquemas expuestos en DEV y PROD.
 
 ## Migración `20261104120000_studio_users_permissions`
@@ -25,6 +25,7 @@ Aditiva; NO aplicada en DEV/PROD. Membresías existentes quedan ACTIVE/ALL/todos
 **Orden de despliegue:** aplicar la migración ANTES del código (el cliente Prisma nuevo lee `seatLimit`). En DEV se aplica con `~/studio-users-dev-kit` (preflight, un único intento, postcheck, huella). Después: actualizar `EXPECTED_MIGRATIONS`/`FP` de `scripts/arca/homologation-runner.ts` con la huella leída de DEV y quitar la migración de `NOT_IN_DEV` en `scripts/pg-local-regression.sh` (lo hace `85-runner-update.sh` del kit, sin commit).
 
 ## Correo
+- Destino exacto: el envío exige `USER_INVITE_REDIRECT_URL` igual al `RedirectTo` calculado (p. ej. la URL de la Preview #28). La allow-list de Supabase es una unión con comodines y no alcanza para restringir.
 - Guarda de destinatarios en **todos** los entornos: sólo `USER_INVITE_EMAIL_ALLOWLIST` (admite `*` sin cruzar la `@`). No hay excepción por `CONTEXT` (no existe en el runtime de Netlify). Producción queda fuera de esta etapa.
 - `SUPABASE_SERVICE_ROLE_KEY` sólo en el servidor (`lib/users/invitation-mailer.ts`, `server-only`). Sin ella: `NOT_CONFIGURED`. Verificado con un build aislado con valor centinela: no aparece en `.next/` y el nombre sólo en un chunk de servidor.
 - Configuración exacta para el piloto con dos cuentas: [DEV-PILOTO.md](DEV-PILOTO.md).

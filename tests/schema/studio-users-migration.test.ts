@@ -78,6 +78,7 @@ describe(`migración ${MIGRATION} — revisión estática`, () => {
       expect(block).toContain(`ALTER DEFAULT PRIVILEGES REVOKE ALL ON ${kind} FROM %I`);
       expect(block).toContain(`ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON ${kind} FROM %I`);
     }
+    expect(block).toContain("ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;");
     expect(code).not.toMatch(/FORCE ROW LEVEL SECURITY|DISABLE ROW LEVEL SECURITY/i);
     // Va dentro de la misma transacción (antes del COMMIT final).
     expect(code.indexOf("$data_api$;")).toBeLessThan(code.lastIndexOf("COMMIT;"));

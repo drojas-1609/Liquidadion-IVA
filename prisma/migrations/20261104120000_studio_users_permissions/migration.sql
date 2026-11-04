@@ -224,6 +224,9 @@ BEGIN
    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I', o.sig, r);
   END LOOP;
  END LOOP;
+ -- PostgreSQL concede EXECUTE a PUBLIC en toda función nueva (privilegio implícito):
+ -- sin esto, una función futura quedaría ejecutable por los roles de la API.
+ ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
  FOR r IN SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated', 'service_role') LOOP
   EXECUTE format('ALTER DEFAULT PRIVILEGES REVOKE ALL ON TABLES FROM %I', r);
   EXECUTE format('ALTER DEFAULT PRIVILEGES REVOKE ALL ON SEQUENCES FROM %I', r);

@@ -544,13 +544,25 @@ describe.skipIf(!URL_LOCAL)("PostgreSQL local: usuarios del estudio, permisos y 
     // Objetos futuros creados por el rol que migra tampoco quedan expuestos.
     await db.$executeRawUnsafe(`CREATE TABLE "_probe_future"(id int)`);
     await db.$executeRawUnsafe(`CREATE SEQUENCE "_probe_future_seq"`);
+    await db.$executeRawUnsafe(`CREATE FUNCTION public._probe_future_fn() RETURNS int LANGUAGE sql AS 'SELECT 1'`);
     try {
       const fut = await db.$queryRaw<{ n: bigint }[]>`
         SELECT count(*) AS n FROM pg_roles r WHERE r.rolname IN ('anon','authenticated','service_role')
           AND (has_table_privilege(r.rolname, '"_probe_future"', 'SELECT,INSERT,UPDATE,DELETE')
-               OR has_sequence_privilege(r.rolname, '"_probe_future_seq"', 'USAGE,SELECT,UPDATE'))`;
+               OR has_sequence_privilege(r.rolname, '"_probe_future_seq"', 'USAGE,SELECT,UPDATE')
+               OR has_function_privilege(r.rolname, 'public._probe_future_fn()', 'EXECUTE'))`;
       expect(Number(fut[0].n)).toBe(0);
+      // Efectivo: anon no lee la tabla futura ni ejecuta la función futura.
+      for (const sql of [`SELECT 1 FROM "_probe_future"`, `SELECT public._probe_future_fn()`]) {
+        await expect(
+          db.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(`SET LOCAL ROLE anon`);
+            await tx.$executeRawUnsafe(sql);
+          }),
+        ).rejects.toThrow(/permission denied/);
+      }
     } finally {
+      await db.$executeRawUnsafe(`DROP FUNCTION public._probe_future_fn()`);
       await db.$executeRawUnsafe(`DROP TABLE "_probe_future"`);
       await db.$executeRawUnsafe(`DROP SEQUENCE "_probe_future_seq"`);
     }
