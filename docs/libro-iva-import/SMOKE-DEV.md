@@ -51,7 +51,9 @@ Esperado para 202610 (verificado en local con la vista previa real):
 | 8 | Período 11/2026: vista previa del ZIP de ventas de `~/lid-smoke-202611`; cerrar el período en otra pestaña; Confirmar | 409 «El período está cerrado…»; nada escrito. Reabrir y confirmar: se importa. |
 | 9 | Auditoría (lectura de `AuditLog`) | Una fila `invoice.import` por confirmación, con `format` (`PORTAL_CSV` o `LID_TXT`), conteos y huellas; sin CUIT, nombres ni importes |
 | 10 | VIEWER intenta importar | Sin botón; por la API, 403 |
-| 10b | Corte o recarga: confirmar y recargar la página antes de la respuesta; reintentar | La pantalla muestra «Verificando…» y luego «Confirmación aplicada (recuperada…)» o «no se aplicó». «Confirmaciones registradas» lista la operación. Reintentar devuelve el mismo resultado sin escribir |
+| 10b | Corte o recarga: confirmar y recargar la página antes de la respuesta; reintentar | La pantalla muestra «Verificando…» y luego «Confirmación aplicada (… según el registro del período)» o «no se aplicó» (sólo si todos los envíos tienen su falla registrada). «Confirmaciones registradas» lista la operación. Reintentar devuelve el mismo resultado sin escribir |
+| 10c | Corte real: confirmar una carga que supere los 30 s de la Preview (504) | «Verificando…» mientras la transacción sigue; después «Confirmación aplicada» con los conteos del registro. Conteos del período, historial y duplicados coinciden con la importación |
+| 10d | Sin registro pasados 75 s (corte de red controlado en el navegador antes de enviar, y sin red para la consulta) | «Resultado sin confirmar» con el `operationId` completo y «Volver a verificar». Recargar conserva el mismo estado; al volver la red, «Volver a verificar» muestra el resultado registrado |
 | 11 | Volumen (opcional): ventas TXT 7.500 y ZIP de Portal IVA de unas 9.000 ventas (`--sales 7500` / `--sales 9000` en otra carpeta y otro período) | Medir vista previa y confirmación. Ver límites abajo. |
 
 Registrá los tiempos, las respuestas y las capturas, sin datos reales.

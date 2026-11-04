@@ -8,10 +8,15 @@
  *    si existe, la operación se aplicó, completa;
  *  - `invoice.import.failed` (escrito después de que la transacción terminó
  *    con error): la operación no escribió nada.
- * Si todavía no hay ninguna de las dos, la operación sigue en curso mientras
- * no haya pasado RESULT_WAIT_MS desde que se envió: la función de Netlify no
- * puede seguir viva más de 60 s, y si muere, la conexión se cierra y la
- * transacción se revierte. Pasado ese plazo sin registro, no se aplicó.
+ * Sólo esos registros permiten afirmar un resultado. Sin ninguno de los dos:
+ *  - antes de RESULT_WAIT_MS desde el envío, la operación puede seguir en curso;
+ *  - después, el resultado queda SIN CONFIRMAR: el tiempo transcurrido no
+ *    prueba que no se haya aplicado (la falla se registra en modo best-effort y
+ *    el límite de la función no es una garantía del sistema). El operador puede
+ *    volver a verificar con el mismo operationId o reintentar los mismos
+ *    archivos, que reutilizan ese operationId (reintento idempotente).
+ * Un `invoice.import.failed` describe UN envío (attemptId): la operación sólo
+ * falló cuando fallaron todos sus envíos. `invoice.import` siempre tiene prioridad.
  */
 
 export const OPERATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -40,13 +45,38 @@ export interface ImportOperationView {
     format: string | null;
     result: OperationResult | null;
     failure: { code: string; httpStatus: number | null } | null;
+    /** Sólo en la consulta de UNA operación: envíos (attemptId) con invoice.import.failed propio. */
+    failedAttemptIds?: string[];
 }
 
-/** Estado que ve el operador para una operación propia, según la API y el tiempo transcurrido. */
-export function operatorState(view: Pick<ImportOperationView, "status">, startedAtMs: number, nowMs: number): "APPLIED" | "FAILED" | "IN_PROGRESS" | "NOT_APPLIED" {
+/** Un envío de la confirmación desde esta pantalla. `rejected`: llegó la respuesta de error de la app (ese envío no escribió). */
+export interface Attempt {
+    attemptId: string;
+    startedAt: number;
+    rejected?: boolean;
+}
+
+export type OperatorState = "APPLIED" | "FAILED" | "IN_PROGRESS" | "UNCONFIRMED";
+
+/**
+ * Estado que ve el operador para una operación propia. Sólo afirma con
+ * evidencia persistida o recibida:
+ *  - APPLIED: existe invoice.import de la operación (de cualquier envío);
+ *  - FAILED: TODOS los envíos terminaron sin escribir (invoice.import.failed
+ *    con su attemptId, o respuesta de error de la app) y ninguno la aplicó;
+ *  - IN_PROGRESS: algún envío sin resultado salió hace menos de RESULT_WAIT_MS;
+ *  - UNCONFIRMED: hay envíos sin resultado y ya pasó ese plazo. No se infiere
+ *    «no aplicada» por tiempo.
+ * Así, la falla de un reintento no se toma como la de un envío anterior que
+ * pudo seguir vivo (p. ej. cortado con 504 mientras escribía).
+ */
+export function operatorState(view: Pick<ImportOperationView, "status" | "failedAttemptIds">, attempts: Attempt[], nowMs: number): OperatorState {
     if (view.status === "APPLIED") return "APPLIED";
-    if (view.status === "FAILED") return "FAILED";
-    return nowMs - startedAtMs < RESULT_WAIT_MS ? "IN_PROGRESS" : "NOT_APPLIED";
+    const failed = new Set(view.failedAttemptIds ?? []);
+    const open = attempts.filter((a) => !a.rejected && !failed.has(a.attemptId));
+    if (attempts.length > 0 && open.length === 0) return "FAILED";
+    const latest = Math.max(...open.map((a) => a.startedAt));
+    return open.length > 0 && nowMs - latest < RESULT_WAIT_MS ? "IN_PROGRESS" : "UNCONFIRMED";
 }
 
 const FAILURE_TEXT: Record<string, string> = {

@@ -22,6 +22,8 @@ export interface ImportRequest {
     acceptPartial: boolean;
     /** Sólo confirmación: identificador de la operación generado por el navegador (UUID). */
     operationId: string | null;
+    /** Sólo confirmación, opcional: identificador de ESTE envío (UUID). Un reintento de la misma operación lleva otro. */
+    attemptId: string | null;
 }
 
 export type ImportRequestResult = { ok: true; data: ImportRequest } | { ok: false; field: string; error: string };
@@ -55,11 +57,13 @@ export function parseImportRequest(body: unknown, opts: { requireToken: boolean 
         if (typeof b.token !== "string" || !/^[a-f0-9]{64}$/.test(b.token)) return { ok: false, field: "token", error: "token de vista previa requerido" };
         token = b.token;
         if (!isOperationId(b.operationId)) return { ok: false, field: "operationId", error: "operationId requerido (UUID en minúsculas generado al confirmar)" };
+        if (b.attemptId !== undefined && !isOperationId(b.attemptId)) return { ok: false, field: "attemptId", error: "attemptId debe ser un UUID en minúsculas" };
     }
     if (b.acceptPartial !== undefined && typeof b.acceptPartial !== "boolean") return { ok: false, field: "acceptPartial", error: "acceptPartial debe ser booleano" };
     return {
         ok: true,
         data: { clientId: b.clientId, category: b.category, format, vouchers: vouchers.bytes, aliquots: aliquots.bytes, token, acceptPartial: b.acceptPartial === true,
-            operationId: opts.requireToken ? (b.operationId as string) : null },
+            operationId: opts.requireToken ? (b.operationId as string) : null,
+            attemptId: opts.requireToken && typeof b.attemptId === "string" ? b.attemptId : null },
     };
 }

@@ -81,7 +81,7 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "operationId",
   ],
   // Sólo el identificador de la operación, el libro, el formato y el código del error.
-  "invoice.import.failed": ["operationId", "periodId", "category", "format", "code", "httpStatus"],
+  "invoice.import.failed": ["operationId", "attemptId", "periodId", "category", "format", "code", "httpStatus"],
   "taxrecord.create": ["periodId", "type"],
   "liquidation.export": [
     "periodId",

@@ -252,12 +252,13 @@ export async function findImportOperation(db: AuditReadDb, scope: ImportScope, o
         orderBy: { createdAt: "desc" },
     });
     const applied = rows.find((r) => r.action === "invoice.import");
-    return { ...viewOf(operationId, rows), meta: applied ? metaOf(applied) : null };
+    const failedAttemptIds = rows.filter((r) => r.action === "invoice.import.failed").map((r) => str(metaOf(r).attemptId)).filter((v): v is string => v !== null);
+    return { ...viewOf(operationId, rows), failedAttemptIds, meta: applied ? metaOf(applied) : null };
 }
 
 /** Vista para la API, sin los metadatos crudos (huellas de archivos). */
 export function publicOperationView(v: ImportOperationView & { meta?: unknown }): ImportOperationView {
-    return { operationId: v.operationId, status: v.status, at: v.at, category: v.category, format: v.format, result: v.result, failure: v.failure };
+    return { operationId: v.operationId, status: v.status, at: v.at, category: v.category, format: v.format, result: v.result, failure: v.failure, failedAttemptIds: v.failedAttemptIds ?? [] };
 }
 
 /** Últimas confirmaciones registradas del período (aplicadas y fallidas). */
@@ -281,10 +282,11 @@ export const OPERATION_REUSED_MESSAGE = "Ese identificador de operación ya se u
 
 /**
  * Registra que la confirmación terminó con error (la transacción ya se
- * revirtió o no llegó a empezar): sólo operationId, libro, formato y código.
+ * revirtió o no llegó a empezar): sólo operationId, attemptId (si vino),
+ * libro, formato y código.
  * Best-effort: si no se puede escribir, no oculta el error original.
  */
-export async function recordImportFailure(db: Pick<PrismaClient, "auditLog">, scope: ImportScope, actorProfileId: string, files: ImportFiles, operationId: string, err: unknown): Promise<void> {
+export async function recordImportFailure(db: Pick<PrismaClient, "auditLog">, scope: ImportScope, actorProfileId: string, files: ImportFiles, operationId: string, err: unknown, attemptId: string | null = null): Promise<void> {
     const code = isAuthError(err) ? err.code : err instanceof Prisma.PrismaClientKnownRequestError ? err.code : "INTERNAL";
     const httpStatus = isAuthError(err) ? err.status : 500;
     try {
@@ -294,7 +296,7 @@ export async function recordImportFailure(db: Pick<PrismaClient, "auditLog">, sc
             action: "invoice.import.failed",
             targetType: "Period",
             targetId: scope.periodId,
-            metadata: { operationId, periodId: scope.periodId, category: files.category, format: files.format ?? "LID_TXT", code, httpStatus },
+            metadata: { operationId, ...(attemptId ? { attemptId } : {}), periodId: scope.periodId, category: files.category, format: files.format ?? "LID_TXT", code, httpStatus },
         });
     } catch (e) {
         console.info("[libro-iva-import] no se pudo registrar la falla: " + (e instanceof Error ? e.name : typeof e));

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { readApiError } from "@/lib/new-client-submit";
-import { failureText, operatorState, RESULT_WAIT_MS, resultText, type ImportOperationView, type OperationResult } from "@/lib/libro-iva-import/operation";
+import { failureText, operatorState, RESULT_WAIT_MS, resultText, type Attempt, type ImportOperationView, type OperationResult } from "@/lib/libro-iva-import/operation";
 
 /**
  * Importación del Libro IVA Digital: el operador elige el libro (ventas o
@@ -67,7 +67,8 @@ const TOTAL_LABELS: [string, string][] = [
  */
 interface PendingOp {
     operationId: string;
-    startedAt: number;
+    /** Envíos de esta operación, en orden. Un reintento con los mismos archivos agrega uno. */
+    attempts: Attempt[];
     category: Category;
     format: Format;
     vouchersSha256: string;
@@ -77,8 +78,11 @@ const pendingKey = (periodId: string) => `lid-import-op:${periodId}`;
 function readPending(periodId: string): PendingOp | null {
     try {
         const raw = window.localStorage.getItem(pendingKey(periodId));
-        const v = raw ? (JSON.parse(raw) as PendingOp) : null;
-        return v && typeof v.operationId === "string" && typeof v.startedAt === "number" ? v : null;
+        const v = raw ? (JSON.parse(raw) as PendingOp & { startedAt?: unknown }) : null;
+        if (!v || typeof v.operationId !== "string") return null;
+        if (Array.isArray(v.attempts)) return v;
+        // Guardada por la versión anterior (sin attemptId): su falla no se puede atribuir, sólo su aplicación.
+        return typeof v.startedAt === "number" ? { ...v, attempts: [{ attemptId: "", startedAt: v.startedAt }] } : null;
     } catch {
         return null;
     }
@@ -120,6 +124,8 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     const [done, setDone] = useState<string>("");
     const [tracking, setTracking] = useState<PendingOp | null>(null);
     const [trackingNote, setTrackingNote] = useState("");
+    // Pasó el plazo sin registro de aplicación ni de falla de todos los envíos: no se afirma nada.
+    const [unconfirmed, setUnconfirmed] = useState<{ op: PendingOp; checkedAt: number } | null>(null);
     const [recent, setRecent] = useState<ImportOperationView[]>([]);
     const inFlight = useRef(false);
 
@@ -139,7 +145,8 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
         if (p) setTracking(p);
     }, [periodId, loadRecent]);
 
-    // Seguimiento de una confirmación cuya respuesta no llegó: aplicada, fallida, en curso o no aplicada.
+    // Seguimiento de una confirmación cuya respuesta no llegó. Sólo el AuditLog
+    // (o una respuesta de error de la app) permite decir «aplicada» o «fallida».
     useEffect(() => {
         if (!tracking) return;
         let stop = false;
@@ -153,33 +160,52 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 // Sin red: se reintenta en el próximo ciclo.
             }
             if (stop) return;
-            const state = operatorState(view ?? { status: "NOT_FOUND" }, tracking.startedAt, Date.now());
-            const ref = `operación ${tracking.operationId.slice(0, 8)}`;
-            if (state === "APPLIED" && view?.result) {
+            const now = Date.now();
+            const ref = `operación ${tracking.operationId}`;
+            if (!view) {
+                // Sin respuesta de la consulta: no se sabe nada nuevo.
+                const last = Math.max(...tracking.attempts.map((x) => x.startedAt));
+                if (now - last >= RESULT_WAIT_MS) {
+                    setTracking(null);
+                    setTrackingNote("");
+                    setUnconfirmed({ op: tracking, checkedAt: now });
+                    return;
+                }
+                setTrackingNote(`No se pudo consultar el resultado (${ref}). Se vuelve a intentar…`);
+                timer = setTimeout(tick, POLL_MS);
+                return;
+            }
+            const state = operatorState(view, tracking.attempts, now);
+            if (state === "APPLIED" && view.result) {
                 writePending(periodId, null);
                 setTracking(null);
+                setUnconfirmed(null);
                 setTrackingNote("");
                 setError("");
                 setPreview(null);
-                setDone(`Confirmación aplicada (${ref}, recuperada después de un corte). ${resultText(view.result)}`);
+                setDone(`Confirmación aplicada (${ref}, según el registro del período). ${resultText(view.result)}`);
                 router.refresh();
                 void loadRecent();
                 return;
             }
             if (state === "FAILED") {
+                writePending(periodId, null);
                 setTracking(null);
+                setUnconfirmed(null);
                 setTrackingNote("");
-                setError(`La confirmación no se aplicó (${ref}): ${failureText(view?.failure?.code ?? "INTERNAL")}. No se escribió nada.`);
+                setError(`La confirmación no se aplicó (${ref}): ${failureText(view.failure?.code ?? "INTERNAL")}. Todos sus envíos están registrados como fallidos: no se escribió nada.`);
                 void loadRecent();
                 return;
             }
-            if (state === "NOT_APPLIED") {
+            if (state === "UNCONFIRMED") {
                 setTracking(null);
                 setTrackingNote("");
-                setError(`No hay registro de la confirmación (${ref}) ${Math.round(RESULT_WAIT_MS / 1000)} s después de enviarla: no se aplicó. Podés generar la vista previa y confirmar de nuevo; si llegara a estar aplicada, no se duplica.`);
+                setUnconfirmed({ op: tracking, checkedAt: now });
+                void loadRecent();
                 return;
             }
-            setTrackingNote(`La respuesta no llegó. Verificando si la confirmación se aplicó (${ref}, enviada hace ${Math.round((Date.now() - tracking.startedAt) / 1000)} s)…`);
+            const last = Math.max(...tracking.attempts.map((x) => x.startedAt));
+            setTrackingNote(`La respuesta no llegó. Verificando si la confirmación se aplicó (${ref}, enviada hace ${Math.round((now - last) / 1000)} s)…`);
             timer = setTimeout(tick, POLL_MS);
         };
         void tick();
@@ -189,12 +215,23 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
         };
     }, [tracking, periodId, router, loadRecent]);
 
+    function verifyAgain() {
+        if (!unconfirmed) return;
+        // Misma operación (y mismos envíos) que quedó sin confirmar; se relee del almacenamiento por si cambió.
+        const p = readPending(periodId);
+        const op = p && p.operationId === unconfirmed.op.operationId ? p : unconfirmed.op;
+        setUnconfirmed(null);
+        setTrackingNote("");
+        setTracking(op);
+    }
+
     async function send(kind: "preview" | "confirm") {
         if (inFlight.current || !vouchers || (format === "LID_TXT" && !aliquots)) return;
         inFlight.current = true;
         setBusy(true);
         setError("");
         setDone("");
+        if (kind === "confirm") setUnconfirmed(null);
         let op: PendingOp | null = null;
         try {
             const body: Record<string, unknown> = { clientId, category, format, vouchersFile: await toBase64(vouchers) };
@@ -204,9 +241,12 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 const hashes = { vouchersSha256: await sha256Hex(vouchers), aliquotsSha256: format === "LID_TXT" ? await sha256Hex(aliquots) : "" };
                 const prev = readPending(periodId);
                 const same = prev && prev.category === category && prev.format === format && prev.vouchersSha256 === hashes.vouchersSha256 && prev.aliquotsSha256 === hashes.aliquotsSha256;
-                op = { operationId: same ? prev.operationId : crypto.randomUUID(), startedAt: Date.now(), category, format, ...hashes };
+                const attempt: Attempt = { attemptId: crypto.randomUUID(), startedAt: Date.now() };
+                op = same
+                    ? { ...prev, attempts: [...prev.attempts, attempt] }
+                    : { operationId: crypto.randomUUID(), attempts: [attempt], category, format, ...hashes };
                 writePending(periodId, op);
-                Object.assign(body, { token: preview.token, acceptPartial, operationId: op.operationId });
+                Object.assign(body, { token: preview.token, acceptPartial, operationId: op.operationId, attemptId: attempt.attemptId });
             }
             const res = await fetch(`/api/periods/${periodId}/libro-iva-import/${kind}`, {
                 method: "POST",
@@ -221,7 +261,19 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                     setTracking(op);
                     return;
                 }
-                if (op) writePending(periodId, null);
+                if (kind === "confirm" && op) {
+                    // La app respondió con error: ESTE envío no escribió. Si un envío anterior
+                    // de la misma operación quedó sin resultado, todavía puede aplicarse.
+                    const attempts = op.attempts.map((x, i) => (i === op!.attempts.length - 1 ? { ...x, rejected: true } : x));
+                    const rest = { ...op, attempts };
+                    if (attempts.some((x) => !x.rejected)) {
+                        writePending(periodId, rest);
+                        setError(`${appError?.message ?? "No se pudo procesar la importación."} Un envío anterior de la misma operación todavía no tiene resultado: se verifica.`);
+                        setTracking(rest);
+                        return;
+                    }
+                    writePending(periodId, null);
+                }
                 setError(appError?.message ?? "No se pudo procesar la importación.");
                 if (kind === "confirm" && res.status === 409) setPreview(null);
                 if (kind === "confirm") void loadRecent();
@@ -297,6 +349,18 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
             {error && <div role="alert" className="card" style={{ border: "1px solid var(--error)", marginBottom: "var(--spacing-md)" }}>{error}</div>}
             {done && <div role="status" className="card" style={{ marginBottom: "var(--spacing-md)" }}>{done}</div>}
             {tracking && <div role="status" data-tracking className="card" style={{ marginBottom: "var(--spacing-md)" }}>{trackingNote || "Verificando el resultado de la confirmación…"}</div>}
+            {unconfirmed && (
+                <div role="alert" data-unconfirmed className="card" style={{ border: "1px solid var(--accent)", marginBottom: "var(--spacing-md)" }}>
+                    <strong>Resultado sin confirmar</strong>
+                    <p style={{ margin: "var(--spacing-sm) 0" }}>
+                        Operación <code data-operation-id>{unconfirmed.op.operationId}</code>. Pasaron más de {Math.round(RESULT_WAIT_MS / 1000)} s desde el último envío y el período no tiene registro de que se haya aplicado ni de que haya fallado. No la des por aplicada ni por no aplicada.
+                    </p>
+                    <p style={{ margin: "0 0 var(--spacing-sm)", color: "var(--secondary)" }}>
+                        Última verificación: {new Date(unconfirmed.checkedAt).toLocaleTimeString("es-AR", { hourCycle: "h23" })}. Si confirmás de nuevo los mismos archivos se usa esta misma operación: si ya estaba aplicada, no se duplica.
+                    </p>
+                    <button type="button" className="btn btn-primary" onClick={verifyAgain} disabled={busy}>Volver a verificar</button>
+                </div>
+            )}
 
             {preview && counts && (
                 <div>

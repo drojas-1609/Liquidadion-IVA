@@ -312,17 +312,25 @@ describe.skipIf(!raw)("importación Libro IVA Digital por las rutas, en PostgreS
 
         it("fallida: período cerrado entre la vista previa y la confirmación; el reintento con el mismo id la aplica", async () => {
             const op = randomUUID();
+            const attemptId = randomUUID();
             const files = purchaseFiles(9103);
             const pv = await call(PREVIEW, ACCOUNTANT, period, "c_lid_a4", files);
             const before = await count(period);
             await db.period.update({ where: { id: period }, data: { status: "CLOSED", closedAt: new Date() } });
             try {
-                const res = await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: op });
+                const res = await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: op, attemptId });
                 expect([res.status, res.body.error?.code]).toEqual([409, "PERIOD_CLOSED"]);
                 expect(await count(period)).toBe(before);
-                expect((await status(ACCOUNTANT, period, op)).body.operation).toMatchObject({ status: "FAILED", result: null, failure: { code: "PERIOD_CLOSED", httpStatus: 409 } });
+                // La falla queda atribuida a ESE envío: la pantalla sólo da la operación por fallida si fallaron todos.
+                expect((await status(ACCOUNTANT, period, op)).body.operation).toMatchObject({ status: "FAILED", result: null, failure: { code: "PERIOD_CLOSED", httpStatus: 409 }, failedAttemptIds: [attemptId] });
                 const failed = await db.auditLog.findFirstOrThrow({ where: { organizationId: ORG_A, action: "invoice.import.failed", targetId: period, metadata: { path: ["operationId"], equals: op } } });
-                expect(Object.keys(failed.metadata as object).sort()).toEqual(["category", "code", "format", "httpStatus", "operationId", "periodId"]);
+                expect(Object.keys(failed.metadata as object).sort()).toEqual(["attemptId", "category", "code", "format", "httpStatus", "operationId", "periodId"]);
+                // Sin attemptId (cliente anterior): se registra igual, sin atribuir el envío.
+                const op2 = randomUUID();
+                await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: op2 });
+                expect((await status(ACCOUNTANT, period, op2)).body.operation).toMatchObject({ status: "FAILED", failedAttemptIds: [] });
+                const bad = await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: randomUUID(), attemptId: "x" });
+                expect([bad.status, (bad.body as { field?: string }).field]).toEqual([422, "attemptId"]);
             } finally {
                 await db.period.update({ where: { id: period }, data: { status: "OPEN", closedAt: null } });
             }
@@ -333,6 +341,27 @@ describe.skipIf(!raw)("importación Libro IVA Digital por las rutas, en PostgreS
             expect((await status(ACCOUNTANT, period, op)).body.operation).toMatchObject({ status: "APPLIED", result: { imported: 1 } });
             expect([await audits(op), await audits(op, "invoice.import.failed")]).toEqual([1, 1]);
         });
+
+        it("reintento rechazado por PERIOD_BUSY mientras otro envío tiene el bloqueo: la falla queda en ese envío y la operación se aplica después", async () => {
+            const op = randomUUID(), first = randomUUID(), retry = randomUUID();
+            const files = purchaseFiles(9105);
+            const pv = await call(PREVIEW, ACCOUNTANT, period, "c_lid_a4", files);
+            const before = await count(period);
+            // Otra escritura retiene el bloqueo del período más que su lock_timeout (3 s).
+            let busy: Awaited<ReturnType<typeof call>> | undefined;
+            await db.$transaction(async (tx) => {
+                await tx.$queryRaw`SELECT id FROM "Period" WHERE id = ${period} FOR UPDATE`;
+                busy = await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: op, attemptId: retry });
+            }, { maxWait: 5000, timeout: 15000 });
+            expect([busy?.status, busy?.body.error?.code]).toEqual([409, "PERIOD_BUSY"]);
+            expect(await count(period)).toBe(before);
+            expect((await status(ACCOUNTANT, period, op)).body.operation).toMatchObject({ status: "FAILED", failedAttemptIds: [retry] });
+            // Otro envío de la misma operación (el que la pantalla todavía no da por terminado) la aplica.
+            const ok = await call(CONFIRM, ACCOUNTANT, period, "c_lid_a4", files, { token: pv.body.token, operationId: op, attemptId: first });
+            expect(ok.status).toBe(201);
+            expect((await status(ACCOUNTANT, period, op)).body.operation).toMatchObject({ status: "APPLIED", result: { imported: 1 }, failure: null, failedAttemptIds: [retry] });
+            expect([await count(period), await audits(op), await audits(op, "invoice.import.failed")]).toEqual([before + 1, 1, 1]);
+        }, 20000);
 
         it("la misma operación enviada dos veces a la vez: una escribe y la otra devuelve su resultado; sin duplicados", async () => {
             const op = randomUUID();

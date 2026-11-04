@@ -110,7 +110,7 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
         return NextResponse.json({ ...plan.result, operationId }, { status: 201, headers: { "Server-Timing": timing.done() } });
     } catch (err) {
         // La transacción no empezó o ya se revirtió: nada escrito para esta operación.
-        await recordImportFailure(prisma, scope, profileId, files, operationId, err);
+        await recordImportFailure(prisma, scope, profileId, files, operationId, err, input.attemptId);
         throw err;
     }
 });

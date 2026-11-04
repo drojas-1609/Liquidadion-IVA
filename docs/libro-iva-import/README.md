@@ -60,11 +60,11 @@ Detalle de la descarga de Portal IVA:
 
 ## Resultado de cada confirmación
 
-- **Identificador:** el navegador genera un `operationId` (UUID) antes de enviar la confirmación y lo guarda localmente. La API lo exige.
-- **Aplicada:** existe el AuditLog `invoice.import` con ese `operationId`. Se escribe en la **misma transacción** que los comprobantes, así que si existe la importación está completa, y si no existe no se escribió nada.
-- **Fallida:** existe `invoice.import.failed` con ese `operationId` y el código del error (período cerrado, vista previa vencida, tiempo agotado…). Se registra después de que la transacción se revirtió.
-- **En curso:** no hay ninguna de las dos y no pasaron 75 s desde el envío. La función no vive más de 60 s; si muere, la conexión se cierra y la transacción se revierte.
-- **No aplicada:** pasaron 75 s sin registro.
+- **Identificador:** el navegador genera un `operationId` (UUID) antes de enviar la confirmación y lo guarda localmente. La API lo exige. Cada envío lleva además un `attemptId` propio (UUID, opcional en la API): un reintento de la misma operación es otro envío.
+- **Aplicada:** existe el AuditLog `invoice.import` con ese `operationId`. Se escribe en la **misma transacción** que los comprobantes, así que si existe la importación está completa. Tiene prioridad sobre cualquier falla.
+- **Fallida:** existe `invoice.import.failed` con ese `operationId`, el `attemptId` del envío y el código del error (período cerrado, período ocupado, vista previa vencida, tiempo agotado…). Se registra después de que la transacción se revirtió, y describe **ese envío**. La pantalla da la operación por fallida sólo cuando **todos** sus envíos tienen su falla registrada (o recibieron la respuesta de error de la app). Si un reintento choca con `PERIOD_BUSY` porque el envío anterior, cortado con 504, sigue escribiendo, la operación no se da por fallida.
+- **En curso:** hay envíos sin resultado y el último salió hace menos de 75 s.
+- **Resultado sin confirmar:** pasaron 75 s y sigue habiendo envíos sin registro. La pantalla **no** afirma que se aplicó ni que no se aplicó: el tiempo no lo prueba, y la falla se registra en modo best-effort. Muestra el `operationId` completo, conserva la operación en el navegador (también tras recargar) y ofrece «Volver a verificar», que repite la consulta con el mismo `operationId`.
 - **Reintento de la misma operación:** si ya se aplicó, la API devuelve ese resultado (200, `replayed: true`) sin escribir. Lo comprueba antes del recálculo y otra vez bajo el bloqueo del período. Con otros archivos, responde 409. La pantalla reutiliza el mismo `operationId` cuando se reintenta con los mismos archivos.
 - **Consulta:** `GET /api/periods/[id]/libro-iva-import?operationId=…` (sólo lectura, cualquier rol del período, filtrado por organización) devuelve el estado y las últimas confirmaciones. La pantalla las muestra en «Confirmaciones registradas en este período», también desde otro navegador.
 
@@ -134,7 +134,7 @@ Detalle de la descarga de Portal IVA:
 
 - Postgres ejecuta cada lote de ~665 filas en ~70 ms; el resto es la latencia entre la función y la base (~1,1 s por lote).
 - Con la región actual, el máximo práctico es de unas 7.500 filas por confirmación.
-- Arriba de eso, la respuesta se corta, pero la pantalla recupera el resultado por `operationId` (aplicada, fallida o no aplicada). La importación es completa y atómica, y reintentarla no duplica nada.
+- Arriba de eso, la respuesta se corta, pero la pantalla recupera el resultado por `operationId` (aplicada o fallida según el registro; si no hay registro, «Resultado sin confirmar»). La importación es completa y atómica, y reintentarla no duplica nada.
 - Mover las funciones a `gru` (São Paulo), donde están las bases de DEV y de PROD, ataca la causa. Es una configuración del sitio: afecta también a producción.
 
 Cada confirmación registra en los logs de la función una línea `[libro-iva-import] confirm` con el `x-nf-request-id`, la etapa, conteos y milisegundos por fase (y el código de Prisma si falla), y devuelve `Server-Timing`.
