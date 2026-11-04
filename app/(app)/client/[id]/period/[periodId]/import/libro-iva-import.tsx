@@ -398,7 +398,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                         <tbody>
                             {recent.map((o, i) => (
                                 <tr key={`${o.operationId}-${o.status}-${i}`} data-op-status={o.status}>
-                                    <td>{o.at ? new Date(o.at).toLocaleString("es-AR") : "—"}</td>
+                                    <td>{o.at ? new Date(o.at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "medium", hourCycle: "h23" }) : "—"}</td>
                                     <td>{CATEGORY_LABEL[o.category ?? ""] ?? "—"}</td>
                                     <td>{FORMAT_LABEL[o.format ?? ""] ?? "—"}</td>
                                     <td>{o.status === "APPLIED" ? "Aplicada" : `Fallida: ${failureText(o.failure?.code ?? "INTERNAL")}`}</td>
