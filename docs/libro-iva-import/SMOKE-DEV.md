@@ -85,22 +85,41 @@ En Portal IVA el límite efectivo es el CSV descomprimido de 2 MB (unas 10.800 v
 
 La app no tiene borrado masivo de comprobantes, así que se limpia por SQL, acotado al cliente sintético. El AuditLog se conserva como historial.
 
-```sql
--- 1) Verificar: debe devolver exactamente el cliente sintético y sus conteos.
-SELECT c.id, c.name, count(DISTINCT p.id) AS periodos, count(i.id) AS comprobantes,
-       count(i.id) FILTER (WHERE i.source = 'IMPORT') AS importados
-FROM "Client" c LEFT JOIN "Period" p ON p."clientId" = c.id LEFT JOIN "Invoice" i ON i."periodId" = p.id
-WHERE c.id = :'client_id' AND c.name = 'CLIENTE SINTETICO LID SMOKE'
-GROUP BY c.id, c.name;
+Conteos finales esperados (DEV, 04/11/2026, al cerrar el ensayo de recuperación; cliente `cmw1kqvuy0001jq09pc7luasa`):
 
--- 2) Borrar dentro de una transacción. Las líneas de IVA caen en cascada con el comprobante.
+| Período | Comprobantes (todos IMPORT) | Líneas de IVA | TaxRecord | PeriodVatSettings |
+|---|---|---|---|---|
+| 10/2026 | 39 | 50 | 0 | 0 |
+| 11/2026 | 12 | 14 | 0 | 0 |
+| 12/2026 | 18.002 | 24.002 | 0 | 0 |
+| 01/2027 | 42.011 | 56.010 | 0 | 0 |
+| **Total** | **60.064** | **80.076** | **0** | **0** |
+
+```sql
+-- 1) Verificar: exactamente 1 fila con periodos=4, comprobantes=60064, importados=60064, lineas_iva=80076.
+SELECT c.id, c.name,
+       (SELECT count(*) FROM "Period" p WHERE p."clientId" = c.id) AS periodos,
+       (SELECT count(*) FROM "Invoice" i JOIN "Period" p ON p.id = i."periodId" WHERE p."clientId" = c.id) AS comprobantes,
+       (SELECT count(*) FROM "Invoice" i JOIN "Period" p ON p.id = i."periodId" WHERE p."clientId" = c.id AND i.source = 'IMPORT') AS importados,
+       (SELECT count(*) FROM "InvoiceVatLine" l JOIN "Invoice" i ON i.id = l."invoiceId" JOIN "Period" p ON p.id = i."periodId" WHERE p."clientId" = c.id) AS lineas_iva,
+       (SELECT count(*) FROM "TaxRecord" t JOIN "Period" p ON p.id = t."periodId" WHERE p."clientId" = c.id) AS tax_records,
+       (SELECT count(*) FROM "PeriodVatSettings" s JOIN "Period" p ON p.id = s."periodId" WHERE p."clientId" = c.id) AS vat_settings
+FROM "Client" c
+WHERE c.id = 'cmw1kqvuy0001jq09pc7luasa' AND c.name = 'CLIENTE SINTETICO LID SMOKE';
+
+-- 2) Borrar en una transacción. Las líneas de IVA (80.076) caen en cascada con el comprobante.
 BEGIN;
 DELETE FROM "Invoice" i USING "Period" p
- WHERE i."periodId" = p.id AND p."clientId" = :'client_id';   -- debe coincidir con "comprobantes" del paso 1
-DELETE FROM "TaxRecord" t USING "Period" p WHERE t."periodId" = p.id AND p."clientId" = :'client_id';
-DELETE FROM "PeriodVatSettings" s USING "Period" p WHERE s."periodId" = p.id AND p."clientId" = :'client_id';
-DELETE FROM "Period" WHERE "clientId" = :'client_id';
-DELETE FROM "Client" WHERE id = :'client_id' AND name = 'CLIENTE SINTETICO LID SMOKE';
--- Revisar los conteos de cada DELETE antes de confirmar. Si alguno no coincide: ROLLBACK;
+ WHERE i."periodId" = p.id AND p."clientId" = 'cmw1kqvuy0001jq09pc7luasa';            -- esperado: DELETE 60064
+DELETE FROM "TaxRecord" t USING "Period" p
+ WHERE t."periodId" = p.id AND p."clientId" = 'cmw1kqvuy0001jq09pc7luasa';            -- esperado: DELETE 0
+DELETE FROM "PeriodVatSettings" s USING "Period" p
+ WHERE s."periodId" = p.id AND p."clientId" = 'cmw1kqvuy0001jq09pc7luasa';            -- esperado: DELETE 0
+DELETE FROM "Period" WHERE "clientId" = 'cmw1kqvuy0001jq09pc7luasa';                   -- esperado: DELETE 4
+DELETE FROM "Client" WHERE id = 'cmw1kqvuy0001jq09pc7luasa' AND name = 'CLIENTE SINTETICO LID SMOKE';  -- esperado: DELETE 1
+-- 3) Antes de confirmar: debe dar 0 y 0.
+SELECT (SELECT count(*) FROM "Invoice" WHERE "clientId" = 'cmw1kqvuy0001jq09pc7luasa') AS comprobantes_restantes,
+       (SELECT count(*) FROM "InvoiceVatLine" l LEFT JOIN "Invoice" i ON i.id = l."invoiceId" WHERE i.id IS NULL) AS lineas_huerfanas;
+-- Si algún conteo no coincide: ROLLBACK;
 COMMIT;
 ```
