@@ -96,11 +96,12 @@ function writePending(periodId: string, v: PendingOp | null) {
     }
 }
 /**
- * Resultado ya confirmado que se muestra una vez después de una recarga: si
- * router.refresh() termina en una navegación completa (p. ej. una redirección
- * de la Preview), el mensaje no se pierde. Sólo texto para el operador.
+ * Resultado ya confirmado que sigue visible tras recargar la página (también si
+ * router.refresh() termina en una navegación completa, como pasó en la
+ * Preview), hasta DONE_TTL_MS o hasta la próxima vista previa o confirmación.
+ * Sólo texto para el operador: la verdad está en el historial del período.
  */
-const DONE_TTL_MS = 120_000;
+const DONE_TTL_MS = 10 * 60_000;
 const doneKey = (periodId: string) => `lid-import-done:${periodId}`;
 function keepDone(periodId: string, text: string) {
     try {
@@ -109,15 +110,23 @@ function keepDone(periodId: string, text: string) {
         // Sin almacenamiento: el resultado igual figura en el historial del período.
     }
 }
-function takeDone(periodId: string): string {
+function readDone(periodId: string): string {
     try {
         const raw = window.sessionStorage.getItem(doneKey(periodId));
-        window.sessionStorage.removeItem(doneKey(periodId));
         const v = raw ? (JSON.parse(raw) as { text?: unknown; at?: unknown }) : null;
-        // Sólo la recarga inmediata: una visita posterior no repite un resultado viejo.
-        return v && typeof v.text === "string" && typeof v.at === "number" && Date.now() - v.at < DONE_TTL_MS ? v.text : "";
+        if (v && typeof v.text === "string" && typeof v.at === "number" && Date.now() - v.at < DONE_TTL_MS) return v.text;
+        // Vencido o ilegible: una visita posterior no repite un resultado viejo.
+        if (raw) window.sessionStorage.removeItem(doneKey(periodId));
+        return "";
     } catch {
         return "";
+    }
+}
+function clearDone(periodId: string) {
+    try {
+        window.sessionStorage.removeItem(doneKey(periodId));
+    } catch {
+        // Sin almacenamiento: nada que borrar.
     }
 }
 async function sha256Hex(file: File | null): Promise<string> {
@@ -167,7 +176,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     // Al abrir (o recargar) la página: historial y, si había una confirmación sin respuesta, seguirla.
     useEffect(() => {
         void loadRecent();
-        const kept = takeDone(periodId);
+        const kept = readDone(periodId);
         if (kept) setDone(kept);
         const p = readPending(periodId);
         if (p) setTracking(p);
@@ -261,6 +270,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
         setBusy(true);
         setError("");
         setDone("");
+        clearDone(periodId);
         if (kind === "confirm") setUnconfirmed(null);
         let op: PendingOp | null = null;
         try {

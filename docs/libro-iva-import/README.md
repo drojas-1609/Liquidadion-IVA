@@ -152,7 +152,7 @@ Detalle de la descarga de Portal IVA:
 - **La respuesta del navegador no es el resultado de la importación.** El 504 a los 31,4 s es el corte de la puerta de enlace de la Preview; la función siguió y la importación quedó completa a los 39,8 s, **8,4 s después** de que el navegador recibió el error.
 - Vista previa del mismo archivo: 13,3 s. Reintento de la misma operación con un envío nuevo: 200 `replayed` en 6,2 s, sin escribir.
 - Después de recuperar: +9.001 comprobantes y +12.001 líneas de IVA en el período (las 2 filas para revisar no se importan), una sola fila `invoice.import` para la operación y 0 claves de comprobante repetidas en el cliente.
-- En la Preview, el `router.refresh()` posterior recibió una redirección y Next.js hizo una navegación completa: el mensaje se perdía. Ahora el resultado confirmado se guarda en la sesión del navegador y se muestra una vez después de una recarga inmediata (hasta 2 minutos).
+- En la Preview, el `router.refresh()` posterior recibió una redirección y Next.js hizo una navegación completa: el mensaje se perdía. Ahora el resultado confirmado se guarda en la sesión del navegador y sigue visible al recargar durante 10 minutos, o hasta la próxima vista previa o confirmación.
 
 Cada confirmación registra en los logs de la función una línea `[libro-iva-import] confirm` con el `x-nf-request-id`, la etapa, conteos y milisegundos por fase (y el código de Prisma si falla), y devuelve `Server-Timing`.
 
