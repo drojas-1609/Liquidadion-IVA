@@ -44,6 +44,10 @@ const EXPECTED = {
   // Cierre / reapertura: responden { periodId, status, updatedAt } (sin Decimal ni la fila cruda).
   "app/api/periods/[id]/close/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/reopen/route.ts": { models: [], serializer: null },
+  // Importación del Libro IVA Digital: la vista previa expone importes como
+  // strings (serializePreview); la confirmación responde sólo conteos.
+  "app/api/periods/[id]/libro-iva-import/preview/route.ts": { models: ["Invoice"], serializer: "serializePreview" },
+  "app/api/periods/[id]/libro-iva-import/confirm/route.ts": { models: [], serializer: null },
   // Consulta de CUIT en ARCA: responde la propuesta normalizada (strings), sin
   // modelos de la base ni Decimal; no lee ni escribe Client.
   "app/api/arca/cuit-lookup/route.ts": { models: [], serializer: null },

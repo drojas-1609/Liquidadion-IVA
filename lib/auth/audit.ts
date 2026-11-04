@@ -36,6 +36,9 @@ export const AUDIT_ACTIONS = [
   // Corrección de comprobantes manuales (PATCH / DELETE /api/invoices/[id])
   "invoice.update",
   "invoice.delete",
+  // Importación masiva del Libro IVA Digital (TXT de comprobantes y alícuotas):
+  // una fila por confirmación, con conteos y huella de los archivos.
+  "invoice.import",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
   // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
   "arca.cuit_lookup",
@@ -58,6 +61,19 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "period.create": ["clientId", "month", "year"],
   // Fase A: voucherCode (código oficial) reemplaza a `type`. Sin CUIT, nombres ni importes.
   "invoice.create": ["periodId", "category", "voucherCode"],
+  // Sin CUIT, nombres ni importes: conteos por estado, pestaña y huella (sha256) de cada archivo.
+  "invoice.import": [
+    "periodId",
+    "category",
+    "format",
+    "importedCount",
+    "turivaCount",
+    "duplicateCount",
+    "reviewCount",
+    "errorCount",
+    "vouchersFileSha256",
+    "aliquotsFileSha256",
+  ],
   "taxrecord.create": ["periodId", "type"],
   "liquidation.export": [
     "periodId",
