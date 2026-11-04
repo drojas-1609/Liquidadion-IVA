@@ -20,12 +20,12 @@ model Profile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships Membership[]
+  memberships     Membership[]
   // Usuarios del estudio: invitaciones emitidas por este Profile (SetNull: la
   // invitación sobrevive al borrado de quien invitó; la autoría queda en AuditLog).
   sentInvitations OrganizationInvitation[] @relation("InvitationInvitedBy")
 
-  createdClients          Client[]            @relation("ClientCreatedBy")
+  createdClients           Client[]            @relation("ClientCreatedBy")
   updatedClients           Client[]            @relation("ClientUpdatedBy")
   createdPeriods           Period[]            @relation("PeriodCreatedBy")
   updatedPeriods           Period[]            @relation("PeriodUpdatedBy")
@@ -226,7 +226,7 @@ model Client {
   createdBy      Profile?     @relation("ClientCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy      Profile?     @relation("ClientUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
-  periods Period[]
+  periods      Period[]
   // Usuarias con alcance SELECTED que pueden ver este cliente.
   memberAccess MembershipClient[]
 

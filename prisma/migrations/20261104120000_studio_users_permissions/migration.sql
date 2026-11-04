@@ -29,6 +29,11 @@
 --     la última membresía OWNER activa). TRUNCATE no dispara triggers de fila.
 --     No referencia el esquema auth: reproducible en una base shadow.
 --
+-- DATA API (al final): RLS sin políticas y REVOKE para PUBLIC/anon/
+--   authenticated/service_role en TODO "public", más privilegios por defecto
+--   del rol que migra. Requiere que ese rol sea dueño de cada tabla de "public"
+--   (en DEV: postgres; lo verifica el preflight). Ver docs/usuarios/README.md.
+--
 -- TRANSACCIÓN Y LÍMITES: todo en una transacción explícita; lock_timeout acota
 -- cada espera de bloqueo y statement_timeout cada sentencia (SET LOCAL).
 
@@ -179,5 +184,55 @@ BEGIN
  END LOOP;
 END
 $tables$;
+
+-- CIERRE DE LA DATA API SOBRE TODO "public" (corrección previa al piloto).
+-- Observado en DEV (solo lectura, 2026-11-04): las tablas de negocio heredaban
+-- privilegios por defecto de Supabase (anon/authenticated/service_role =
+-- arwdDxtm) y tenían RLS desactivado; con la Data API activa, la clave
+-- publicable del navegador bastaba para leer o escribir Client, Membership,
+-- Profile, etc. por fuera de la autorización de la app. La app no usa la Data
+-- API (todo acceso pasa por Prisma con el rol propietario, que no está sujeto a
+-- RLS sin FORCE), así que se cierra por completo:
+--   1) RLS activo (sin FORCE, sin políticas) en cada tabla de "public";
+--   2) REVOKE ALL a PUBLIC, anon, authenticated y service_role en tablas,
+--      vistas, secuencias y funciones de "public";
+--   3) privilegios por defecto del rol que migra (global y en "public"): las
+--      tablas, secuencias y funciones FUTURAS tampoco quedan expuestas.
+-- No toca datos, columnas, el esquema "auth" ni los privilegios del propietario.
+DO $data_api$
+DECLARE o RECORD; r TEXT;
+BEGIN
+ FOR o IN
+  SELECT c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+  ORDER BY c.relname
+ LOOP
+  IF o.relkind IN ('r', 'p') THEN
+   EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', o.relname);
+  END IF;
+  EXECUTE format('REVOKE ALL ON %s public.%I FROM PUBLIC', CASE WHEN o.relkind = 'S' THEN 'SEQUENCE' ELSE 'TABLE' END, o.relname);
+  FOR r IN SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated', 'service_role') LOOP
+   EXECUTE format('REVOKE ALL ON %s public.%I FROM %I', CASE WHEN o.relkind = 'S' THEN 'SEQUENCE' ELSE 'TABLE' END, o.relname, r);
+  END LOOP;
+ END LOOP;
+ FOR o IN
+  SELECT p.oid::regprocedure::text AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' ORDER BY 1
+ LOOP
+  EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', o.sig);
+  FOR r IN SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated', 'service_role') LOOP
+   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I', o.sig, r);
+  END LOOP;
+ END LOOP;
+ FOR r IN SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated', 'service_role') LOOP
+  EXECUTE format('ALTER DEFAULT PRIVILEGES REVOKE ALL ON TABLES FROM %I', r);
+  EXECUTE format('ALTER DEFAULT PRIVILEGES REVOKE ALL ON SEQUENCES FROM %I', r);
+  EXECUTE format('ALTER DEFAULT PRIVILEGES REVOKE ALL ON FUNCTIONS FROM %I', r);
+  EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM %I', r);
+  EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM %I', r);
+  EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM %I', r);
+ END LOOP;
+END
+$data_api$;
 
 COMMIT;

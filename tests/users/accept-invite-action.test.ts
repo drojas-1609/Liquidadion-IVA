@@ -3,13 +3,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const H = vi.hoisted(() => ({
   verifyOtp: vi.fn(),
   updateUser: vi.fn(),
+  getUser: vi.fn(),
   claims: { value: null as unknown },
   hasInvitation: vi.fn(),
   accept: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
-  getSupabaseServerClient: async () => ({ auth: { verifyOtp: H.verifyOtp, updateUser: H.updateUser } }),
+  getSupabaseServerClient: async () => ({ auth: { verifyOtp: H.verifyOtp, updateUser: H.updateUser, getUser: H.getUser } }),
 }));
 vi.mock("@/lib/auth/claims", () => ({ getAuthClaims: async () => H.claims.value }));
 vi.mock("@/lib/users/service", () => ({ hasAcceptableInvitation: H.hasInvitation, acceptInvitation: H.accept }));
@@ -38,6 +39,10 @@ beforeEach(() => {
   H.verifyOtp.mockResolvedValue({ error: null });
   H.updateUser.mockResolvedValue({ error: null });
   H.claims.value = { sub: SUB, email: "ana.sintetica@estudio.test", authRole: "authenticated", raw: {} };
+  H.getUser.mockResolvedValue({
+    data: { user: { id: SUB, email: "ana.sintetica@estudio.test", email_confirmed_at: "2026-11-04T00:00:00Z" } },
+    error: null,
+  });
   H.hasInvitation.mockResolvedValue(true);
   H.accept.mockResolvedValue({ organizationId: "org_a", membershipId: "m1" });
 });
@@ -86,6 +91,44 @@ describe("/auth/accept-invite — acción", () => {
     await expect(run({ token_hash: TOKEN, type: "magiclink" })).rejects.toThrow("REDIRECT:");
     expect(H.updateUser).not.toHaveBeenCalled();
     expect(H.accept).toHaveBeenCalled();
+  });
+
+  it("correo sin confirmar en Auth: no acepta ni toca la contraseña", async () => {
+    H.getUser.mockResolvedValue({ data: { user: { id: SUB, email: "ana.sintetica@estudio.test", email_confirmed_at: null } }, error: null });
+    const pw = "una-clave-larga-sintetica";
+    expect((await run({ token_hash: TOKEN, type: "invite", password: pw, confirm: pw })).error).toMatch(/no es válido/);
+    expect(H.hasInvitation).not.toHaveBeenCalled();
+    expect(H.updateUser).not.toHaveBeenCalled();
+    expect(H.accept).not.toHaveBeenCalled();
+  });
+
+  it("usuario de Auth distinto de la sesión verificada: no acepta", async () => {
+    H.getUser.mockResolvedValue({
+      data: { user: { id: "bbbbbbbb-0000-4000-8000-00000000b0b1", email: "otra@estudio.test", email_confirmed_at: "2026-11-04T00:00:00Z" } },
+      error: null,
+    });
+    expect((await run({ token_hash: TOKEN, type: "magiclink" })).error).toMatch(/no es válido/);
+    expect(H.accept).not.toHaveBeenCalled();
+  });
+
+  it("la identidad usa el correo de Auth, no el del JWT", async () => {
+    H.claims.value = { sub: SUB, email: "viejo@estudio.test", authRole: "authenticated", raw: {} };
+    await expect(run({ token_hash: TOKEN, type: "magiclink" })).rejects.toThrow("REDIRECT:");
+    expect(H.hasInvitation).toHaveBeenCalledWith({ sub: SUB, email: "ana.sintetica@estudio.test" });
+    expect(H.accept).toHaveBeenCalledWith({ sub: SUB, email: "ana.sintetica@estudio.test" });
+  });
+
+  it("token ya consumido (reintento): sigue sólo con la sesión vigente y correo confirmado", async () => {
+    H.verifyOtp.mockResolvedValue({ error: { code: "otp_expired" } });
+    await expect(run({ token_hash: TOKEN, type: "magiclink" })).rejects.toThrow("REDIRECT:");
+    H.claims.value = null;
+    expect((await run({ token_hash: TOKEN, type: "magiclink" })).error).toMatch(/no es válido/);
+  });
+
+  it("Auth no disponible al leer el usuario: servicio no disponible, sin aceptar", async () => {
+    H.getUser.mockRejectedValue(new Error("network"));
+    expect((await run({ token_hash: TOKEN, type: "magiclink" })).error).toMatch(/no está disponible/);
+    expect(H.accept).not.toHaveBeenCalled();
   });
 
   it("conflicto al aceptar (p. ej. otro estudio): mensaje legible, sin redirigir", async () => {

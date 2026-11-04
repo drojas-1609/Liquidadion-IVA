@@ -73,9 +73,10 @@ describe("permisos efectivos", () => {
 });
 
 describe("guarda de destinatarios del correo de invitación", () => {
-  it("fuera de producción sin lista: no envía a nadie", () => {
-    expect(recipientAllowed("ana@example.test", { CONTEXT: "deploy-preview" } as NodeJS.ProcessEnv)).toBe(false);
-    expect(recipientAllowed("ana@example.test", {} as NodeJS.ProcessEnv)).toBe(false);
+  it("sin lista: no envía a nadie", () => {
+    expect(recipientAllowed("ana@example.test", { CONTEXT: "deploy-preview" })).toBe(false);
+    expect(recipientAllowed("ana@example.test", {})).toBe(false);
+    expect(recipientAllowed("ana@example.test", { USER_INVITE_EMAIL_ALLOWLIST: " , " })).toBe(false);
   });
   it("con lista: sólo direcciones exactas o patrones con *", () => {
     const env = { USER_INVITE_EMAIL_ALLOWLIST: "pruebas+*@example.test, otra@example.test" } as unknown as NodeJS.ProcessEnv;
@@ -84,8 +85,14 @@ describe("guarda de destinatarios del correo de invitación", () => {
     expect(recipientAllowed("empleada@example.test", env)).toBe(false);
     expect(recipientAllowed("pruebas+u1@example.test.evil.com", env)).toBe(false);
   });
-  it("producción (CONTEXT=production): sin guarda", () => {
-    expect(recipientAllowed("ana@example.test", { CONTEXT: "production" } as NodeJS.ProcessEnv)).toBe(true);
+  it("CONTEXT=production no abre la guarda (en runtime de Netlify CONTEXT no existe; etapa DEV)", () => {
+    expect(recipientAllowed("ana@example.test", { CONTEXT: "production" })).toBe(false);
+    expect(recipientAllowed("ana@example.test", { CONTEXT: "production", USER_INVITE_EMAIL_ALLOWLIST: "otra@example.test" })).toBe(false);
+  });
+  it("el comodín no cruza la @ ni admite espacios", () => {
+    const env = { USER_INVITE_EMAIL_ALLOWLIST: "pruebas+*@example.test" };
+    expect(recipientAllowed("pruebas+a@evil.test@example.test", env)).toBe(false);
+    expect(recipientAllowed("pruebas+a b@example.test", env)).toBe(false);
   });
 });
 

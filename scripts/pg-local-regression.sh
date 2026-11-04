@@ -91,3 +91,7 @@ SHADOW="postgresql://postgres@127.0.0.1:${PORT}/prisma_shadow"
   && echo "schema.prisma == migraciones: sin diferencias" || die "schema.prisma y las migraciones difieren"
 
 ( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" PR17_LOCAL_PG_DEVLIKE_URL="$DEVLIKE" PR17_LOCAL_PG_RUNNER_PREV_URL="$RUNNER_PREV" PR17_LOCAL_PG_RUNNER_URL="$RUNNER_CUR" npx --no-install vitest run --no-file-parallelism tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts tests/integration/arca-production-pg.test.ts tests/integration/arca-devlike-pg.test.ts tests/integration/arca-runner-precheck-pg.test.ts tests/integration/users-permissions-pg.test.ts )
+
+# Ensayo de la prueba DEV de usuarias sintéticas (tests/dev-smoke) contra el clúster local,
+# DESPUÉS de las pruebas anteriores: sus datos hacen de "estudio real" que no debe cambiar.
+( cd "$REPO" && "${CLEAN_ENV[@]}" USERS_DEV_SMOKE_REHEARSAL_URL="$URL" npx --no-install vitest run tests/dev-smoke/users-dev-smoke.test.ts )

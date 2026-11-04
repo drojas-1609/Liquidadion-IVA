@@ -28,6 +28,7 @@ const NO_INVITATION = "No encontramos una invitación vigente para esta cuenta. 
  * 2. `verifyOtp` establece la sesión de la persona invitada. Si el token ya se
  *    consumió (reintento), se usa la sesión vigente SÓLO si su correo
  *    verificado tiene una invitación vigente.
+ * 2b. Exige correo confirmado según Auth (getUser), con el mismo id que la sesión.
  * 3. Verifica que haya invitación para ESA identidad antes de tocar la
  *    contraseña (nunca se cambia la contraseña de otra cuenta abierta en el
  *    mismo navegador).
@@ -72,7 +73,22 @@ export async function acceptInviteAction(_prev: AcceptInviteState, formData: For
   }
   if (!claims) return { error: INVALID_LINK };
 
-  const identity = { sub: claims.sub, email: claims.email };
+  // La invitación se ubica por correo: sólo vale un correo CONFIRMADO, leído del
+  // servidor de Auth (no del JWT). Abrir el enlace (invite/magiclink) lo
+  // confirma; una cuenta con el correo sin verificar no toma la invitación.
+  let verifiedEmail: string | null = null;
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    const user = error ? null : data?.user;
+    if (user && user.id === claims.sub && user.email_confirmed_at && typeof user.email === "string") {
+      verifiedEmail = user.email;
+    }
+  } catch {
+    return { error: UNAVAILABLE };
+  }
+  if (!verifiedEmail) return { error: INVALID_LINK };
+
+  const identity = { sub: claims.sub, email: verifiedEmail };
   if (!(await hasAcceptableInvitation(identity))) return { error: NO_INVITATION };
 
   if (newAccount) {

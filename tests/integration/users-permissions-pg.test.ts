@@ -396,4 +396,167 @@ describe.skipIf(!URL_LOCAL)("PostgreSQL local: usuarios del estudio, permisos y 
     // Ya miembro: no se la puede volver a invitar.
     expect((await invite(json("POST", "/api/organization/invitations", inviteBody(ANA_EMAIL)))).status).toBe(409);
   });
+
+  it("vencimiento: una invitación vencida no se acepta; reenviarla la renueva y entonces sí", async () => {
+    as(OWNER_A);
+    const { invitationId } = await (await invite(json("POST", "/api/organization/invitations", inviteBody(ANA_EMAIL)))).json();
+    await db.organizationInvitation.update({ where: { id: invitationId }, data: { expiresAt: new Date(Date.now() - 1000), lastSentAt: null } });
+    await expect(acceptInvitation({ sub: ANA, email: ANA_EMAIL })).rejects.toThrow(/No encontramos una invitación vigente/);
+    expect(await db.membership.count({ where: { profileId: ANA } })).toBe(0);
+    const before = Date.now();
+    const renewed = await resend(json("POST", "/x"), ctx({ id: invitationId }));
+    expect(renewed.status).toBe(200);
+    const row = await db.organizationInvitation.findUniqueOrThrow({ where: { id: invitationId } });
+    expect(row.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 7 * 24 * 3600 * 1000 - 5000);
+    expect(row.sendCount).toBe(2);
+    await acceptInvitation({ sub: ANA, email: ANA_EMAIL });
+    expect((await db.membership.findFirstOrThrow({ where: { profileId: ANA } })).organizationId).toBe("org_a");
+  });
+
+  it("reenvío: enfriamiento de un minuto, sólo pendientes y sólo del propio estudio", async () => {
+    as(OWNER_A);
+    const { invitationId } = await (await invite(json("POST", "/api/organization/invitations", inviteBody(ANA_EMAIL)))).json();
+    const tooSoon = await resend(json("POST", "/x"), ctx({ id: invitationId }));
+    expect(tooSoon.status).toBe(409);
+    expect(H.sent).toEqual([ANA_EMAIL]);
+    await db.organizationInvitation.update({ where: { id: invitationId }, data: { lastSentAt: new Date(Date.now() - 61_000) } });
+    as(OWNER_B);
+    expect((await resend(json("POST", "/x"), ctx({ id: invitationId }))).status).toBe(404);
+    expect((await revoke(json("POST", "/x"), ctx({ id: invitationId }))).status).toBe(404);
+    as(OWNER_A);
+    expect((await resend(json("POST", "/x"), ctx({ id: invitationId }))).status).toBe(200);
+    expect(H.sent).toEqual([ANA_EMAIL, ANA_EMAIL]);
+    expect((await revoke(json("POST", "/x"), ctx({ id: invitationId }))).status).toBe(204);
+    await db.organizationInvitation.update({ where: { id: invitationId }, data: { lastSentAt: new Date(Date.now() - 61_000) } });
+    expect((await resend(json("POST", "/x"), ctx({ id: invitationId }))).status).toBe(409);
+    expect((await revoke(json("POST", "/x"), ctx({ id: invitationId }))).status).toBe(409);
+    expect(H.sent).toHaveLength(2);
+  });
+
+  it("correo ya registrado (Supabase no devuelve id): acepta la cuenta de ese correo verificado, en el estudio que invitó", async () => {
+    H.authIds = new Map(); // cuenta preexistente: canal magiclink, authUserId null
+    as(OWNER_A);
+    const { invitationId } = await (
+      await invite(json("POST", "/api/organization/invitations", { email: ANA_EMAIL, role: "ACCOUNTANT", clientScope: "SELECTED", clientIds: ["c2"], modules: ["IVA"] }))
+    ).json();
+    expect((await db.organizationInvitation.findUniqueOrThrow({ where: { id: invitationId } })).authUserId).toBeNull();
+    // Profile ya existente con otro correo guardado: se actualiza; identidad = sub.
+    await db.profile.create({ data: { id: ANA, email: "anterior@estudio.test" } });
+    await acceptInvitation({ sub: ANA, email: ANA_EMAIL });
+    const m = await db.membership.findFirstOrThrow({ where: { profileId: ANA }, include: { clientAccess: true } });
+    expect(m).toMatchObject({ organizationId: "org_a", role: "ACCOUNTANT", clientScope: "SELECTED", status: "ACTIVE", modules: ["IVA"] });
+    expect(m.clientAccess.map((c) => c.clientId)).toEqual(["c2"]);
+    expect((await db.profile.findUniqueOrThrow({ where: { id: ANA } })).email).toBe(ANA_EMAIL);
+    const inv = await db.organizationInvitation.findUniqueOrThrow({ where: { id: invitationId } });
+    expect(inv).toMatchObject({ status: "ACCEPTED", authUserId: ANA });
+    as(ANA, ANA_EMAIL);
+    expect(await clientNames()).toEqual(["Cliente Dos"]);
+  });
+
+  it("vínculo correcto: invitaciones del mismo correo en dos estudios no se mezclan; activa en otro estudio no acepta", async () => {
+    H.authIds = new Map();
+    as(OWNER_A);
+    const a = await (await invite(json("POST", "/api/organization/invitations", inviteBody(ANA_EMAIL, { role: "ACCOUNTANT" })))).json();
+    as(OWNER_B);
+    const b = await (await invite(json("POST", "/api/organization/invitations", inviteBody(ANA_EMAIL, { modules: ["CLIENTS"] })))).json();
+    // Dos vigentes: no se elige por ella.
+    await expect(acceptInvitation({ sub: ANA, email: ANA_EMAIL })).rejects.toThrow(/más de una invitación/);
+    expect((await revoke(json("POST", "/x"), ctx({ id: b.invitationId }))).status).toBe(204);
+    await acceptInvitation({ sub: ANA, email: ANA_EMAIL });
+    const ms = await db.membership.findMany({ where: { profileId: ANA } });
+    expect(ms).toHaveLength(1);
+    expect(ms[0]).toMatchObject({ organizationId: "org_a", role: "ACCOUNTANT", modules: ["IVA"] });
+    // Nueva invitación de B mientras está activa en A: no se acepta.
+    as(OWNER_B);
+    expect((await invite(json("POST", "/api/organization/invitations", inviteBody(ANA_EMAIL)))).status).toBe(201);
+    await expect(acceptInvitation({ sub: ANA, email: ANA_EMAIL })).rejects.toThrow(/otro estudio/);
+    expect(await db.membership.count({ where: { profileId: ANA } })).toBe(1);
+    expect(a.invitationId).not.toBe(b.invitationId);
+  });
+
+  it("aceptaciones simultáneas de la misma invitación: una sola membresía", async () => {
+    as(OWNER_A);
+    await invite(json("POST", "/api/organization/invitations", inviteBody(ANA_EMAIL)));
+    const results = await Promise.allSettled([1, 2, 3, 4].map(() => acceptInvitation({ sub: ANA, email: ANA_EMAIL })));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await db.membership.count({ where: { profileId: ANA } })).toBe(1);
+  });
+
+  it("cupo concurrente: reactivar e invitar a la vez con una sola plaza libre -> exactamente una", async () => {
+    const { ana, bea } = await seedTwoUsers();
+    as(OWNER_A);
+    for (let round = 0; round < 5; round++) {
+      await db.organizationInvitation.deleteMany({ where: { status: "PENDING" } });
+      await db.membership.updateMany({ where: { id: { in: [ana, bea] } }, data: { status: "DISABLED" } });
+      // Propietario activo + 1 pendiente base = 2 ocupadas; límite 3 => UNA plaza.
+      await db.organization.update({ where: { id: "org_a" }, data: { seatLimit: 3 } });
+      expect((await invite(json("POST", "/api/organization/invitations", inviteBody(`base${round}@estudio.test`)))).status).toBe(201);
+      const results = await Promise.all([
+        enableMember(json("POST", "/x"), ctx({ id: ana })),
+        enableMember(json("POST", "/x"), ctx({ id: bea })),
+        invite(json("POST", "/api/organization/invitations", inviteBody(`c${round}@estudio.test`))),
+        invite(json("POST", "/api/organization/invitations", inviteBody(`d${round}@estudio.test`))),
+      ]);
+      const ok = results.filter((r) => r.status === 200 || r.status === 201);
+      expect(ok).toHaveLength(1);
+      expect(results.filter((r) => r.status === 409)).toHaveLength(3);
+      const used =
+        (await db.membership.count({ where: { organizationId: "org_a", status: "ACTIVE" } })) +
+        (await db.organizationInvitation.count({ where: { organizationId: "org_a", status: "PENDING", expiresAt: { gt: new Date() } } }));
+      expect(used).toBe(3);
+    }
+  });
+
+  it("Data API cerrada: anon/authenticated/service_role sin acceso a tablas, secuencias ni funciones de public (también futuras)", async () => {
+    const tables = await db.$queryRaw<{ relname: string; rls: boolean; force: boolean; policies: bigint }[]>`
+      SELECT c.relname, c.relrowsecurity AS rls, c.relforcerowsecurity AS force,
+             (SELECT count(*) FROM pg_policy p WHERE p.polrelid = c.oid) AS policies
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind IN ('r','p') ORDER BY 1`;
+    expect(tables.map((t) => t.relname)).toEqual(expect.arrayContaining(["Client", "Membership", "Profile", "OrganizationInvitation", "MembershipClient", "_prisma_migrations"]));
+    for (const t of tables) expect({ t: t.relname, rls: t.rls, force: t.force, policies: Number(t.policies) }).toEqual({ t: t.relname, rls: true, force: false, policies: 0 });
+
+    const exposed = await db.$queryRaw<{ who: string; obj: string }[]>`
+      SELECT r.rolname AS who, c.relname AS obj
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      CROSS JOIN (SELECT rolname FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role')) r
+      WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','f','S')
+        AND (CASE WHEN c.relkind = 'S' THEN has_sequence_privilege(r.rolname, c.oid, 'USAGE,SELECT,UPDATE')
+             ELSE has_table_privilege(r.rolname, c.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') END)
+      UNION ALL
+      SELECT r.rolname, p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      CROSS JOIN (SELECT rolname FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role')) r
+      WHERE n.nspname = 'public' AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')`;
+    expect(exposed).toEqual([]);
+
+    // Efectivo: como los roles de la API, lectura y escritura fallan por permisos.
+    for (const role of ["anon", "authenticated", "service_role"]) {
+      for (const sql of [`SELECT 1 FROM "Client" LIMIT 1`, `SELECT 1 FROM "Membership" LIMIT 1`, `SELECT 1 FROM "OrganizationInvitation" LIMIT 1`, `UPDATE "Membership" SET "role" = 'OWNER'`]) {
+        await expect(
+          db.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(`SET LOCAL ROLE ${role}`);
+            await tx.$executeRawUnsafe(sql);
+          }),
+        ).rejects.toThrow(/permission denied/);
+      }
+    }
+
+    // Objetos futuros creados por el rol que migra tampoco quedan expuestos.
+    await db.$executeRawUnsafe(`CREATE TABLE "_probe_future"(id int)`);
+    await db.$executeRawUnsafe(`CREATE SEQUENCE "_probe_future_seq"`);
+    try {
+      const fut = await db.$queryRaw<{ n: bigint }[]>`
+        SELECT count(*) AS n FROM pg_roles r WHERE r.rolname IN ('anon','authenticated','service_role')
+          AND (has_table_privilege(r.rolname, '"_probe_future"', 'SELECT,INSERT,UPDATE,DELETE')
+               OR has_sequence_privilege(r.rolname, '"_probe_future_seq"', 'USAGE,SELECT,UPDATE'))`;
+      expect(Number(fut[0].n)).toBe(0);
+    } finally {
+      await db.$executeRawUnsafe(`DROP TABLE "_probe_future"`);
+      await db.$executeRawUnsafe(`DROP SEQUENCE "_probe_future_seq"`);
+    }
+
+    // El propietario (Prisma) sigue operando con RLS activo y sin políticas.
+    as(OWNER_A);
+    expect(await clientNames()).toEqual(["Cliente Dos", "Cliente Tres", "Cliente Uno"]);
+  });
 });

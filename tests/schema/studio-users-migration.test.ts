@@ -65,4 +65,21 @@ describe(`migración ${MIGRATION} — revisión estática`, () => {
     expect(code).toContain("REVOKE ALL ON TABLE %I FROM PUBLIC");
     expect(code).not.toMatch(/CREATE POLICY/i);
   });
+
+  it("cierre de la Data API: RLS + REVOKE en todo public y en los privilegios por defecto, sin FORCE ni GRANT", () => {
+    const block = code.slice(code.indexOf("DO $data_api$"), code.indexOf("$data_api$;") + 11);
+    expect(block.length).toBeGreaterThan(100);
+    expect(block).toContain("WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')");
+    expect(block).toContain("ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY");
+    expect(block).toContain("REVOKE ALL ON %s public.%I FROM PUBLIC");
+    expect(block).toContain("REVOKE ALL ON FUNCTION %s FROM PUBLIC");
+    expect(block).toContain("rolname IN ('anon', 'authenticated', 'service_role')");
+    for (const kind of ["TABLES", "SEQUENCES", "FUNCTIONS"]) {
+      expect(block).toContain(`ALTER DEFAULT PRIVILEGES REVOKE ALL ON ${kind} FROM %I`);
+      expect(block).toContain(`ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON ${kind} FROM %I`);
+    }
+    expect(code).not.toMatch(/FORCE ROW LEVEL SECURITY|DISABLE ROW LEVEL SECURITY/i);
+    // Va dentro de la misma transacción (antes del COMMIT final).
+    expect(code.indexOf("$data_api$;")).toBeLessThan(code.lastIndexOf("COMMIT;"));
+  });
 });
