@@ -95,6 +95,31 @@ function writePending(periodId: string, v: PendingOp | null) {
         // Sin almacenamiento: la operación igual queda en el historial del período.
     }
 }
+/**
+ * Resultado ya confirmado que se muestra una vez después de una recarga: si
+ * router.refresh() termina en una navegación completa (p. ej. una redirección
+ * de la Preview), el mensaje no se pierde. Sólo texto para el operador.
+ */
+const DONE_TTL_MS = 120_000;
+const doneKey = (periodId: string) => `lid-import-done:${periodId}`;
+function keepDone(periodId: string, text: string) {
+    try {
+        window.sessionStorage.setItem(doneKey(periodId), JSON.stringify({ text, at: Date.now() }));
+    } catch {
+        // Sin almacenamiento: el resultado igual figura en el historial del período.
+    }
+}
+function takeDone(periodId: string): string {
+    try {
+        const raw = window.sessionStorage.getItem(doneKey(periodId));
+        window.sessionStorage.removeItem(doneKey(periodId));
+        const v = raw ? (JSON.parse(raw) as { text?: unknown; at?: unknown }) : null;
+        // Sólo la recarga inmediata: una visita posterior no repite un resultado viejo.
+        return v && typeof v.text === "string" && typeof v.at === "number" && Date.now() - v.at < DONE_TTL_MS ? v.text : "";
+    } catch {
+        return "";
+    }
+}
 async function sha256Hex(file: File | null): Promise<string> {
     if (!file) return "";
     const d = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
@@ -125,7 +150,8 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     const [tracking, setTracking] = useState<PendingOp | null>(null);
     const [trackingNote, setTrackingNote] = useState("");
     // Pasó el plazo sin registro de aplicación ni de falla de todos los envíos: no se afirma nada.
-    const [unconfirmed, setUnconfirmed] = useState<{ op: PendingOp; checkedAt: number } | null>(null);
+    // `reached`: la última consulta llegó a la API (no hay registro) o no se pudo hacer.
+    const [unconfirmed, setUnconfirmed] = useState<{ op: PendingOp; checkedAt: number; reached: boolean } | null>(null);
     const [recent, setRecent] = useState<ImportOperationView[]>([]);
     const inFlight = useRef(false);
 
@@ -141,6 +167,8 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     // Al abrir (o recargar) la página: historial y, si había una confirmación sin respuesta, seguirla.
     useEffect(() => {
         void loadRecent();
+        const kept = takeDone(periodId);
+        if (kept) setDone(kept);
         const p = readPending(periodId);
         if (p) setTracking(p);
     }, [periodId, loadRecent]);
@@ -168,7 +196,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 if (now - last >= RESULT_WAIT_MS) {
                     setTracking(null);
                     setTrackingNote("");
-                    setUnconfirmed({ op: tracking, checkedAt: now });
+                    setUnconfirmed({ op: tracking, checkedAt: now, reached: false });
                     return;
                 }
                 setTrackingNote(`No se pudo consultar el resultado (${ref}). Se vuelve a intentar…`);
@@ -183,7 +211,9 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 setTrackingNote("");
                 setError("");
                 setPreview(null);
-                setDone(`Confirmación aplicada (${ref}, según el registro del período). ${resultText(view.result)}`);
+                const text = `Confirmación aplicada (${ref}, según el registro del período). ${resultText(view.result)}`;
+                keepDone(periodId, text);
+                setDone(text);
                 router.refresh();
                 void loadRecent();
                 return;
@@ -200,7 +230,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
             if (state === "UNCONFIRMED") {
                 setTracking(null);
                 setTrackingNote("");
-                setUnconfirmed({ op: tracking, checkedAt: now });
+                setUnconfirmed({ op: tracking, checkedAt: now, reached: true });
                 void loadRecent();
                 return;
             }
@@ -285,7 +315,9 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
             } else {
                 writePending(periodId, null);
                 const r = json as OperationResult & { replayed?: boolean };
-                setDone(resultText(r) + (r.replayed ? " Esta operación ya se había aplicado: no se escribió de nuevo." : ""));
+                const text = resultText(r) + (r.replayed ? " Esta operación ya se había aplicado: no se escribió de nuevo." : "");
+                keepDone(periodId, text);
+                setDone(text);
                 setPreview(null);
                 router.refresh();
                 void loadRecent();
@@ -353,7 +385,9 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 <div role="alert" data-unconfirmed className="card" style={{ border: "1px solid var(--accent)", marginBottom: "var(--spacing-md)" }}>
                     <strong>Resultado sin confirmar</strong>
                     <p style={{ margin: "var(--spacing-sm) 0" }}>
-                        Operación <code data-operation-id>{unconfirmed.op.operationId}</code>. Pasaron más de {Math.round(RESULT_WAIT_MS / 1000)} s desde el último envío y el período no tiene registro de que se haya aplicado ni de que haya fallado. No la des por aplicada ni por no aplicada.
+                        Operación <code data-operation-id>{unconfirmed.op.operationId}</code>. Pasaron más de {Math.round(RESULT_WAIT_MS / 1000)} s desde el último envío y {unconfirmed.reached
+                            ? "el período no tiene registro de que se haya aplicado ni de que hayan fallado todos sus envíos"
+                            : "no se pudo consultar el registro del período (sin conexión o sin respuesta)"}. No la des por aplicada ni por no aplicada.
                     </p>
                     <p style={{ margin: "0 0 var(--spacing-sm)", color: "var(--secondary)" }}>
                         Última verificación: {new Date(unconfirmed.checkedAt).toLocaleTimeString("es-AR", { hourCycle: "h23" })}. Si confirmás de nuevo los mismos archivos se usa esta misma operación: si ya estaba aplicada, no se duplica.

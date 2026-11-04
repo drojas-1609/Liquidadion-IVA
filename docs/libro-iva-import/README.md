@@ -137,6 +137,23 @@ Detalle de la descarga de Portal IVA:
 - Arriba de eso, la respuesta se corta, pero la pantalla recupera el resultado por `operationId` (aplicada o fallida según el registro; si no hay registro, «Resultado sin confirmar»). La importación es completa y atómica, y reintentarla no duplica nada.
 - Mover las funciones a `gru` (São Paulo), donde están las bases de DEV y de PROD, ataca la causa. Es una configuración del sitio: afecta también a producción.
 
+**Ensayo de recuperación tras un 504 real** (Deploy Preview contra DEV, 04/11/2026, cliente sintético, período 01/2027, CSV de Portal IVA con 9.003 ventas sintéticas en los puntos de venta 82/83). Las consultas de resultado se cortaron a propósito en el navegador hasta pasar los 75 s; la confirmación viajó normal:
+
+| Hora (UTC) | Desde el envío | Qué pasó | Fuente |
+|---|---|---|---|
+| 11:57:11,16 | 0 s | El navegador envía la confirmación (operationId `1e01a35b…`, un envío) | navegador |
+| 11:57:30,46 | 19,3 s | Empieza la transacción (fin del recálculo; `createdAt` de los comprobantes) | DEV |
+| 11:57:42,57 | **31,4 s** | **504 de Netlify** al navegador; la pantalla pasa a «Verificando…» | navegador |
+| 11:57:50,94 | **39,8 s** | AuditLog `invoice.import`: 9.001 importados, 0 ya cargados, 2 para revisar | DEV |
+| 11:58:26 | 75 s | «Resultado sin confirmar», con el operationId completo y «Volver a verificar» | pantalla |
+| 11:58:56 | — | «Volver a verificar» sin red: sigue sin confirmar, hora de verificación actualizada | pantalla |
+| ≈11:59:00 | — | «Volver a verificar» con red: aplicada según el registro; el historial la lista como «Aplicada · 9001 · 0 · 2» | pantalla |
+
+- **La respuesta del navegador no es el resultado de la importación.** El 504 a los 31,4 s es el corte de la puerta de enlace de la Preview; la función siguió y la importación quedó completa a los 39,8 s, **8,4 s después** de que el navegador recibió el error.
+- Vista previa del mismo archivo: 13,3 s. Reintento de la misma operación con un envío nuevo: 200 `replayed` en 6,2 s, sin escribir.
+- Después de recuperar: +9.001 comprobantes y +12.001 líneas de IVA en el período (las 2 filas para revisar no se importan), una sola fila `invoice.import` para la operación y 0 claves de comprobante repetidas en el cliente.
+- En la Preview, el `router.refresh()` posterior recibió una redirección y Next.js hizo una navegación completa: el mensaje se perdía. Ahora el resultado confirmado se guarda en la sesión del navegador y se muestra una vez después de una recarga inmediata (hasta 2 minutos).
+
 Cada confirmación registra en los logs de la función una línea `[libro-iva-import] confirm` con el `x-nf-request-id`, la etapa, conteos y milisegundos por fase (y el código de Prisma si falla), y devuelve `Server-Timing`.
 
 **Datos sintéticos para el smoke:** `scripts/libro-iva-import/generate-synthetic.ts` (se niega a escribir dentro del repositorio). Guion: [SMOKE-DEV.md](SMOKE-DEV.md).
