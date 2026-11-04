@@ -14,7 +14,7 @@ const NO_STORE = { "Cache-Control": "no-store, max-age=0" } as const;
 export const GET = withApiAuthz(async () => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_READ);
+    await requireOrganizationRole(profileId, organizationId, ROLES_READ, { module: "CLIENTS" });
 
     const today = todayInArgentina();
     const catalogs = activityCatalogs()

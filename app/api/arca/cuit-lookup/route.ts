@@ -70,7 +70,7 @@ function lookupResponse(result: CuitLookupResult) {
 export const POST = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_CREATE);
+    await requireOrganizationRole(profileId, organizationId, ROLES_CREATE, { module: "ARCA_PADRON" });
 
     const body = await parseJsonBody(request);
     const cuit = normalizeCuit(typeof body === "object" && body !== null ? (body as { cuit?: unknown }).cuit : undefined);

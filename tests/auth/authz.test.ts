@@ -31,6 +31,8 @@ import {
   parseJsonBody,
   withApiAuthz,
   guardPage,
+  clientScopeWhere,
+  requireAllClientsScope,
   type AuthzDb,
 } from "@/lib/auth/authz";
 import {
@@ -78,10 +80,32 @@ function clientRow(id: string, organizationId: string): ClientRow {
   };
 }
 
+interface MembershipFixture {
+  role: Role;
+  id?: string;
+  status?: "ACTIVE" | "DISABLED";
+  clientScope?: "ALL" | "SELECTED";
+  modules?: Array<"CLIENTS" | "IVA" | "ARCA_PADRON">;
+}
+
+/** Defaults = acceso previo a Usuarios del estudio (ACTIVE, ALL, todos los módulos). */
+function fullMembership(m: MembershipFixture, organizationId: string) {
+  return {
+    id: m.id ?? `m_${organizationId}`,
+    organizationId,
+    role: m.role,
+    status: m.status ?? "ACTIVE",
+    clientScope: m.clientScope ?? "ALL",
+    modules: m.modules ?? ["CLIENTS", "IVA", "ARCA_PADRON"],
+  };
+}
+
 function makeDb(over: {
   profile?: { id: string; email: string | null } | null;
-  memberships?: Array<{ organizationId: string; role: Role }>;
-  membershipByOrg?: Record<string, { role: Role } | null>;
+  memberships?: Array<MembershipFixture & { organizationId: string }>;
+  membershipByOrg?: Record<string, MembershipFixture | null>;
+  /** Asignaciones MembershipClient: "membershipId|clientId". */
+  assigned?: string[];
   clients?: Record<string, ClientRow | null>;
   periods?: Record<string, PeriodRow | null>;
   onProfileFindUnique?: () => void;
@@ -94,12 +118,22 @@ function makeDb(over: {
       },
     },
     membership: {
-      findMany: async () => over.memberships ?? [],
+      findMany: async (args: { where: { status?: string } }) =>
+        (over.memberships ?? [])
+          .map((m) => fullMembership(m, m.organizationId))
+          .filter((m) => args.where.status === undefined || m.status === args.where.status),
       findUnique: async (args: {
         where: { profileId_organizationId: { profileId: string; organizationId: string } };
       }) => {
         const orgId = args.where.profileId_organizationId.organizationId;
-        return over.membershipByOrg?.[orgId] ?? null;
+        const m = over.membershipByOrg?.[orgId];
+        return m ? fullMembership(m, orgId) : null;
+      },
+    },
+    membershipClient: {
+      findUnique: async (args: { where: { membershipId_clientId: { membershipId: string; clientId: string } } }) => {
+        const { membershipId, clientId } = args.where.membershipId_clientId;
+        return (over.assigned ?? []).includes(`${membershipId}|${clientId}`) ? { clientId } : null;
       },
     },
     client: {
@@ -175,7 +209,7 @@ describe("resolveActiveOrganization", () => {
     const org = await resolveActiveOrganization(SUB, {
       db: makeDb({ memberships: [{ organizationId: ORG_A, role: "ACCOUNTANT" }] }),
     });
-    expect(org).toEqual({ organizationId: ORG_A, role: "ACCOUNTANT" });
+    expect(org).toMatchObject({ organizationId: ORG_A, role: "ACCOUNTANT", clientScope: "ALL" });
   });
 });
 
@@ -198,22 +232,24 @@ describe("requireOrganizationRole", () => {
     const org = await requireOrganizationRole(SUB, ORG_A, ROLES_CREATE, {
       db: makeDb({ membershipByOrg: { [ORG_A]: { role: "ADMIN" } } }),
     });
-    expect(org).toEqual({ organizationId: ORG_A, role: "ADMIN" });
+    expect(org).toMatchObject({ organizationId: ORG_A, role: "ADMIN" });
   });
 });
 
 describe("requireClientAccess — D4 (recurso ajeno == inexistente)", () => {
   it("cliente inexistente -> NotFoundError (404)", async () => {
     await expect(
-      requireClientAccess(SUB, "c_missing", ROLES_READ, { db: makeDb({ clients: {} }) }),
+      requireClientAccess(SUB, "c_missing", ROLES_READ, { module: "CLIENTS", db: makeDb({ clients: {} }) }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
   it("cliente de otra organización -> MISMO NotFoundError (404), cuerpo idéntico", async () => {
     const missing = await requireClientAccess(SUB, "c_missing", ROLES_READ, {
+      module: "CLIENTS",
       db: makeDb({ clients: {} }),
     }).catch((e) => e);
     const foreign = await requireClientAccess(SUB, "c_b", ROLES_READ, {
+      module: "CLIENTS",
       db: makeDb({
         clients: { c_b: clientRow("c_b", ORG_B) },
         membershipByOrg: { [ORG_A]: { role: "OWNER" } }, // el caller es de ORG_A, no de ORG_B
@@ -229,6 +265,7 @@ describe("requireClientAccess — D4 (recurso ajeno == inexistente)", () => {
 
   it("cliente propio + rol OK -> devuelve contexto con el client", async () => {
     const acc = await requireClientAccess(SUB, "c_a", ROLES_READ, {
+      module: "CLIENTS",
       db: makeDb({
         clients: { c_a: clientRow("c_a", ORG_A) },
         membershipByOrg: { [ORG_A]: { role: "VIEWER" } },
@@ -242,6 +279,7 @@ describe("requireClientAccess — D4 (recurso ajeno == inexistente)", () => {
   it("cliente propio pero rol insuficiente -> ForbiddenError (403)", async () => {
     await expect(
       requireClientAccess(SUB, "c_a", ROLES_CREATE, {
+        module: "CLIENTS",
         db: makeDb({
           clients: { c_a: clientRow("c_a", ORG_A) },
           membershipByOrg: { [ORG_A]: { role: "VIEWER" } },
@@ -469,5 +507,91 @@ describe("guardPage", () => {
         throw new Error("boom");
       }),
     ).rejects.toThrow("boom");
+  });
+});
+
+// ── Usuarios del estudio: estado, módulos y alcance de clientes ────────────
+
+describe("Usuarios del estudio — membresía, módulos y alcance (cada solicitud)", () => {
+  const clients = { c_a: clientRow("c_a", ORG_A), c_a2: clientRow("c_a2", ORG_A) };
+  const periods = { p_a: { id: "p_a", clientId: "c_a", organizationId: ORG_A }, p_a2: { id: "p_a2", clientId: "c_a2", organizationId: ORG_A } };
+
+  it("membresía DISABLED: resolveActiveOrganization -> NO_ORGANIZATION; requireOrganizationRole -> 404", async () => {
+    const db = makeDb({
+      memberships: [{ organizationId: ORG_A, role: "ADMIN", status: "DISABLED" }],
+      membershipByOrg: { [ORG_A]: { role: "ADMIN", status: "DISABLED" } },
+    });
+    await expect(resolveActiveOrganization(SUB, { db })).rejects.toBeInstanceOf(NoOrganizationError);
+    await expect(requireOrganizationRole(SUB, ORG_A, ROLES_READ, { db })).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("una DISABLED en otra organización no provoca selección de organización", async () => {
+    const org = await resolveActiveOrganization(SUB, {
+      db: makeDb({
+        memberships: [
+          { organizationId: ORG_A, role: "ACCOUNTANT" },
+          { organizationId: ORG_B, role: "VIEWER", status: "DISABLED" },
+        ],
+      }),
+    });
+    expect(org.organizationId).toBe(ORG_A);
+  });
+
+  it("módulo no habilitado -> ForbiddenError; habilitado -> ok; lista = cualquiera de", async () => {
+    const db = makeDb({ membershipByOrg: { [ORG_A]: { role: "ACCOUNTANT", modules: ["IVA"] } } });
+    await expect(requireOrganizationRole(SUB, ORG_A, ROLES_READ, { db, module: "CLIENTS" })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(requireOrganizationRole(SUB, ORG_A, ROLES_READ, { db, module: "IVA" })).resolves.toMatchObject({ modules: ["IVA"] });
+    await expect(requireOrganizationRole(SUB, ORG_A, ROLES_READ, { db, module: ["CLIENTS", "IVA"] })).resolves.toBeTruthy();
+  });
+
+  it("módulos desconocidos o nulos se descartan (fail-closed)", async () => {
+    const db = makeDb({ membershipByOrg: { [ORG_A]: { role: "VIEWER", modules: ["NUEVO" as never] } } });
+    await expect(requireOrganizationRole(SUB, ORG_A, ROLES_READ, { db, module: "IVA" })).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("OWNER: alcance y módulos completos aunque sus columnas digan otra cosa", async () => {
+    const db = makeDb({ membershipByOrg: { [ORG_A]: { role: "OWNER", clientScope: "SELECTED", modules: [] } }, clients });
+    const acc = await requireClientAccess(SUB, "c_a2", ROLES_READ, { db, module: "CLIENTS" });
+    expect(acc.clientScope).toBe("ALL");
+    expect(acc.modules).toEqual(["CLIENTS", "IVA", "ARCA_PADRON"]);
+  });
+
+  it("alcance SELECTED: cliente asignado -> ok; no asignado -> 404 idéntico a inexistente", async () => {
+    const db = makeDb({
+      membershipByOrg: { [ORG_A]: { role: "ACCOUNTANT", id: "m1", clientScope: "SELECTED" } },
+      assigned: ["m1|c_a"],
+      clients,
+    });
+    await expect(requireClientAccess(SUB, "c_a", ROLES_READ, { db, module: "CLIENTS" })).resolves.toMatchObject({ client: { id: "c_a" } });
+    const outside = await requireClientAccess(SUB, "c_a2", ROLES_READ, { db, module: "CLIENTS" }).catch((e) => e);
+    const missing = await requireClientAccess(SUB, "c_zz", ROLES_READ, { db, module: "CLIENTS" }).catch((e) => e);
+    expect(outside).toBeInstanceOf(NotFoundError);
+    expect(outside.message).toBe(missing.message);
+    expect(outside.code).toBe(missing.code);
+  });
+
+  it("requirePeriodAccess exige IVA y el alcance del cliente del período", async () => {
+    const scoped = makeDb({
+      membershipByOrg: { [ORG_A]: { role: "ACCOUNTANT", id: "m1", clientScope: "SELECTED" } },
+      assigned: ["m1|c_a"],
+      periods,
+    });
+    await expect(requirePeriodAccess(SUB, "p_a", ROLES_READ, { db: scoped })).resolves.toBeTruthy();
+    await expect(requirePeriodAccess(SUB, "p_a2", ROLES_READ, { db: scoped })).rejects.toBeInstanceOf(NotFoundError);
+    const noIva = makeDb({ membershipByOrg: { [ORG_A]: { role: "ACCOUNTANT", modules: ["CLIENTS"] } }, periods });
+    await expect(requirePeriodAccess(SUB, "p_a", ROLES_READ, { db: noIva })).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("clientScopeWhere: ALL filtra por organización; SELECTED además por asignación", () => {
+    expect(clientScopeWhere({ organizationId: ORG_A, membershipId: "m1", clientScope: "ALL" })).toEqual({ organizationId: ORG_A });
+    expect(clientScopeWhere({ organizationId: ORG_A, membershipId: "m1", clientScope: "SELECTED" })).toEqual({
+      organizationId: ORG_A,
+      memberAccess: { some: { membershipId: "m1" } },
+    });
+  });
+
+  it("crear clientes exige alcance ALL", () => {
+    expect(() => requireAllClientsScope({ clientScope: "SELECTED" })).toThrow(ForbiddenError);
+    expect(() => requireAllClientsScope({ clientScope: "ALL" })).not.toThrow();
   });
 });

@@ -55,6 +55,13 @@ const EXPECTED = {
   "app/api/activity-catalogs/search/route.ts": { models: [], serializer: null },
   "app/api/iibb-rates/suggest/route.ts": { models: [], serializer: null },
   // Devuelve XLSX binario (no JSON); internamente serializeLiquidation -> strings.
+  // Usuarios del estudio: sin decimales; sólo ids, estados y resultados de envío.
+  "app/api/organization/invitations/route.ts": { models: [], serializer: null },
+  "app/api/organization/invitations/[id]/resend/route.ts": { models: [], serializer: null },
+  "app/api/organization/invitations/[id]/revoke/route.ts": { models: [], serializer: null },
+  "app/api/organization/members/[id]/route.ts": { models: [], serializer: null },
+  "app/api/organization/members/[id]/disable/route.ts": { models: [], serializer: null },
+  "app/api/organization/members/[id]/enable/route.ts": { models: [], serializer: null },
   "app/api/client/[id]/period/[periodId]/export/route.ts": { models: ["Invoice", "TaxRecord", "Client"], serializer: "serializeLiquidation" },
 } as const;
 

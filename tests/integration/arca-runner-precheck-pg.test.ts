@@ -39,7 +39,10 @@ describe.skipIf(!prevUrl || !curUrl)("runner de homologación: precheck de DEV",
     beforeAll(async () => {
         prev = new PrismaClient({ datasources: { db: { url: prevUrl! } } });
         cur = new PrismaClient({ datasources: { db: { url: curUrl! } } });
-        await cur.organization.create({ data: { id: "org_runner_sintetica", name: "ESTUDIO SINTETICO RUNNER" } });
+        // SQL explícito: runner_cur tiene el esquema del DEV actual (sin las columnas de
+        // migraciones posteriores, p. ej. Organization.seatLimit), que el cliente Prisma
+        // del repositorio ya conoce.
+        await cur.$executeRawUnsafe(`INSERT INTO "Organization" ("id", "name", "updatedAt") VALUES ('org_runner_sintetica', 'ESTUDIO SINTETICO RUNNER', now())`);
         await cur.arcaPadronOrganization.create({ data: { organizationId: "org_runner_sintetica" } });
         await cur.arcaWsaaTicket.create({ data: { key: "sintetico:runner", ciphertext: "v2:no-es-un-ticket", expiresAt: new Date(Date.now() + 3600000), updatedAt: new Date() } });
         localFp = (await cur.$queryRaw<Array<{ fp: string }>>`SELECT encode(sha256(convert_to(string_agg(id||':'||migration_name||':'||checksum,'|' ORDER BY migration_name),'UTF8')),'hex') AS fp FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`)[0].fp;

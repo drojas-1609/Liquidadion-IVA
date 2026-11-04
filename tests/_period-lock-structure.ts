@@ -465,6 +465,15 @@ function checkRawInventory(ctx: Ctx, raws: RawQuery[]): void {
     return;
   }
 
+  if (ctx.file === "lib/users/seats.ts") {
+    // Cupo de plazas del estudio: un único FOR UPDATE de la fila Organization por id
+    // (serializa invitaciones simultáneas). No toca Period ni datos fiscales.
+    const allowed = new Map([['SELECT "seatLimit" FROM "Organization" WHERE "id" = ? FOR UPDATE', "organizationId"]]);
+    for (const q of raws) if (allowed.get(q.sql) !== q.params.join(",").replace(/\s/g, "")) add(ctx, "RAW_NOT_INVENTORIED", q.node, `SQL de plazas fuera del inventario: ${q.sql}`);
+    if (raws.length !== 1) add(ctx, "RAW_MISSING", null, "se espera el único bloqueo inventariado de Organization");
+    return;
+  }
+
   if (ctx.file === "lib/period-lock.ts") {
     for (const r of raws) {
       const shape =
