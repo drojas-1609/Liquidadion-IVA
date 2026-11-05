@@ -478,6 +478,21 @@ function checkRawInventory(ctx: Ctx, raws: RawQuery[]): void {
     return;
   }
 
+  if (ctx.file === "lib/users/seats.ts") {
+    // Cupo de plazas del estudio: espera acotada local a la transacción y un único
+    // FOR UPDATE de la fila Organization por id (serializa invitaciones simultáneas).
+    // No toca Period ni datos fiscales.
+    const allowed = new Map([
+      ["SET LOCAL lock_timeout = '3s'", ""],
+      ['SELECT "seatLimit" FROM "Organization" WHERE "id" = ? FOR UPDATE', "organizationId"],
+    ]);
+    for (const q of raws) if (allowed.get(q.sql) !== q.params.join(",").replace(/\s/g, "")) add(ctx, "RAW_NOT_INVENTORIED", q.node, `SQL de plazas fuera del inventario: ${q.sql}`);
+    if (raws.length !== 2) add(ctx, "RAW_MISSING", null, "se esperan el lock_timeout y el único bloqueo inventariado de Organization");
+    const setAt = raws.find((q) => q.sql.startsWith("SET LOCAL lock_timeout"))?.pos ?? -1, lockAt = raws.find((q) => q.sql.includes("FOR UPDATE"))?.pos ?? -1;
+    if (!(setAt >= 0 && lockAt > setAt)) add(ctx, "RAW_NOT_INVENTORIED", null, "lock_timeout debe fijarse antes del FOR UPDATE de Organization");
+    return;
+  }
+
   if (ctx.file === "lib/period-lock.ts") {
     for (const r of raws) {
       const shape =

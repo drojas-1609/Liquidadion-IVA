@@ -1,0 +1,117 @@
+.login {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  min-height: 100svh;
+}
+
+.cover {
+  background: linear-gradient(180deg, rgb(8 15 26 / 32%), transparent 70%),
+    url("/branding/estudio.jpg") center / cover;
+}
+
+.brand {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+  margin-bottom: var(--spacing-md);
+  text-align: center;
+}
+
+.logo {
+  position: relative;
+  display: block;
+  width: 3.7rem;
+  margin: 0.4rem 0 0.75rem;
+}
+
+.logo img {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: brightness(1.2);
+}
+
+/* Lift the original dark-blue initials against the dark card. */
+.logo::after {
+  position: absolute;
+  inset: 0;
+  background: url("/branding/dero-company-isotipo.png") center / 100% 100% no-repeat;
+  clip-path: inset(40% 40% 44% 38%);
+  filter: grayscale(1) brightness(4);
+  content: "";
+}
+
+.brand h1 {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.brand p {
+  color: #cbd5e1;
+  font-size: 0.9rem;
+}
+
+.access {
+  display: grid;
+  place-items: center;
+  padding: clamp(1rem, 5vw, 3rem);
+}
+
+.studio {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.studio h2 {
+  margin-bottom: 0.4rem;
+  font-size: 1rem;
+}
+
+.studio p {
+  margin-bottom: 0.85rem;
+  color: #cbd5e1;
+}
+
+.studio a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  padding: 0.45rem 1rem;
+  border: 1px solid #789bd4;
+  border-radius: 0.5rem;
+  background: #263a56;
+  color: #f1f6ff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.studio a:hover,
+.studio a:focus-visible {
+  background: #354f74;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .login {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .cover {
+    min-height: 8rem;
+    background-position: center 30%;
+  }
+}

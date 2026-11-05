@@ -3,11 +3,12 @@ import {localHomoRequestAllowed} from "@/lib/arca-padron/preview-gate";
 
 import { NextResponse } from "next/server";
 import { redirect, notFound } from "next/navigation";
-import { Prisma, type PeriodStatus, type Role } from "@prisma/client";
+import { Prisma, type AppModule, type ClientScope, type PeriodStatus, type Role } from "@prisma/client";
 
 import prisma from "@/lib/prisma";
 import { getAuthClaims } from "@/lib/auth/claims";
 import { roleAllows } from "@/lib/auth/roles";
+import { effectivePermissions, modulesAllow, type ModuleRequirement } from "@/lib/auth/permissions";
 import {
   isAuthError,
   authErrorResponse,
@@ -37,10 +38,20 @@ import {
  *
  * D4: un recurso de OTRA organización responde EXACTAMENTE igual que uno
  * inexistente (404 NOT_FOUND, mismo cuerpo).
+ *
+ * Usuarios del estudio: cada solicitud relee la Membership. Sólo una membresía
+ * ACTIVE autoriza (desactivar o cambiar permisos rige en la solicitud siguiente
+ * aunque la persona conserve su sesión de Supabase). Además del rol:
+ *  - módulo (`module`): 403 FORBIDDEN si no está habilitado;
+ *  - alcance de clientes: un cliente fuera del alcance responde 404, igual que
+ *    uno inexistente o de otra organización. Los listados filtran con
+ *    `clientScopeWhere`.
+ * `requirePeriodAccess` exige SIEMPRE el módulo IVA (todo lo que cuelga de un
+ * período es liquidación de IVA) y el alcance sobre el cliente del período.
  */
 
 /** Subconjunto de PrismaClient que necesita esta capa; inyectable en tests. */
-export type AuthzDb = Pick<typeof prisma, "profile" | "membership" | "client" | "period">;
+export type AuthzDb = Pick<typeof prisma, "profile" | "membership" | "membershipClient" | "client" | "period">;
 
 const defaultDb = () => prisma as AuthzDb;
 
@@ -84,10 +95,51 @@ export async function requireAuthenticatedProfile(
 export interface ActiveOrg {
   organizationId: string;
   role: Role;
+  /** Membership.id (para el alcance SELECTED). */
+  membershipId: string;
+  /** Alcance efectivo (OWNER: siempre ALL). */
+  clientScope: ClientScope;
+  /** Módulos efectivos (OWNER: todos). */
+  modules: readonly AppModule[];
+}
+
+const MEMBERSHIP_SELECT = {
+  id: true,
+  organizationId: true,
+  role: true,
+  status: true,
+  clientScope: true,
+  modules: true,
+} as const;
+
+interface MembershipRow {
+  id: string;
+  organizationId: string;
+  role: Role;
+  status: string;
+  clientScope: ClientScope;
+  modules: AppModule[] | null;
+}
+
+function toActiveOrg(m: MembershipRow): ActiveOrg {
+  const eff = effectivePermissions({
+    role: m.role,
+    status: "ACTIVE",
+    clientScope: m.clientScope,
+    modules: m.modules,
+  });
+  return {
+    organizationId: m.organizationId,
+    role: eff.role,
+    membershipId: m.id,
+    clientScope: eff.clientScope,
+    modules: eff.modules,
+  };
 }
 
 /**
- * Resuelve la organización activa a partir de las Membership del Profile.
+ * Resuelve la organización activa a partir de las Membership ACTIVE del
+ * Profile (las DISABLED no cuentan).
  * - 0 memberships  -> NoOrganizationError (403 NO_ORGANIZATION)
  * - 1 membership   -> se resuelve automáticamente
  * - >1 membership  -> OrganizationSelectionRequiredError (409). En 3B NO hay
@@ -98,36 +150,89 @@ export async function resolveActiveOrganization(
   opts: { db?: AuthzDb } = {},
 ): Promise<ActiveOrg> {
   const db = opts.db ?? defaultDb();
-  const memberships = await db.membership.findMany({
-    where: { profileId },
-    select: { organizationId: true, role: true },
-  });
-  if (memberships.length === 0) throw new NoOrganizationError();
-  if (memberships.length > 1) throw new OrganizationSelectionRequiredError();
-  return { organizationId: memberships[0].organizationId, role: memberships[0].role };
+  const memberships = (await db.membership.findMany({
+    where: { profileId, status: "ACTIVE" },
+    select: MEMBERSHIP_SELECT,
+  })) as MembershipRow[];
+  const active = memberships.filter((m) => m.status === "ACTIVE");
+  if (active.length === 0) throw new NoOrganizationError();
+  if (active.length > 1) throw new OrganizationSelectionRequiredError();
+  return toActiveOrg(active[0]);
 }
 
 // ── requireOrganizationRole ───────────────────────────────────────────────
 
+export interface OrgAccessOptions {
+  db?: AuthzDb;
+  /** Módulo exigido (uno o cualquiera de la lista). Sin él: sólo rol. */
+  module?: ModuleRequirement;
+}
+
 /**
- * Exige Membership en `organizationId` con rol en `allowed`.
- * - sin Membership   -> NotFoundError (404). D4: no revela que la org existe.
- * - rol no permitido -> ForbiddenError (403).
+ * Exige Membership ACTIVE en `organizationId` con rol en `allowed` y, si se
+ * pasa, el módulo.
+ * - sin Membership o DISABLED -> NotFoundError (404). D4: no revela la org.
+ * - rol no permitido          -> ForbiddenError (403).
+ * - módulo no habilitado      -> ForbiddenError (403).
  */
 export async function requireOrganizationRole(
   profileId: string,
   organizationId: string,
   allowed: readonly Role[],
-  opts: { db?: AuthzDb } = {},
+  opts: OrgAccessOptions = {},
 ): Promise<ActiveOrg> {
   const db = opts.db ?? defaultDb();
-  const membership = await db.membership.findUnique({
+  const membership = (await db.membership.findUnique({
     where: { profileId_organizationId: { profileId, organizationId } },
-    select: { role: true },
-  });
-  if (!membership) throw new NotFoundError();
+    select: MEMBERSHIP_SELECT,
+  })) as MembershipRow | null;
+  if (!membership || membership.status !== "ACTIVE") throw new NotFoundError();
   if (!roleAllows(allowed, membership.role)) throw new ForbiddenError();
-  return { organizationId, role: membership.role };
+  const access = toActiveOrg({ ...membership, organizationId });
+  if (opts.module !== undefined && !modulesAllow(access.modules, opts.module)) {
+    throw new ForbiddenError();
+  }
+  return access;
+}
+
+// ── Alcance de clientes ───────────────────────────────────────────────────
+
+/**
+ * Filtro Prisma de los clientes visibles para `access` dentro de su
+ * organización. TODO listado, búsqueda o resumen de clientes lo usa.
+ */
+export function clientScopeWhere(
+  access: Pick<ActiveOrg, "organizationId" | "membershipId" | "clientScope">,
+): Prisma.ClientWhereInput {
+  if (access.clientScope === "ALL") return { organizationId: access.organizationId };
+  return {
+    organizationId: access.organizationId,
+    memberAccess: { some: { membershipId: access.membershipId } },
+  };
+}
+
+/**
+ * 404 si `clientId` está fuera del alcance de `access` (mismo cuerpo que un
+ * cliente inexistente). No verifica la organización del cliente: eso lo hace
+ * el llamador (filtro por organizationId o requireClientAccess).
+ */
+export async function assertClientInScope(
+  access: Pick<ActiveOrg, "membershipId" | "clientScope">,
+  clientId: string,
+  opts: { db?: AuthzDb } = {},
+): Promise<void> {
+  if (access.clientScope === "ALL") return;
+  const db = opts.db ?? defaultDb();
+  const row = await db.membershipClient.findUnique({
+    where: { membershipId_clientId: { membershipId: access.membershipId, clientId } },
+    select: { clientId: true },
+  });
+  if (!row) throw new NotFoundError();
+}
+
+/** Crear clientes exige alcance ALL (si no, la persona no vería lo que crea). */
+export function requireAllClientsScope(access: Pick<ActiveOrg, "clientScope">): void {
+  if (access.clientScope !== "ALL") throw new ForbiddenError();
 }
 
 // ── requireClientAccess ───────────────────────────────────────────────────
@@ -150,14 +255,15 @@ export interface ClientAccess extends ActiveOrg {
 }
 
 /**
- * Acceso a un Client concreto. 404 si no existe O es de otra organización
- * (respuesta idéntica). 403 si el rol no alcanza en la organización del Client.
+ * Acceso a un Client concreto. 404 si no existe, es de otra organización o
+ * está fuera del alcance de la persona (respuesta idéntica). 403 si el rol o el
+ * módulo no alcanzan en la organización del Client.
  */
 export async function requireClientAccess(
   profileId: string,
   clientId: string,
   allowed: readonly Role[],
-  opts: { db?: AuthzDb } = {},
+  opts: { db?: AuthzDb; module: ModuleRequirement },
 ): Promise<ClientAccess> {
   const db = opts.db ?? defaultDb();
   const client = await db.client.findUnique({
@@ -175,8 +281,9 @@ export async function requireClientAccess(
     },
   });
   if (!client) throw new NotFoundError();
-  const org = await requireOrganizationRole(profileId, client.organizationId, allowed, { db });
-  return { profileId, organizationId: org.organizationId, role: org.role, client };
+  const org = await requireOrganizationRole(profileId, client.organizationId, allowed, { db, module: opts.module });
+  await assertClientInScope(org, client.id, { db });
+  return { profileId, ...org, client };
 }
 
 // ── requirePeriodAccess ───────────────────────────────────────────────────
@@ -204,6 +311,9 @@ export interface PeriodAccess extends ActiveOrg {
  *
  * `Period.organizationId` es columna directa (post-migración 3B): no hace falta
  * saltar por Client.
+ *
+ * Exige el módulo IVA y que el cliente del período esté en el alcance (fuera
+ * del alcance: 404, igual que inexistente).
  */
 export async function requirePeriodAccess(
   profileId: string,
@@ -220,8 +330,9 @@ export async function requirePeriodAccess(
   if (opts.expectClientId !== undefined && period.clientId !== opts.expectClientId) {
     throw new NotFoundError();
   }
-  const org = await requireOrganizationRole(profileId, period.organizationId, allowed, { db });
-  return { profileId, organizationId: org.organizationId, role: org.role, period };
+  const org = await requireOrganizationRole(profileId, period.organizationId, allowed, { db, module: "IVA" });
+  await assertClientInScope(org, period.clientId, { db });
+  return { profileId, ...org, period };
 }
 
 // ── parseJsonBody ─────────────────────────────────────────────────────────

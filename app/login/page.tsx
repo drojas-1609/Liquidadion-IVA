@@ -1,8 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { Suspense, useActionState } from "react";
 import { useSearchParams } from "next/navigation";
 
+import styles from "./login.module.css";
 import { loginAction, type LoginState } from "./actions";
 
 const INITIAL: LoginState = { error: null };
@@ -13,9 +15,13 @@ function LoginForm() {
 
   return (
     <form action={formAction} className="card" style={{ width: "100%", maxWidth: "360px" }}>
-      <h1 style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "var(--spacing-md)" }}>
-        Ingresar
-      </h1>
+      <header className={styles.brand}>
+        <span className={styles.logo} aria-hidden="true">
+          <Image src="/branding/dero-company-isotipo.png" alt="" width={146} height={140} />
+        </span>
+        <h1>Dero Company Gestión</h1>
+        <p>Gestión integral para estudios contables</p>
+      </header>
 
       <input type="hidden" name="next" value={next} />
 
@@ -60,24 +66,27 @@ function LoginForm() {
       <p style={{ marginTop: "var(--spacing-md)", fontSize: "0.8rem" }}>
         <a href="/reset-password">¿Olvidaste tu contraseña?</a>
       </p>
+
+      <div className={styles.studio}>
+        <h2>Estudio Contable y Jurídico</h2>
+        <p>Su tranquilidad es prioridad</p>
+        <a href="https://www.derocompany.com.ar/" target="_blank" rel="noopener noreferrer">
+          Conocé el estudio <span aria-hidden="true">↗</span><span className={styles.srOnly}>(abre en una pestaña nueva)</span>
+        </a>
+      </div>
     </form>
   );
 }
 
 export default function LoginPage() {
   return (
-    <div
-      style={{
-        minHeight: "60vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "var(--spacing-xl)",
-      }}
-    >
-      <Suspense fallback={null}>
-        <LoginForm />
-      </Suspense>
-    </div>
+    <main className={styles.login}>
+      <div className={styles.cover} aria-hidden="true" />
+      <div className={styles.access}>
+        <Suspense fallback={null}>
+          <LoginForm />
+        </Suspense>
+      </div>
+    </main>
   );
 }

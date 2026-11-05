@@ -47,6 +47,15 @@ export const AUDIT_ACTIONS = [
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
   // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
   "arca.cuit_lookup",
+  // Usuarios del estudio (Configuración → Usuarios). Sin correos, nombres ni
+  // listas de clientes: sólo rol, alcance, cantidad de clientes y módulos.
+  "member.invite",
+  "member.invite_resend",
+  "member.invite_revoke",
+  "member.invite_accept",
+  "member.permissions_change",
+  "member.disable",
+  "member.enable",
   // Reservadas para 3B+ (NO se emiten todavía; declaradas para no migrar luego)
   "period.update",
   "taxrecord.update",
@@ -138,6 +147,24 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   // TAXRECORD_CHANGED_FIELDS. NUNCA importe, descripción ni fecha.
   "taxrecord.update": ["periodId", "typeBefore", "typeAfter", "changedFields"],
   "taxrecord.delete": ["periodId", "type"],
+  // Usuarios del estudio. targetType "OrganizationInvitation" o "Membership";
+  // el actor es quien hace la acción (en la aceptación, la persona invitada).
+  // NUNCA correo, nombre, ids de clientes ni datos de la sesión.
+  "member.invite": ["role", "clientScope", "clientCount", "modules"],
+  "member.invite_resend": [],
+  "member.invite_revoke": [],
+  "member.invite_accept": ["membershipId", "role"],
+  "member.permissions_change": [
+    "changedFields",
+    "roleBefore",
+    "roleAfter",
+    "clientScopeBefore",
+    "clientScopeAfter",
+    "clientCount",
+    "modules",
+  ],
+  "member.disable": ["role"],
+  "member.enable": ["role"],
   "member.add": [],
   "member.remove": [],
   "member.role_change": [],

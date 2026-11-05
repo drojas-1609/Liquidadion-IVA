@@ -5,6 +5,7 @@ import {
     requireAuthenticatedProfile,
     resolveActiveOrganization,
     requireOrganizationRole,
+    assertClientInScope,
     withApiAuthz,
 } from "@/lib/auth/authz";
 import { recordAudit } from "@/lib/auth/audit";
@@ -37,13 +38,15 @@ export const DELETE = withApiAuthz(async (_request: Request, ctx: Ctx) => {
     const { id } = await ctx.params;
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_DELETE);
+    // Módulo IVA; el alcance del cliente se verifica bajo el bloqueo (fuera del alcance: 404).
+    const access = await requireOrganizationRole(profileId, organizationId, ROLES_DELETE, { module: "IVA" });
 
     try {
         await prisma.$transaction(async (tx) => {
             await lockPeriodForWrite(tx, id, organizationId);
             const period = await tx.period.findFirst({ where: { id, organizationId } });
             if (!period) throw new NotFoundError();
+            await assertClientInScope(access, period.clientId, { db: tx });
 
             const [invoices, taxRecords] = await Promise.all([
                 tx.invoice.count({ where: { periodId: id, organizationId } }),

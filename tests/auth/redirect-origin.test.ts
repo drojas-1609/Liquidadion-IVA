@@ -22,7 +22,7 @@ function reqHost(host: string, extra: Record<string, string> = {}) {
   return { headers: new Headers({ host, ...extra }) };
 }
 
-const SITE_ORIGIN = "https://liquidadoriva.netlify.app";
+const SITE_ORIGIN = "https://derocompanygestion.netlify.app";
 
 beforeEach(() => {
   saved = {};
@@ -39,21 +39,21 @@ afterEach(() => {
 
 describe("getSafeRedirectOrigin — entorno válido preservado", () => {
   it("Deploy Preview -> mismo preview", () => {
-    expect(getSafeRedirectOrigin(reqXfh("deploy-preview-3--liquidadoriva.netlify.app"))).toBe(
-      "https://deploy-preview-3--liquidadoriva.netlify.app",
+    expect(getSafeRedirectOrigin(reqXfh("deploy-preview-3--derocompanygestion.netlify.app"))).toBe(
+      "https://deploy-preview-3--derocompanygestion.netlify.app",
     );
   });
 
   it("no hardcodea el número: acepta cualquier deploy-preview-<n>", () => {
     for (const n of [1, 7, 42, 99999]) {
-      expect(getSafeRedirectOrigin(reqXfh(`deploy-preview-${n}--liquidadoriva.netlify.app`))).toBe(
-        `https://deploy-preview-${n}--liquidadoriva.netlify.app`,
+      expect(getSafeRedirectOrigin(reqXfh(`deploy-preview-${n}--derocompanygestion.netlify.app`))).toBe(
+        `https://deploy-preview-${n}--derocompanygestion.netlify.app`,
       );
     }
   });
 
   it("Producción (host del sitio) -> producción", () => {
-    expect(getSafeRedirectOrigin(reqXfh("liquidadoriva.netlify.app"))).toBe(SITE_ORIGIN);
+    expect(getSafeRedirectOrigin(reqXfh("derocompanygestion.netlify.app"))).toBe(SITE_ORIGIN);
   });
 
   it("Producción con AUTH_PRODUCTION_ORIGIN -> ese dominio", () => {
@@ -81,27 +81,27 @@ describe("getSafeRedirectOrigin — rechazos (seguridad)", () => {
 
   it("hostname parecido / sufijo o prefijo extra / puerto inesperado -> rechazado", () => {
     for (const bad of [
-      "deploy-preview-3--liquidadoriva.netlify.app.evil.com",
-      "deploy-preview-3--liquidadoriva.netlify.app.attacker.io",
-      "evildeploy-preview-3--liquidadoriva.netlify.app",
-      "deploy-preview-x--liquidadoriva.netlify.app",
-      "deploy-preview---liquidadoriva.netlify.app",
+      "deploy-preview-3--derocompanygestion.netlify.app.evil.com",
+      "deploy-preview-3--derocompanygestion.netlify.app.attacker.io",
+      "evildeploy-preview-3--derocompanygestion.netlify.app",
+      "deploy-preview-x--derocompanygestion.netlify.app",
+      "deploy-preview---derocompanygestion.netlify.app",
       "deploy-preview-3--liquidadoriva-netlify.app",
-      "liquidadoriva.netlify.app.evil.com",
-      "xliquidadoriva.netlify.app",
-      "deploy-preview-3--liquidadoriva.netlify.app:8080",
-      "liquidadoriva.netlify.app:8443",
+      "derocompanygestion.netlify.app.evil.com",
+      "xderocompanygestion.netlify.app",
+      "deploy-preview-3--derocompanygestion.netlify.app:8080",
+      "derocompanygestion.netlify.app:8443",
     ]) {
       expect(getSafeRedirectOrigin(reqXfh(bad)), bad).toBe(SITE_ORIGIN);
     }
   });
 
   it("protocolo inválido o downgrade a http en host de Netlify -> rechazado", () => {
-    expect(getSafeRedirectOrigin(reqXfh("deploy-preview-3--liquidadoriva.netlify.app", "ftp"))).toBe(
+    expect(getSafeRedirectOrigin(reqXfh("deploy-preview-3--derocompanygestion.netlify.app", "ftp"))).toBe(
       SITE_ORIGIN,
     );
     expect(
-      getSafeRedirectOrigin(reqXfh("deploy-preview-3--liquidadoriva.netlify.app", "http")),
+      getSafeRedirectOrigin(reqXfh("deploy-preview-3--derocompanygestion.netlify.app", "http")),
     ).toBe(SITE_ORIGIN);
   });
 
@@ -118,20 +118,20 @@ describe("getSafeRedirectOrigin — rechazos (seguridad)", () => {
 describe("buildSafeRedirect usa getSafeRedirectOrigin + sanitizeNext", () => {
   it("preview + next interno -> mismo preview + path", () => {
     expect(
-      buildSafeRedirect("/clients", reqXfh("deploy-preview-3--liquidadoriva.netlify.app")),
-    ).toBe("https://deploy-preview-3--liquidadoriva.netlify.app/clients");
+      buildSafeRedirect("/clients", reqXfh("deploy-preview-3--derocompanygestion.netlify.app")),
+    ).toBe("https://deploy-preview-3--derocompanygestion.netlify.app/clients");
   });
 
   it("next externo/malicioso -> se descarta, path interno", () => {
     const out = buildSafeRedirect(
       "https://evil.com/x",
-      reqXfh("deploy-preview-3--liquidadoriva.netlify.app"),
+      reqXfh("deploy-preview-3--derocompanygestion.netlify.app"),
     );
-    expect(out).toBe("https://deploy-preview-3--liquidadoriva.netlify.app/");
+    expect(out).toBe("https://deploy-preview-3--derocompanygestion.netlify.app/");
   });
 
   it("host malicioso + next válido -> origen seguro + path", () => {
     const out = buildSafeRedirect("/update-password", reqXfh("evil.com"));
-    expect(out).toBe("https://liquidadoriva.netlify.app/update-password");
+    expect(out).toBe("https://derocompanygestion.netlify.app/update-password");
   });
 });

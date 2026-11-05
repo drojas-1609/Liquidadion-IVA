@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Tax Liquidator",
+  title: "Dero Company Gestión",
   description: "Professional Tax Liquidation App",
 };
 

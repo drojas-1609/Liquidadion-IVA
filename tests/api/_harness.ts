@@ -1,6 +1,6 @@
 import { expect, vi } from "vitest";
 import { Prisma } from "@prisma/client";
-import type { Role } from "@prisma/client";
+import type { AppModule, ClientScope, MembershipStatus, Role } from "@prisma/client";
 import { cuitCheckDigit } from "@/lib/cuit";
 
 /**
@@ -172,8 +172,38 @@ export function taxRecordRow(
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * Membership del mundo. Los campos de Usuarios del estudio son opcionales y
+ * por defecto reproducen el acceso previo (ACTIVE, todos los clientes, todos
+ * los módulos). `clientIds`: asignaciones de MembershipClient (scope SELECTED).
+ */
+export interface WorldMembership {
+  profileId: string;
+  organizationId: string;
+  role: Role;
+  id?: string;
+  status?: MembershipStatus;
+  clientScope?: ClientScope;
+  modules?: AppModule[];
+  clientIds?: string[];
+}
+
+const ALL_MODULES: AppModule[] = ["CLIENTS", "IVA", "ARCA_PADRON"];
+
+export function membershipRow(m: WorldMembership) {
+  return {
+    id: m.id ?? `m_${m.profileId}_${m.organizationId}`,
+    profileId: m.profileId,
+    organizationId: m.organizationId,
+    role: m.role,
+    status: m.status ?? "ACTIVE",
+    clientScope: m.clientScope ?? "ALL",
+    modules: m.modules ?? ALL_MODULES,
+  };
+}
+
 export interface World {
-  memberships: Array<{ profileId: string; organizationId: string; role: Role }>;
+  memberships: WorldMembership[];
   profiles: Set<string>;
   clients: ClientRow[];
   periods: PeriodRow[];
@@ -214,6 +244,7 @@ type Fn = ReturnType<typeof vi.fn>;
 export interface DbMock {
   profile: { findUnique: Fn };
   membership: { findMany: Fn; findUnique: Fn };
+  membershipClient: { findUnique: Fn };
   client: { findMany: Fn; findUnique: Fn; findFirst: Fn; create: Fn; update: Fn; delete: Fn };
   period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn; delete: Fn; update: Fn };
   invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; delete: Fn };
@@ -233,6 +264,7 @@ export function freshDbMock(): DbMock {
   return {
     profile: { findUnique: vi.fn() },
     membership: { findMany: vi.fn(), findUnique: vi.fn() },
+    membershipClient: { findUnique: vi.fn() },
     client: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
@@ -316,15 +348,20 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
 
   db.membership.findMany.mockImplementation(async ({ where }: AnyArgs) =>
     world.memberships
-      .filter((m) => m.profileId === where.profileId)
-      .map((m) => ({ organizationId: m.organizationId, role: m.role })),
+      .map(membershipRow)
+      .filter((m) => m.profileId === where.profileId && (where.status === undefined || m.status === where.status)),
   );
   db.membership.findUnique.mockImplementation(async ({ where }: AnyArgs) => {
     const { profileId, organizationId } = where.profileId_organizationId;
     const m = world.memberships.find(
       (x) => x.profileId === profileId && x.organizationId === organizationId,
     );
-    return m ? { role: m.role } : null;
+    return m ? membershipRow(m) : null;
+  });
+  db.membershipClient.findUnique.mockImplementation(async ({ where }: AnyArgs) => {
+    const { membershipId, clientId } = where.membershipId_clientId;
+    const m = world.memberships.find((x) => membershipRow(x).id === membershipId);
+    return m && (m.clientIds ?? []).includes(clientId) ? { clientId } : null;
   });
 
   db.client.findUnique.mockImplementation(

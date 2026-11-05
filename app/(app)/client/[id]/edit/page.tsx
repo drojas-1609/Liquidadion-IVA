@@ -14,7 +14,7 @@ export default async function EditClientPage({ params }: { params: Promise<{ id:
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
-        const { organizationId } = await requireClientAccess(profileId, id, ROLES_CLIENT_MANAGE);
+        const { organizationId } = await requireClientAccess(profileId, id, ROLES_CLIENT_MANAGE, { module: "CLIENTS" });
         // Orden obligatorio: primero la versión (Client.updatedAt) y DESPUÉS la
         // ficha IIBB. Toda escritura de la ficha avanza la versión en la misma
         // transacción, así que una ficha más nueva que la versión leída sólo

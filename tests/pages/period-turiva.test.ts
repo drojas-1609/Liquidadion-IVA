@@ -19,6 +19,22 @@ vi.mock("@/lib/prisma", () => ({
     return H.db.current;
   },
 }));
+// Totales del período: la agregación en la base se prueba contra PostgreSQL
+// (tests/integration/period-totals-pg.test.ts). Acá se toma la entrada del
+// cálculo del mismo period.findFirst del escenario (filas sin agregar: el
+// resultado es el mismo por linealidad, ver lib/liquidation-totals).
+vi.mock("@/lib/liquidation-totals", () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  loadPeriodLiquidationInput: async (db: any, scope: { organizationId: string; periodId: string }) => {
+    const p = await db.period.findFirst({
+      where: { id: scope.periodId, organizationId: scope.organizationId },
+      include: { invoices: { include: { vatLines: true } }, taxRecords: true, client: true, vatSettings: true },
+    });
+    if (!p) return null;
+    const invoices = p.invoices ?? [];
+    return { invoices, taxRecords: p.taxRecords ?? [], client: p.client, vatSettings: p.vatSettings ?? null, invoiceCount: invoices.length };
+  },
+}));
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
     throw new Error(`REDIRECT:${url}`);
@@ -118,10 +134,10 @@ describe("página del período — tarjeta TurIVA", () => {
     expect(findType(await call(), TurivaSetting).props.turivaIncluded).toBe(false);
   });
 
-  it("la lectura del período filtra por organizationId (incluye vatSettings)", async () => {
+  it("la lectura del período filtra por organizationId (selecciona vatSettings.turivaIncluded)", async () => {
     await call();
     expect(db.period.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "p_a", organizationId: ORG_A }, include: expect.objectContaining({ vatSettings: true }) }),
+      expect.objectContaining({ where: { id: "p_a", organizationId: ORG_A }, select: expect.objectContaining({ vatSettings: { select: { turivaIncluded: true } } }) }),
     );
   });
 

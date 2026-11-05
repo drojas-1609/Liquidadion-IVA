@@ -18,7 +18,7 @@ const MAX_QUERY = 80;
 export const GET = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_READ);
+    await requireOrganizationRole(profileId, organizationId, ROLES_READ, { module: "CLIENTS" });
 
     const url = new URL(request.url);
     const q = (url.searchParams.get("q") ?? "").trim();
