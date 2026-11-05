@@ -142,7 +142,7 @@ describe("GET /auth/confirm-recovery (página intermedia)", () => {
 
 describe("POST confirmRecoveryAction (botón explícito)", () => {
   it("un GET (nunca esta acción) no ocurre; sólo el POST llama a verifyOtp una vez", async () => {
-    setHeaders({ "x-forwarded-host": "liquidadoriva.netlify.app", "x-forwarded-proto": "https" });
+    setHeaders({ "x-forwarded-host": "derocompanygestion.netlify.app", "x-forwarded-proto": "https" });
     await runExpectingRedirect(
       confirmRecoveryAction({ error: null }, fd({ token_hash: GOOD_TH, type: "recovery" })),
     );
@@ -152,22 +152,22 @@ describe("POST confirmRecoveryAction (botón explícito)", () => {
 
   it("POST exitoso: verifyOtp OK -> redirige a /update-password del origen validado", async () => {
     setHeaders({
-      "x-forwarded-host": "deploy-preview-3--liquidadoriva.netlify.app",
+      "x-forwarded-host": "deploy-preview-3--derocompanygestion.netlify.app",
       "x-forwarded-proto": "https",
     });
     const to = await runExpectingRedirect(
       confirmRecoveryAction({ error: null }, fd({ token_hash: GOOD_TH, type: "recovery" })),
     );
-    expect(to).toBe("https://deploy-preview-3--liquidadoriva.netlify.app/update-password");
+    expect(to).toBe("https://deploy-preview-3--derocompanygestion.netlify.app/update-password");
   });
 
   it("funciona sin ninguna cookie PKCE previa (verifyOtp no la necesita)", async () => {
-    setHeaders({ "x-forwarded-host": "liquidadoriva.netlify.app", "x-forwarded-proto": "https" });
+    setHeaders({ "x-forwarded-host": "derocompanygestion.netlify.app", "x-forwarded-proto": "https" });
     // no se setea ninguna cookie en el test
     const to = await runExpectingRedirect(
       confirmRecoveryAction({ error: null }, fd({ token_hash: GOOD_TH, type: "recovery" })),
     );
-    expect(to).toBe("https://liquidadoriva.netlify.app/update-password");
+    expect(to).toBe("https://derocompanygestion.netlify.app/update-password");
   });
 
   it("type != recovery -> rechazado, sin llamar a verifyOtp, error genérico", async () => {
@@ -220,24 +220,24 @@ describe("POST confirmRecoveryAction (botón explícito)", () => {
   });
 
   it("next externo/malicioso -> descartado a /update-password", async () => {
-    setHeaders({ "x-forwarded-host": "liquidadoriva.netlify.app", "x-forwarded-proto": "https" });
+    setHeaders({ "x-forwarded-host": "derocompanygestion.netlify.app", "x-forwarded-proto": "https" });
     for (const bad of ["https://evil.com/x", "//evil.com", "/\\evil", "javascript:alert(1)"]) {
       const to = await runExpectingRedirect(
         confirmRecoveryAction({ error: null }, fd({ token_hash: GOOD_TH, type: "recovery", next: bad })),
       );
-      expect(to, bad).toBe("https://liquidadoriva.netlify.app/update-password");
+      expect(to, bad).toBe("https://derocompanygestion.netlify.app/update-password");
     }
   });
 
   it("next interno válido se conserva", async () => {
-    setHeaders({ "x-forwarded-host": "liquidadoriva.netlify.app", "x-forwarded-proto": "https" });
+    setHeaders({ "x-forwarded-host": "derocompanygestion.netlify.app", "x-forwarded-proto": "https" });
     const to = await runExpectingRedirect(
       confirmRecoveryAction(
         { error: null },
         fd({ token_hash: GOOD_TH, type: "recovery", next: "/update-password?x=1" }),
       ),
     );
-    expect(to).toBe("https://liquidadoriva.netlify.app/update-password?x=1");
+    expect(to).toBe("https://derocompanygestion.netlify.app/update-password?x=1");
   });
 
   it("host/protocolo malicioso en la redirección -> fallback de producción", async () => {
@@ -245,16 +245,16 @@ describe("POST confirmRecoveryAction (botón explícito)", () => {
     const a = await runExpectingRedirect(
       confirmRecoveryAction({ error: null }, fd({ token_hash: GOOD_TH, type: "recovery" })),
     );
-    expect(a).toBe("https://liquidadoriva.netlify.app/update-password");
+    expect(a).toBe("https://derocompanygestion.netlify.app/update-password");
 
     setHeaders({
-      "x-forwarded-host": "deploy-preview-3--liquidadoriva.netlify.app",
+      "x-forwarded-host": "deploy-preview-3--derocompanygestion.netlify.app",
       "x-forwarded-proto": "http",
     });
     const b = await runExpectingRedirect(
       confirmRecoveryAction({ error: null }, fd({ token_hash: GOOD_TH, type: "recovery" })),
     );
-    expect(b).toBe("https://liquidadoriva.netlify.app/update-password");
+    expect(b).toBe("https://derocompanygestion.netlify.app/update-password");
   });
 
   it("localhost en dev conserva su origen", async () => {

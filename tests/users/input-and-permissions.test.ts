@@ -90,11 +90,11 @@ describe("guarda de destinatarios del correo de invitación", () => {
     expect(recipientAllowed("ana@example.test", { CONTEXT: "production", USER_INVITE_EMAIL_ALLOWLIST: "otra@example.test" })).toBe(false);
   });
   it("destino del enlace: sólo la URL exacta configurada (https o localhost), sin parámetros", () => {
-    const P = "https://deploy-preview-28--liquidadoriva.netlify.app/auth/accept-invite";
+    const P = "https://deploy-preview-28--derocompanygestion.netlify.app/auth/accept-invite";
     expect(redirectAllowed(P, {})).toBe(false);
     expect(redirectAllowed(P, { USER_INVITE_REDIRECT_URL: P })).toBe(true);
     expect(redirectAllowed(P, { USER_INVITE_REDIRECT_URL: ` ${P} ` })).toBe(true);
-    expect(redirectAllowed("https://deploy-preview-25--liquidadoriva.netlify.app/auth/accept-invite", { USER_INVITE_REDIRECT_URL: P })).toBe(false);
+    expect(redirectAllowed("https://deploy-preview-25--derocompanygestion.netlify.app/auth/accept-invite", { USER_INVITE_REDIRECT_URL: P })).toBe(false);
     expect(redirectAllowed(P + "?x=1", { USER_INVITE_REDIRECT_URL: P + "?x=1" })).toBe(false);
     expect(redirectAllowed("http://evil.test/auth/accept-invite", { USER_INVITE_REDIRECT_URL: "http://evil.test/auth/accept-invite" })).toBe(false);
     expect(redirectAllowed("https://x.test/otra", { USER_INVITE_REDIRECT_URL: "https://x.test/otra" })).toBe(false);
