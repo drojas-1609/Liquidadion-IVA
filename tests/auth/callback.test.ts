@@ -105,11 +105,11 @@ describe("/auth/callback — redirige al MISMO entorno de origen", () => {
   it("code desde Deploy Preview -> mismo preview + next interno", async () => {
     env.NODE_ENV = "production";
     const res = await callFrom(
-      "deploy-preview-3--liquidadoriva.netlify.app",
+      "deploy-preview-3--derocompanygestion.netlify.app",
       "?code=abc&next=%2Fclients",
     );
     expect(res.headers.get("location")).toBe(
-      "https://deploy-preview-3--liquidadoriva.netlify.app/clients",
+      "https://deploy-preview-3--derocompanygestion.netlify.app/clients",
     );
     expectSecurityHeaders(res);
   });
@@ -117,41 +117,41 @@ describe("/auth/callback — redirige al MISMO entorno de origen", () => {
   it("token_hash desde Deploy Preview -> mismo preview", async () => {
     env.NODE_ENV = "production";
     const res = await callFrom(
-      "deploy-preview-12--liquidadoriva.netlify.app",
+      "deploy-preview-12--derocompanygestion.netlify.app",
       "?token_hash=xyz&type=recovery&next=%2Fupdate-password",
     );
     expect(res.headers.get("location")).toBe(
-      "https://deploy-preview-12--liquidadoriva.netlify.app/update-password",
+      "https://deploy-preview-12--derocompanygestion.netlify.app/update-password",
     );
   });
 
   it("desde producción -> producción", async () => {
     env.NODE_ENV = "production";
-    const res = await callFrom("liquidadoriva.netlify.app", "?code=abc&next=%2F");
-    expect(res.headers.get("location")).toBe("https://liquidadoriva.netlify.app/");
+    const res = await callFrom("derocompanygestion.netlify.app", "?code=abc&next=%2F");
+    expect(res.headers.get("location")).toBe("https://derocompanygestion.netlify.app/");
   });
 
   it("host reenviado malicioso -> NO se usa, cae al origen de producción", async () => {
     env.NODE_ENV = "production";
     const res = await callFrom("evil.com", "?code=abc&next=%2Fclients");
-    expect(res.headers.get("location")).toBe("https://liquidadoriva.netlify.app/clients");
+    expect(res.headers.get("location")).toBe("https://derocompanygestion.netlify.app/clients");
   });
 
   it("hostname parecido / sufijo extra -> rechazado", async () => {
     env.NODE_ENV = "production";
     for (const bad of [
-      "deploy-preview-3--liquidadoriva.netlify.app.evil.com",
-      "evildeploy-preview-3--liquidadoriva.netlify.app",
-      "deploy-preview-x--liquidadoriva.netlify.app",
+      "deploy-preview-3--derocompanygestion.netlify.app.evil.com",
+      "evildeploy-preview-3--derocompanygestion.netlify.app",
+      "deploy-preview-x--derocompanygestion.netlify.app",
     ]) {
       const res = await callFrom(bad, "?code=abc");
-      expect(res.headers.get("location"), bad).toBe("https://liquidadoriva.netlify.app/");
+      expect(res.headers.get("location"), bad).toBe("https://derocompanygestion.netlify.app/");
     }
   });
 
   it("protocolo inválido -> rechazado", async () => {
     env.NODE_ENV = "production";
-    const res = await callFrom("deploy-preview-3--liquidadoriva.netlify.app", "?code=abc", "ftp");
-    expect(res.headers.get("location")).toBe("https://liquidadoriva.netlify.app/");
+    const res = await callFrom("deploy-preview-3--derocompanygestion.netlify.app", "?code=abc", "ftp");
+    expect(res.headers.get("location")).toBe("https://derocompanygestion.netlify.app/");
   });
 });

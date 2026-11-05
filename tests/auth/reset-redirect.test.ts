@@ -59,27 +59,27 @@ afterEach(() => {
 describe("requestResetAction — redirectTo por entorno", () => {
   it("Deploy Preview -> confirm-recovery del mismo preview", async () => {
     setHeaders({
-      "x-forwarded-host": "deploy-preview-3--liquidadoriva.netlify.app",
+      "x-forwarded-host": "deploy-preview-3--derocompanygestion.netlify.app",
       "x-forwarded-proto": "https",
     });
     expect(await redirectToFor()).toBe(
-      `https://deploy-preview-3--liquidadoriva.netlify.app${SUFFIX}`,
+      `https://deploy-preview-3--derocompanygestion.netlify.app${SUFFIX}`,
     );
   });
 
   it("no hardcodea el número de preview", async () => {
     setHeaders({
-      "x-forwarded-host": "deploy-preview-812--liquidadoriva.netlify.app",
+      "x-forwarded-host": "deploy-preview-812--derocompanygestion.netlify.app",
       "x-forwarded-proto": "https",
     });
     expect(await redirectToFor()).toBe(
-      `https://deploy-preview-812--liquidadoriva.netlify.app${SUFFIX}`,
+      `https://deploy-preview-812--derocompanygestion.netlify.app${SUFFIX}`,
     );
   });
 
   it("Producción (host del sitio) -> confirm-recovery de producción", async () => {
-    setHeaders({ "x-forwarded-host": "liquidadoriva.netlify.app", "x-forwarded-proto": "https" });
-    expect(await redirectToFor()).toBe(`https://liquidadoriva.netlify.app${SUFFIX}`);
+    setHeaders({ "x-forwarded-host": "derocompanygestion.netlify.app", "x-forwarded-proto": "https" });
+    expect(await redirectToFor()).toBe(`https://derocompanygestion.netlify.app${SUFFIX}`);
   });
 
   it("Producción con AUTH_PRODUCTION_ORIGIN -> ese dominio", async () => {
@@ -95,7 +95,7 @@ describe("requestResetAction — redirectTo por entorno", () => {
   });
 
   it("redirectTo apunta a /auth/confirm-recovery, sin query (el token_hash lo agrega Supabase)", async () => {
-    setHeaders({ "x-forwarded-host": "liquidadoriva.netlify.app", "x-forwarded-proto": "https" });
+    setHeaders({ "x-forwarded-host": "derocompanygestion.netlify.app", "x-forwarded-proto": "https" });
     const url = new URL(await redirectToFor());
     expect(url.pathname).toBe("/auth/confirm-recovery");
     expect(url.search).toBe("");
@@ -103,7 +103,7 @@ describe("requestResetAction — redirectTo por entorno", () => {
 });
 
 describe("requestResetAction — rechazos (nunca un host sin validar)", () => {
-  const PROD = `https://liquidadoriva.netlify.app${SUFFIX}`;
+  const PROD = `https://derocompanygestion.netlify.app${SUFFIX}`;
 
   it("host reenviado malicioso -> fallback de producción", async () => {
     for (const bad of ["evil.com", "attacker.example", "phish.liquidadoriva.com"]) {
@@ -114,11 +114,11 @@ describe("requestResetAction — rechazos (nunca un host sin validar)", () => {
 
   it("hostname parecido / sufijo adicional -> rechazado", async () => {
     for (const bad of [
-      "deploy-preview-3--liquidadoriva.netlify.app.evil.com",
-      "evildeploy-preview-3--liquidadoriva.netlify.app",
-      "deploy-preview-x--liquidadoriva.netlify.app",
-      "liquidadoriva.netlify.app.attacker.io",
-      "deploy-preview-3--liquidadoriva.netlify.app:8080",
+      "deploy-preview-3--derocompanygestion.netlify.app.evil.com",
+      "evildeploy-preview-3--derocompanygestion.netlify.app",
+      "deploy-preview-x--derocompanygestion.netlify.app",
+      "derocompanygestion.netlify.app.attacker.io",
+      "deploy-preview-3--derocompanygestion.netlify.app:8080",
     ]) {
       setHeaders({ "x-forwarded-host": bad, "x-forwarded-proto": "https" });
       expect(await redirectToFor(), bad).toBe(PROD);
@@ -127,7 +127,7 @@ describe("requestResetAction — rechazos (nunca un host sin validar)", () => {
 
   it("protocolo inseguro en host de Netlify -> rechazado", async () => {
     setHeaders({
-      "x-forwarded-host": "deploy-preview-3--liquidadoriva.netlify.app",
+      "x-forwarded-host": "deploy-preview-3--derocompanygestion.netlify.app",
       "x-forwarded-proto": "http",
     });
     expect(await redirectToFor()).toBe(PROD);
@@ -146,7 +146,7 @@ describe("requestResetAction — rechazos (nunca un host sin validar)", () => {
 
 describe("requestResetAction — anti-enumeración y errores", () => {
   it("no revela si el email existe: misma respuesta y misma llamada para cualquier correo", async () => {
-    setHeaders({ "x-forwarded-host": "liquidadoriva.netlify.app", "x-forwarded-proto": "https" });
+    setHeaders({ "x-forwarded-host": "derocompanygestion.netlify.app", "x-forwarded-proto": "https" });
     for (const email of ["existe@dero.test", "no-existe@ejemplo.org", "otro@correo.io"]) {
       resetPasswordForEmail.mockClear();
       const state = await requestResetAction({ done: false }, fd({ email }));
@@ -154,7 +154,7 @@ describe("requestResetAction — anti-enumeración y errores", () => {
       expect(resetPasswordForEmail).toHaveBeenCalledTimes(1);
       const [passedEmail, opts] = resetPasswordForEmail.mock.calls[0];
       expect(passedEmail).toBe(email);
-      expect(opts.redirectTo).toBe(`https://liquidadoriva.netlify.app${SUFFIX}`);
+      expect(opts.redirectTo).toBe(`https://derocompanygestion.netlify.app${SUFFIX}`);
     }
   });
 
@@ -165,7 +165,7 @@ describe("requestResetAction — anti-enumeración y errores", () => {
   });
 
   it("error de Supabase -> respuesta genérica controlada (done), sin filtrar", async () => {
-    setHeaders({ "x-forwarded-host": "liquidadoriva.netlify.app", "x-forwarded-proto": "https" });
+    setHeaders({ "x-forwarded-host": "derocompanygestion.netlify.app", "x-forwarded-proto": "https" });
     resetPasswordForEmail.mockRejectedValueOnce(new Error("rate limited"));
     const state = await requestResetAction({ done: false }, fd({ email: "user@dero.test" }));
     expect(state).toEqual({ done: true });

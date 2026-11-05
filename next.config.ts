@@ -41,8 +41,17 @@ else if (process.env.CATALOGOS_SINTETICOS !== undefined) console.warn(`[catalogo
 const FIXTURE_DATA_MODULE = "@/lib/preview-fixtures/data";
 const fixtureDataTarget = fixtureGate.enabled ? "./lib/preview-fixtures/data.ts" : "./lib/preview-fixtures/data-disabled.ts";
 
+/**
+ * Contexto de Netlify del build para `lib/auth/origin.ts`: en el runtime de las
+ * funciones `CONTEXT` y `DEPLOY_PRIME_URL` no existen. No son secretos. Con
+ * ellos un Deploy Preview nunca redirige recuperación, callback ni logout a
+ * producción.
+ */
+const AUTH_BUILD_CONTEXT = process.env.CONTEXT ?? "";
+const AUTH_BUILD_PRIME_URL = AUTH_BUILD_CONTEXT === "production" ? "" : (process.env.DEPLOY_PRIME_URL ?? "");
+
 const nextConfig: NextConfig = {
-  env: { [BUILD_FLAG_VAR]: fixtureGate.enabled ? "1" : "0", [ARCA_HOMO_BUILD_FLAG]: (arcaBuildEligible || arcaHomoLocalEligible(process.env)) ? "1" : "0", [ARCA_PROD_BUILD_FLAG]: arcaProdBuild ? "1" : "0" },
+  env: { AUTH_BUILD_CONTEXT, AUTH_BUILD_PRIME_URL, [BUILD_FLAG_VAR]: fixtureGate.enabled ? "1" : "0", [ARCA_HOMO_BUILD_FLAG]: (arcaBuildEligible || arcaHomoLocalEligible(process.env)) ? "1" : "0", [ARCA_PROD_BUILD_FLAG]: arcaProdBuild ? "1" : "0" },
   turbopack: { resolveAlias: { [FIXTURE_DATA_MODULE]: fixtureDataTarget } },
   webpack(config) {
     config.resolve ??= {};
