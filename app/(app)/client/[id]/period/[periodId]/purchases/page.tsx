@@ -1,5 +1,7 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { listPeriodInvoices } from "@/lib/period-invoice-list";
+import { parsePageParam } from "@/lib/pagination";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
 import { ROLES_READ, ROLES_UPDATE } from "@/lib/auth/roles";
 import { isPeriodClosed } from "@/lib/period-status";
@@ -10,28 +12,28 @@ import { invoiceRowActions } from "@/lib/invoice-edit";
 import { invoiceEditHref } from "@/lib/invoice-form-client";
 import { InvoiceRowActions } from "../_components/invoice-row-actions";
 import { DeletableInvoiceRow, DeletableInvoiceRows } from "../_components/invoice-deletable-row";
+import { InvoicePager } from "../_components/invoice-pager";
 
 
 export const dynamic = "force-dynamic";
 
-export default async function PurchasesPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
+export default async function PurchasesPage({ params, searchParams }: { params: Promise<{ id: string; periodId: string }>; searchParams?: Promise<{ page?: string | string[] }> }) {
     const { id, periodId } = await params;
+    const requestedPage = parsePageParam((await searchParams)?.page);
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
         const { organizationId, role, period } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
             expectClientId: id,
         });
-        const invoices = await prisma.invoice.findMany({
-            where: { periodId, organizationId, category: "PURCHASES" },
-            orderBy: { date: "desc" },
-            // Sólo los códigos de alícuota: deciden editabilidad / eliminabilidad.
-            include: { vatLines: { select: { vatRateCode: true } } },
-        });
-        return { role, invoices, closed: isPeriodClosed(period.status) };
+        // Detalle paginado (100 por página): con miles de comprobantes la lista
+        // completa no entra en una respuesta.
+        const { invoices, window } = await listPeriodInvoices(prisma, { organizationId, periodId }, "PURCHASES", requestedPage);
+        return { role, invoices, window, closed: isPeriodClosed(period.status) };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { role, invoices, closed } = guard.data;
+    const { role, invoices, window, closed } = guard.data;
+    const pager = <InvoicePager basePath={`/client/${id}/period/${periodId}/purchases`} window={window} noun="compras" />;
     // VIEWER o período cerrado: sin columna de acciones ni alta (sólo consulta).
     const showActions = ROLES_UPDATE.includes(role) && !closed;
 
@@ -53,6 +55,7 @@ export default async function PurchasesPage({ params }: { params: Promise<{ id: 
                 )}
             </div>
 
+            {pager}
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>
                 {/* Retira localmente las filas cuya baja ya confirmó el servidor (204). */}
                 <DeletableInvoiceRows label="Lista de compras">
@@ -118,6 +121,7 @@ export default async function PurchasesPage({ params }: { params: Promise<{ id: 
                 </table>
                 </DeletableInvoiceRows>
             </div>
+            {window.pageCount > 1 && pager}
         </div>
     );
 }

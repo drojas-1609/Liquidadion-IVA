@@ -6,6 +6,7 @@ import { formatPeriodLabel } from "@/lib/period";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-calc";
+import { loadPeriodLiquidationInput } from "@/lib/liquidation-totals";
 import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { formatMoney } from "@/lib/format";
 import { isPeriodClosed, periodStatusLabel, PERIOD_CLOSE_IIBB_NOTICE, PERIOD_CLOSE_SCOPE_NOTICE } from "@/lib/period-status";
@@ -23,20 +24,25 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
         const { organizationId, role } = await requirePeriodAccess(profileId, periodId, ROLES_READ, {
             expectClientId: id,
         });
+        // Sólo lo que muestra la pantalla: los totales salen de la base agregados
+        // para el período COMPLETO (lib/liquidation-totals), sin cargar cada
+        // comprobante (con 18.002 la carga completa respondía 500 en la Preview).
         const found = await prisma.period.findFirst({
             where: { id: periodId, organizationId },
-            include: { invoices: { include: { vatLines: true } }, taxRecords: true, client: true, vatSettings: true },
+            select: { id: true, month: true, year: true, status: true, updatedAt: true, vatSettings: { select: { turivaIncluded: true } } },
         });
         if (!found) throw new NotFoundError();
-        return { period: found, role };
+        const liquidation = await loadPeriodLiquidationInput(prisma, { organizationId, periodId: found.id });
+        if (!liquidation) throw new NotFoundError();
+        return { period: found, liquidation, role };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { period, role } = guard.data;
+    const { period, liquidation, role } = guard.data;
     // Período cerrado: consulta y exportación; ninguna acción de modificación o
     // baja (la API las rechaza igual con 409 PERIOD_CLOSED).
     const closed = isPeriodClosed(period.status);
     const canDelete = roleAllows(ROLES_DELETE, role) && !closed;
-    const hasMovements = period.invoices.length > 0 || period.taxRecords.length > 0;
+    const hasMovements = liquidation.invoiceCount > 0 || liquidation.taxRecords.length > 0;
 
     // Inclusión en el Régimen TurIVA: sin PeriodVatSettings -> false. Al cliente
     // sólo llegan dos booleanos (nada de organización, rol ni configuración).
@@ -99,7 +105,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
     // depende de la liquidación).
     let r: LiquidationResult;
     try {
-        r = computeLiquidation(period);
+        r = computeLiquidation(liquidation);
     } catch (err) {
         if (!(err instanceof MissingGlobalProrationCoefficientError)) throw err;
         return (
