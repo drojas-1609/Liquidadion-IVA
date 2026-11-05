@@ -10,8 +10,10 @@ import "server-only";
  * `sanitizeNext` y debe ser siempre un path interno.
  *
  * Prioridad de resolución del origen:
- *   1. Deploy Preview de Netlify  -> DEPLOY_PRIME_URL, validado HTTPS + host
- *      que matchea exactamente `<algo>--liquidadoriva.netlify.app`.
+ *   1. Deploy Preview / branch deploy de Netlify -> DEPLOY_PRIME_URL, validado
+ *      HTTPS + host que matchea exactamente `<algo>--derocompanygestion.netlify.app`.
+ *      NUNCA cae al origen de producción: si no hay un origen de preview válido,
+ *      lanza `UnsafeRedirectOriginError`.
  *   2. Producción                 -> AUTH_PRODUCTION_ORIGIN (si está) o URL de
  *      Netlify, validados como HTTPS de host único.
  *   3. Desarrollo local           -> http://localhost:3000 (solo si NODE_ENV
@@ -20,9 +22,43 @@ import "server-only";
  *   5. Último recurso              -> origen de producción conocido.
  */
 
-const SITE = "liquidadoriva.netlify.app";
+/**
+ * Subdominio de Netlify del sitio (renombrado el 05/11/2026; antes
+ * `liquidadoriva.netlify.app`). El nombre anterior NO se acepta: Netlify lo
+ * libera y podría pertenecer a otro sitio.
+ */
+const SITE = "derocompanygestion.netlify.app";
 
-/** `deploy-preview-123--liquidadoriva.netlify.app`, `mi-branch--liquidadoriva.netlify.app`, ... */
+/**
+ * Contexto de Netlify del BUILD que generó este bundle. En el runtime de las
+ * funciones `CONTEXT` y `DEPLOY_PRIME_URL` no existen; `next.config.ts` los
+ * inyecta en tiempo de build como `AUTH_BUILD_CONTEXT` / `AUTH_BUILD_PRIME_URL`
+ * (no son secretos). En pruebas se leen del entorno.
+ */
+function buildContext(): string {
+  return (process.env.CONTEXT || process.env.AUTH_BUILD_CONTEXT || "").trim();
+}
+function buildPrimeUrl(): string | undefined {
+  return process.env.DEPLOY_PRIME_URL || process.env.AUTH_BUILD_PRIME_URL || undefined;
+}
+/** Build de Deploy Preview o branch deploy: nunca redirige a producción. */
+function isPreviewBuild(): boolean {
+  const c = buildContext();
+  return c === "deploy-preview" || c === "branch-deploy";
+}
+
+/**
+ * No hay un origen seguro del MISMO entorno. Se lanza en lugar de caer a
+ * producción desde un Deploy Preview / branch deploy.
+ */
+export class UnsafeRedirectOriginError extends Error {
+  constructor() {
+    super("no hay un origen de redirección válido para este Deploy Preview");
+    this.name = "UnsafeRedirectOriginError";
+  }
+}
+
+/** `deploy-preview-123--derocompanygestion.netlify.app`, `mi-branch--derocompanygestion.netlify.app`, ... */
 const PREVIEW_HOST_RE = new RegExp(
   `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?--${SITE.replace(/\./g, "\\.")}$`,
   "i",
@@ -107,14 +143,16 @@ function originFromRequest(req: RequestLike | undefined): URL | null {
  */
 export function getTrustedOrigin(req?: RequestLike): string {
   const env = process.env;
-  const context = env.CONTEXT; // Netlify: production | deploy-preview | branch-deploy | dev
+  const context = buildContext(); // Netlify: production | deploy-preview | branch-deploy | dev
   const isProd = env.NODE_ENV === "production";
 
-  // 1. Deploy Preview
-  if (context === "deploy-preview") {
-    const o = parseOrigin(env.DEPLOY_PRIME_URL) ?? parseOrigin(env.DEPLOY_URL);
+  // 1. Deploy Preview / branch deploy: su propio origen o error, nunca producción.
+  if (context === "deploy-preview" || context === "branch-deploy") {
+    const fromReq = originFromRequest(req);
+    if (fromReq && fromReq.protocol === "https:" && PREVIEW_HOST_RE.test(fromReq.host)) return fromReq.origin;
+    const o = parseOrigin(buildPrimeUrl()) ?? parseOrigin(env.DEPLOY_URL);
     if (o && o.protocol === "https:" && PREVIEW_HOST_RE.test(o.host)) return o.origin;
-    return fallbackProdOrigin();
+    throw new UnsafeRedirectOriginError();
   }
 
   // 2. Producción
@@ -123,13 +161,6 @@ export function getTrustedOrigin(req?: RequestLike): string {
     if (explicit && explicit.protocol === "https:") return explicit.origin;
     const netlifyUrl = parseOrigin(env.URL);
     if (netlifyUrl && netlifyUrl.protocol === "https:") return netlifyUrl.origin;
-    return fallbackProdOrigin();
-  }
-
-  // 2b. Branch deploy u otros contextos de Netlify: mismo patrón de host del sitio.
-  if (context === "branch-deploy") {
-    const o = parseOrigin(env.DEPLOY_PRIME_URL) ?? parseOrigin(env.URL);
-    if (o && o.protocol === "https:" && PREVIEW_HOST_RE.test(o.host)) return o.origin;
     return fallbackProdOrigin();
   }
 
@@ -151,7 +182,7 @@ export function getTrustedOrigin(req?: RequestLike): string {
 /**
  * Allow-list ESTRICTA de hosts para redirecciones ABSOLUTAS (post-logout,
  * callback de correo). Sólo el patrón EXACTO
- * `deploy-preview-<número>--liquidadoriva.netlify.app` — el número NO se
+ * `deploy-preview-<número>--derocompanygestion.netlify.app` — el número NO se
  * hardcodea. No matchea branch deploys (`mi-branch--…`) ni hostnames parecidos.
  */
 const PREVIEW_DEPLOY_HOST_RE = new RegExp(
@@ -162,7 +193,9 @@ const PREVIEW_DEPLOY_HOST_RE = new RegExp(
 function isAllowedRedirectHost(host: string, dev: boolean): boolean {
   const h = host.toLowerCase();
   if (dev && isLocalHost(h)) return true; // localhost[:PORT] sólo en desarrollo
-  if (h === SITE) return true; // liquidadoriva.netlify.app exacto
+  // Un build de preview sólo redirige a hosts de preview del sitio, nunca a producción.
+  if (isPreviewBuild()) return PREVIEW_HOST_RE.test(h);
+  if (h === SITE) return true; // derocompanygestion.netlify.app exacto
   if (PREVIEW_DEPLOY_HOST_RE.test(h)) return true; // deploy-preview-<n>--…
   const prod = parseOrigin(process.env.AUTH_PRODUCTION_ORIGIN);
   return prod != null && prod.protocol === "https:" && h === prod.host.toLowerCase();
@@ -181,10 +214,10 @@ function isAllowedRedirectHost(host: string, dev: boolean): boolean {
  * NUNCA un host controlado por el usuario; el path lo agrega el llamador.
  *
  * Motivo: en el runtime de las funciones de Netlify, `CONTEXT` / `URL` /
- * `DEPLOY_PRIME_URL` son variables de BUILD y no están en el entorno, así que
- * `getTrustedOrigin` no puede distinguir un Deploy Preview y resuelve al
- * origen de producción. La fuente confiable en runtime es el host de la
- * request, validado.
+ * `DEPLOY_PRIME_URL` son variables de BUILD y no están en el entorno. La
+ * fuente confiable en runtime es el host de la request, validado; el contexto
+ * del build (`AUTH_BUILD_CONTEXT`, inyectado por `next.config.ts`) garantiza
+ * que un Deploy Preview nunca resuelva al origen de producción.
  */
 export function getSafeRedirectOrigin(req?: RequestLike): string {
   const dev = process.env.NODE_ENV !== "production";
