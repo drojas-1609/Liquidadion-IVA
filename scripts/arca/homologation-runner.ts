@@ -17,7 +17,9 @@ const MIGRATION='20261102120000_arca_production_controls';
 const SHA='1546bb960aee01bb4ad26871a3a22d4ba7f844b0215f64b293e5ef7f8ea2ca36';
 const USERS_MIGRATION='20261104120000_studio_users_permissions';
 const USERS_SHA='cc70bc0be6b90df80151da841aa58f64b3e275ce72c96373d977f40492c3a512';
-// Exactamente estas 12 migraciones (nombre y checksum completo), en orden.
+const OPERATOR_MIGRATION='20261104230000_add_operator_role';
+const OPERATOR_SHA='1bd8d2ce8a29934399a36871687e5946d7e776c8fb252d9dc2e4de96a438416f';
+// Exactamente estas 13 migraciones (nombre y checksum completo), en orden.
 export const EXPECTED_MIGRATIONS:ReadonlyArray<readonly [string,string]>=[
  ['0_init','563767d5f4bcb541b98b2a58b478f68f02d77d38877b8d4f61ffe94450cab80e'],
  ['20260907213357_float_to_decimal','7185f475c21798ea25e2b41d379c8e4c333409efce3d8e87c4caa3e0695d60c9'],
@@ -31,11 +33,12 @@ export const EXPECTED_MIGRATIONS:ReadonlyArray<readonly [string,string]>=[
  ['20261028120000_arca_wsaa_ticket_cache','a5c214cc74826994411c44953983addda81e88e4076a742a33db437609ec743d'],
  [MIGRATION,SHA],
  [USERS_MIGRATION,USERS_SHA],
+ [OPERATOR_MIGRATION,OPERATOR_SHA],
 ];
-// Huella DEV leída y verificada (no calculada): ~/studio-users-dev-kit,
-// postcheck runs/20261104T132722Z-migrate y 80-fingerprint.sh runs/20261104T135730Z-h3.
-// Sus 11 filas previas reproducen la huella anterior 8fdb3152…64a04f.
-export const FP='3cdc65111945aaf0d49289066690f71a2c604792258aef4efe382b501c4f16bf';
+// Huella DEV leída y verificada (no calculada): ~/operator-role-dev-kit,
+// postcheck runs/20261105T141649Z-migrate y 80-fingerprint.sh runs/20261105T195225Z-h3.
+// Sus 12 filas previas reproducen la huella anterior 3cdc6511…4f16bf.
+export const FP='2c1519b91544df7c307396a70dd24a6483f7c9aaf5681db2d9e06313f816b9cb';
 // RLS sin políticas y sin privilegios fuera del propietario: ACL exacta verificada en DEV por el postcheck.
 const TABLE_ACL='{postgres=arwdDxtm/postgres}',SEQUENCE_ACL='{postgres=rwU/postgres}';
 export const EXPECTED_RELATIONS:ReadonlyArray<{name:string;kind:'r'|'S';checks:Readonly<Record<string,string>>}>=[

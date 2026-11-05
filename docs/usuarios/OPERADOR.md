@@ -23,6 +23,8 @@ No se agrega almacenamiento de Clave Fiscal ni automatización de acceso o prese
 
 Con el PR #25 (Libro IVA), la importación usa `ROLES_CREATE`: el Operador también podrá importar.
 
+Los cuatro permisos más sensibles los confirmó el titular el 05/11/2026: editar CUIT, condición fiscal y perfil IIBB de clientes existentes; cerrar períodos sin reabrirlos; consultar ARCA con el módulo habilitado; importar el Libro IVA cuando esté disponible.
+
 ## Migración
 
 `20261104230000_add_operator_role`, una sola línea: `ALTER TYPE "Role" ADD VALUE 'OPERATOR' BEFORE 'VIEWER'`. Es aditiva y no cambia filas, privilegios ni la Data API. En PostgreSQL 17 corre dentro de la transacción de Prisma porque el valor nuevo no se usa en la misma transacción.
@@ -39,4 +41,13 @@ Consecuencias:
 
 ## Estado
 
-El procedimiento de DEV está en `~/operator-role-dev-kit` (preflight, migración única, postcheck, huella y ajuste del runner). No se aplicó en DEV ni en producción. El runner de homologación conserva el historial real de DEV: se actualiza con la huella verificada recién después de migrar ese entorno.
+**DEV (`esyfpakajthdifhnhcew`), 05/11/2026**, con `~/operator-role-dev-kit` fijado a `44545c8`:
+- **Preflight** `runs/20261105T141214Z-preflight`: 12 migraciones con checksum, huella `3cdc6511…`, estructura exacta, actividad 0.
+- **Migración** `runs/20261105T141649Z-migrate`: un único `prisma migrate deploy`. Postcheck sin diferencias:
+  - enum `Role` = `OWNER, ADMIN, ACCOUNTANT, OPERATOR, VIEWER`;
+  - 0 filas `OPERATOR`;
+  - todas las tablas idénticas, salvo `_prisma_migrations` (+1).
+- **Huella** `runs/20261105T195225Z-h3`: `2c1519b91544df7c307396a70dd24a6483f7c9aaf5681db2d9e06313f816b9cb`, releída en DEV. Sus 12 filas previas reproducen `3cdc6511…`.
+- **Runner de ARCA:** actualizado con esa huella por el paso 85, con las pruebas offline OK.
+
+**Producción:** sin aplicar. La migración va antes del merge, con el mismo procedimiento que el #28 (preflight, respaldo, ensayo sobre la copia, compatibilidad del commit publicado, migración única y postcheck).
