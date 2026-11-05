@@ -25,10 +25,11 @@ const code = sql
 const schema = readFileSync(repo + "prisma/schema.prisma", "utf8");
 
 describe(`migración ${MIGRATION} — revisión estática`, () => {
-  it("es la última, sigue a la de ARCA sin cambiarla", () => {
+  it("sigue a la de ARCA sin cambiarla", () => {
     const dirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-    expect(dirs.at(-1)).toBe(MIGRATION);
-    expect(dirs.at(-2)).toBe(PREVIOUS);
+    expect(dirs.at(-1)).toBe("20261104230000_add_operator_role");
+    expect(dirs.at(-2)).toBe(MIGRATION);
+    expect(dirs.at(-3)).toBe(PREVIOUS);
     expect(createHash("sha256").update(readFileSync(migrationsDir + PREVIOUS + "/migration.sql")).digest("hex")).toBe(PREVIOUS_SHA256);
   });
 

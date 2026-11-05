@@ -176,6 +176,23 @@ describe.skipIf(!URL_LOCAL)("PostgreSQL local: usuarios del estudio, permisos y 
   const exportStatus = async (clientId: string, periodId: string) =>
     (await exportLiquidation(json("GET", `/api/client/${clientId}/period/${periodId}/export`), ctx({ id: clientId, periodId }))).status;
 
+  it("Operador edita su cliente y carga IVA, sin altas de clientes ni gestión de usuarios", async () => {
+    await onboard(ANA, ANA_EMAIL, { role: "OPERATOR", clientScope: "SELECTED", clientIds: ["c1"], modules: ["CLIENTS", "IVA"] });
+    as(ANA, ANA_EMAIL);
+    expect(await clientNames()).toEqual(["Cliente Uno"]);
+    expect(html(await ClientsPage())).not.toContain("Nuevo Cliente");
+    const client = await db.client.findUniqueOrThrow({ where: { id: "c1" } });
+    expect((await patchClient(json("PATCH", "/api/clients/c1", {
+      name: "Cliente actualizado", expectedUpdatedAt: client.updatedAt.toISOString(),
+    }), ctx({ id: "c1" }))).status).toBe(200);
+    expect((await db.client.findUniqueOrThrow({ where: { id: "c1" } })).name).toBe("Cliente actualizado");
+    expect((await createTax(json("POST", "/api/taxes", { periodId: "p1", date: "2026-01-10", type: "RETENCION IVA", amount: "10.00" }))).status).toBe(201);
+    expect((await createClient(json("POST", "/api/clients", {}))).status).toBe(403);
+    expect((await patchClient(json("PATCH", "/api/clients/c2", {}), ctx({ id: "c2" }))).status).toBe(404);
+    expect((await invite(json("POST", "/api/organization/invitations", inviteBody("x@estudio.test")))).status).toBe(403);
+    expect(noticeOf(await UsersSettingsPage())).toBe("forbidden");
+  });
+
   it("migración compatible: la membresía previa del propietario queda ACTIVE/ALL/todos los módulos y sigue administrando", async () => {
     const m = await db.membership.findUniqueOrThrow({ where: { id: "m_owner_a" } });
     expect(m).toMatchObject({ status: "ACTIVE", clientScope: "ALL", modules: ["CLIENTS", "IVA", "ARCA_PADRON"], disabledAt: null });

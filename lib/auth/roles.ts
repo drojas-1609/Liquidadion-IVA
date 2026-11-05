@@ -1,34 +1,21 @@
 import type { Role } from "@prisma/client";
 
-/**
- * Matriz de roles de la Tarea 3B (aprobada).
- *
- * Enum real: OWNER, ADMIN, ACCOUNTANT, VIEWER. No se inventan roles.
- *
- * Sólo `ROLES_READ`, `ROLES_CREATE` y `ROLES_EXPORT` se usan en 3B. El resto
- * queda declarado y testeado (tests/auth/roles.test.ts) para que las funciones
- * futuras (update/delete/import, administración de miembros, cambio de roles,
- * configuración, lectura de auditoría, eliminación de organización) se conecten
- * a la constante correcta desde el primer día.
- */
-
 // ── Implementadas en 3B ────────────────────────────────────────────────────
-export const ROLES_READ: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT", "VIEWER"];
-export const ROLES_CREATE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT"];
+export const ROLES_READ: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR", "VIEWER"];
+export const ROLES_CREATE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR"];
+export const ROLES_CLIENT_CREATE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT"];
 /** Exportar liquidación: mismo alcance que leer. */
 export const ROLES_EXPORT: readonly Role[] = ROLES_READ;
 
 // ── Gestión de clientes (editar / eliminar) ────────────────────────────────
 /**
- * Editar un Client: sólo OWNER y ADMIN (decisión explícita, más estricta que
- * `ROLES_UPDATE`, que sigue reservada para períodos/comprobantes/impuestos).
+ * Editar una ficha existente requiere permiso específico.
  * Eliminar un Client usa `ROLES_DELETE`.
  */
-export const ROLES_CLIENT_MANAGE: readonly Role[] = ["OWNER", "ADMIN"];
+export const ROLES_CLIENT_MANAGE: readonly Role[] = ["OWNER", "ADMIN", "OPERATOR"];
 
 // ── Cierre y reapertura de períodos ────────────────────────────────────────
-/** Cerrar un período: OWNER, ADMIN y ACCOUNTANT. */
-export const ROLES_PERIOD_CLOSE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT"];
+export const ROLES_PERIOD_CLOSE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR"];
 /** Reabrir un período cerrado: sólo OWNER y ADMIN (más sensible que cerrar). */
 export const ROLES_PERIOD_REOPEN: readonly Role[] = ["OWNER", "ADMIN"];
 
@@ -40,12 +27,12 @@ export const ROLES_PERIOD_REOPEN: readonly Role[] = ["OWNER", "ADMIN"];
  */
 export const ROLES_USER_MANAGE: readonly Role[] = ["OWNER"];
 /** Roles que se pueden asignar a otra persona. OWNER nunca se asigna ni se quita desde la app. */
-export const ASSIGNABLE_ROLES: readonly Role[] = ["ADMIN", "ACCOUNTANT", "VIEWER"];
+export const ASSIGNABLE_ROLES: readonly Role[] = ["ADMIN", "ACCOUNTANT", "OPERATOR", "VIEWER"];
 
 // ── Futuras (matriz preparada, sin implementar) ────────────────────────────
-export const ROLES_UPDATE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT"];
+export const ROLES_UPDATE: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR"];
 export const ROLES_DELETE: readonly Role[] = ["OWNER", "ADMIN"];
-export const ROLES_IMPORT: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT"];
+export const ROLES_IMPORT: readonly Role[] = ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR"];
 export const ROLES_MEMBERS: readonly Role[] = ["OWNER", "ADMIN"];
 export const ROLES_ROLE_CHANGE: readonly Role[] = ["OWNER"];
 export const ROLES_CONFIG: readonly Role[] = ["OWNER", "ADMIN"];

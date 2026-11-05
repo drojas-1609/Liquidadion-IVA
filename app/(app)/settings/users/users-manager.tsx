@@ -12,7 +12,7 @@ import type { InvitationView, MemberView, UsersOverview } from "@/lib/users/view
  * `window.confirm`. Tras cada acción se recarga la vista del servidor.
  */
 
-const ASSIGNABLE: Role[] = ["ADMIN", "ACCOUNTANT", "VIEWER"];
+import { ASSIGNABLE_ROLES } from "@/lib/auth/roles";
 
 interface Permissions {
     role: Role;
@@ -126,7 +126,7 @@ function PermissionsFields({
         <div style={{ display: "grid", gap: "var(--spacing-md)", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
             <fieldset style={{ border: "none", padding: 0 }}>
                 <legend style={{ fontWeight: 600, marginBottom: "var(--spacing-xs)" }}>Rol</legend>
-                {ASSIGNABLE.map((r) => (
+                {ASSIGNABLE_ROLES.map((r) => (
                     <label key={r} style={{ display: "block", marginBottom: "var(--spacing-xs)" }}>
                         <input type="radio" name={`${idPrefix}-role`} checked={value.role === r} onChange={() => onChange({ ...value, role: r })} />{" "}
                         {ROLE_LABELS[r].label}

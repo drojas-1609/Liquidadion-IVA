@@ -7,7 +7,7 @@ import {
     requireAllClientsScope,
     guardPage,
 } from "@/lib/auth/authz";
-import { ROLES_CREATE } from "@/lib/auth/roles";
+import { ROLES_CLIENT_CREATE } from "@/lib/auth/roles";
 import { AccessNotice } from "@/app/_components/access-notice";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +36,7 @@ export default async function NewClientPage() {
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
         const { organizationId } = await resolveActiveOrganization(profileId);
-        const access = await requireOrganizationRole(profileId, organizationId, ROLES_CREATE, { module: "CLIENTS" });
+        const access = await requireOrganizationRole(profileId, organizationId, ROLES_CLIENT_CREATE, { module: "CLIENTS" });
         requireAllClientsScope(access);
         return true;
     });

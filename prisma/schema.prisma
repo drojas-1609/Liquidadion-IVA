@@ -48,6 +48,7 @@ enum Role {
   OWNER
   ADMIN
   ACCOUNTANT
+  OPERATOR
   VIEWER
 }
 

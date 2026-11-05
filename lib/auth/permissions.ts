@@ -4,7 +4,7 @@ import type { AppModule, ClientScope, MembershipStatus, Role } from "@prisma/cli
  * Permisos por usuaria del estudio (Configuración → Usuarios).
  *
  * Tres ejes independientes, todos aplicados en el servidor en cada solicitud:
- *  - Rol (OWNER / ADMIN / ACCOUNTANT / VIEWER): QUÉ acciones (lib/auth/roles).
+ *  - Rol (OWNER / ADMIN / ACCOUNTANT / OPERATOR / VIEWER): QUÉ acciones (lib/auth/roles).
  *  - Alcance de clientes (ALL / SELECTED): SOBRE QUÉ clientes. Un cliente fuera
  *    del alcance responde igual que uno inexistente (404).
  *  - Módulos: EN QUÉ áreas implementadas.
@@ -50,6 +50,7 @@ export const SCOPE_LABELS: Record<ClientScope, string> = {
 export const ROLE_LABELS: Record<Role, { label: string; description: string }> = {
   OWNER: { label: "Propietario", description: "Acceso completo y gestión de usuarios." },
   ADMIN: { label: "Administración", description: "Carga, corrige, elimina y reabre; edita fichas de clientes." },
+  OPERATOR: { label: "Operador", description: "Actualiza fichas existentes y opera los períodos y comprobantes de los clientes asignados." },
   ACCOUNTANT: { label: "Contable", description: "Carga y corrige comprobantes, retenciones y períodos." },
   VIEWER: { label: "Consulta", description: "Sólo lectura y exportación." },
 };
