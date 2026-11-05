@@ -17,6 +17,10 @@
 --   InvoiceVatLine    -> Invoice  CASCADE   (cae con el comprobante; se cuenta)
 --   ClientActivity    -> Client   CASCADE   (se cuenta)
 --   ClientJurisdiction-> Client   CASCADE   (se cuenta)
+--   MembershipClient  -> Client   CASCADE   (migración 12 del PR #28; verificado en DEV
+--                                  el 04/11/2026, tras sus pruebas). Se borra explícitamente
+--                                  SÓLO la fila del acceso de prueba sobre este
+--                                  cliente; la Membership se CONSERVA.
 --   Ninguna FK apunta a InvoiceVatLine. AuditLog no tiene FK a estas tablas:
 --   se CONSERVA y se verifica que su total no cambie.
 --
@@ -39,10 +43,15 @@ DECLARE
     exp_vat_settings constant bigint := 0;
     exp_activities   constant bigint := 0;
     exp_jurisdictions constant bigint := 0;
+    -- Acceso de prueba del PR #28 (DISABLED) con alcance sobre este cliente.
+    exp_mc_membership constant text := 'cmw2idvvf0001jp095rxar1rb';
+    exp_membership_clients constant bigint := 1;
 
     n bigint;
     audit_before bigint;
     audit_after  bigint;
+    memb_before  bigint;
+    memb_after   bigint;
 BEGIN
     -- Bloquea al cliente (y falla si no es exactamente el esperado).
     PERFORM 1 FROM "Client" WHERE id = c_id AND name = c_name AND "organizationId" = c_org FOR UPDATE;
@@ -80,6 +89,11 @@ BEGIN
     IF n <> exp_activities THEN RAISE EXCEPTION 'ClientActivity: esperado %, hay %', exp_activities, n; END IF;
     SELECT count(*) INTO n FROM "ClientJurisdiction" WHERE "clientId" = c_id;
     IF n <> exp_jurisdictions THEN RAISE EXCEPTION 'ClientJurisdiction: esperado %, hay %', exp_jurisdictions, n; END IF;
+    SELECT count(*) INTO n FROM "MembershipClient" WHERE "clientId" = c_id;
+    IF n <> exp_membership_clients THEN RAISE EXCEPTION 'MembershipClient: esperado %, hay %', exp_membership_clients, n; END IF;
+    SELECT count(*) INTO n FROM "MembershipClient"
+     WHERE "clientId" = c_id AND ("membershipId" <> exp_mc_membership OR "organizationId" <> c_org);
+    IF n <> 0 THEN RAISE EXCEPTION 'MembershipClient: hay % filas de otro acceso u organización', n; END IF;
 
     -- Ninguna FK nueva hacia estas tablas que el bloque no contemple.
     SELECT count(*) INTO n FROM pg_constraint c
@@ -88,11 +102,13 @@ BEGIN
        AND c.conname NOT IN (
            'ClientActivity_clientId_organizationId_fkey', 'ClientJurisdiction_clientId_organizationId_fkey',
            'Period_clientId_organizationId_fkey', 'InvoiceVatLine_invoiceId_organizationId_fkey',
+           'MembershipClient_clientId_organizationId_fkey',
            'Invoice_periodId_clientId_organizationId_fkey', 'Invoice_periodId_organizationId_fkey',
            'PeriodVatSettings_periodId_organizationId_fkey', 'TaxRecord_periodId_organizationId_fkey');
     IF n <> 0 THEN RAISE EXCEPTION 'esquema: hay % FK no revisadas hacia Client/Period/Invoice/InvoiceVatLine', n; END IF;
 
     SELECT count(*) INTO audit_before FROM "AuditLog";
+    SELECT count(*) INTO memb_before FROM "Membership";
 
     -- Borrado, verificando cada conteo.
     DELETE FROM "Invoice" i USING "Period" p
@@ -114,6 +130,11 @@ BEGIN
     GET DIAGNOSTICS n = ROW_COUNT;
     IF n <> exp_periods THEN RAISE EXCEPTION 'DELETE Period: esperado %, borró %', exp_periods, n; END IF;
 
+    DELETE FROM "MembershipClient"
+     WHERE "clientId" = c_id AND "organizationId" = c_org AND "membershipId" = exp_mc_membership;
+    GET DIAGNOSTICS n = ROW_COUNT;
+    IF n <> exp_membership_clients THEN RAISE EXCEPTION 'DELETE MembershipClient: esperado %, borró %', exp_membership_clients, n; END IF;
+
     DELETE FROM "Client" WHERE id = c_id AND name = c_name AND "organizationId" = c_org;
     GET DIAGNOSTICS n = ROW_COUNT;
     IF n <> 1 THEN RAISE EXCEPTION 'DELETE Client: esperado 1, borró %', n; END IF;
@@ -123,14 +144,18 @@ BEGIN
     IF n <> 0 THEN RAISE EXCEPTION 'quedan % comprobantes con este clientId', n; END IF;
     SELECT count(*) INTO n FROM "InvoiceVatLine" l WHERE NOT EXISTS (SELECT 1 FROM "Invoice" i WHERE i.id = l."invoiceId");
     IF n <> 0 THEN RAISE EXCEPTION 'quedan % líneas de IVA huérfanas', n; END IF;
+    SELECT count(*) INTO n FROM "MembershipClient" WHERE "clientId" = c_id;
+    IF n <> 0 THEN RAISE EXCEPTION 'quedan % filas de MembershipClient del cliente', n; END IF;
+    SELECT count(*) INTO memb_after FROM "Membership";
+    IF memb_after <> memb_before THEN RAISE EXCEPTION 'Membership cambió: % -> %', memb_before, memb_after; END IF;
     SELECT count(*) INTO audit_after FROM "AuditLog";
     IF audit_after <> audit_before THEN RAISE EXCEPTION 'AuditLog cambió: % -> %', audit_before, audit_after; END IF;
 
     IF dry_run THEN
-        RAISE EXCEPTION 'DRY RUN OK (revertido): cliente 1, períodos %, comprobantes %, líneas de IVA % (cascada), AuditLog % sin cambios',
-            exp_periods, exp_invoices, exp_vat_lines, audit_after;
+        RAISE EXCEPTION 'DRY RUN OK (revertido): cliente 1, períodos %, comprobantes %, líneas de IVA % (cascada), MembershipClient %, AuditLog % y Membership % sin cambios',
+            exp_periods, exp_invoices, exp_vat_lines, exp_membership_clients, audit_after, memb_after;
     END IF;
-    RAISE NOTICE 'Limpieza aplicada: cliente 1, períodos %, comprobantes %, líneas de IVA %; AuditLog % conservado',
-        exp_periods, exp_invoices, exp_vat_lines, audit_after;
+    RAISE NOTICE 'Limpieza aplicada: cliente 1, períodos %, comprobantes %, líneas de IVA %, MembershipClient %; AuditLog % y Membership % conservados',
+        exp_periods, exp_invoices, exp_vat_lines, exp_membership_clients, audit_after, memb_after;
 END
 $$;
