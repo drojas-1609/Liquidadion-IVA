@@ -55,7 +55,7 @@ function lookupResponse(result: CuitLookupResult) {
 }
 
 // POST /api/arca/cuit-lookup — consulta del CUIT en el padrón de ARCA para
-// PROPONER datos en el alta o edición de un cliente (OWNER / ADMIN / ACCOUNTANT).
+// PROPONER datos en el alta o edición de un cliente (OWNER / ADMIN / ACCOUNTANT / OPERATOR).
 //
 // Orden: auth -> organización -> rol -> parseo -> CUIT (422) -> límite de uso
 // (429) -> consulta. El CUIT viaja en el cuerpo (no en la URL). La consulta NO

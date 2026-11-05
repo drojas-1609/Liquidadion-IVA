@@ -45,7 +45,7 @@ function changedFieldsOf(current: ClientRow, data: Omit<ClientUpdateFields, "pho
     });
 }
 
-// PATCH /api/clients/[id] — edición parcial de un cliente (OWNER / ADMIN).
+// PATCH /api/clients/[id] — edición parcial de un cliente (OWNER / ADMIN / OPERATOR).
 //
 // Orden (brief §7.1): auth -> organización -> rol -> parseo -> validación
 // (incluida `expectedUpdatedAt`, 422) -> transacción: FOR UPDATE de la fila

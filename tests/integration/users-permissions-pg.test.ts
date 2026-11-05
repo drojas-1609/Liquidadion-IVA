@@ -58,7 +58,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { GET as listClients, POST as createClient } from "@/app/api/clients/route";
-import { PATCH as patchClient } from "@/app/api/clients/[id]/route";
+import { PATCH as patchClient, DELETE as deleteClient } from "@/app/api/clients/[id]/route";
+import { DELETE as deletePeriod } from "@/app/api/periods/[id]/route";
+import { POST as reopenPeriod } from "@/app/api/periods/[id]/reopen/route";
+import { DELETE as deleteInvoice } from "@/app/api/invoices/[id]/route";
+import { DELETE as deleteTax } from "@/app/api/taxes/[id]/route";
 import { GET as exportLiquidation } from "@/app/api/client/[id]/period/[periodId]/export/route";
 import { POST as createPeriod } from "@/app/api/periods/route";
 import { POST as createTax } from "@/app/api/taxes/route";
@@ -186,8 +190,18 @@ describe.skipIf(!URL_LOCAL)("PostgreSQL local: usuarios del estudio, permisos y 
       name: "Cliente actualizado", expectedUpdatedAt: client.updatedAt.toISOString(),
     }), ctx({ id: "c1" }))).status).toBe(200);
     expect((await db.client.findUniqueOrThrow({ where: { id: "c1" } })).name).toBe("Cliente actualizado");
-    expect((await createTax(json("POST", "/api/taxes", { periodId: "p1", date: "2026-01-10", type: "RETENCION IVA", amount: "10.00" }))).status).toBe(201);
+    const tax = await createTax(json("POST", "/api/taxes", { periodId: "p1", date: "2026-01-10", type: "RETENCION IVA", amount: "10.00" }));
+    expect(tax.status).toBe(201);
+    const taxId = ((await tax.json()) as { id: string }).id;
     expect((await createClient(json("POST", "/api/clients", {}))).status).toBe(403);
+    // Sin eliminaciones ni reapertura, aun sobre su propio cliente y período.
+    expect((await deleteClient(json("DELETE", "/api/clients/c1"), ctx({ id: "c1" }))).status).toBe(403);
+    expect((await deletePeriod(json("DELETE", "/api/periods/p1"), ctx({ id: "p1" }))).status).toBe(403);
+    expect((await reopenPeriod(json("POST", "/api/periods/p1/reopen", {}), ctx({ id: "p1" }))).status).toBe(403);
+    expect((await deleteTax(json("DELETE", `/api/taxes/${taxId}`), ctx({ id: taxId }))).status).toBe(403);
+    expect((await deleteInvoice(json("DELETE", "/api/invoices/inexistente"), ctx({ id: "inexistente" }))).status).toBe(403);
+    expect(await db.taxRecord.count({ where: { id: taxId } })).toBe(1);
+    expect(await db.period.count({ where: { id: "p1" } })).toBe(1);
     expect((await patchClient(json("PATCH", "/api/clients/c2", {}), ctx({ id: "c2" }))).status).toBe(404);
     expect((await invite(json("POST", "/api/organization/invitations", inviteBody("x@estudio.test")))).status).toBe(403);
     expect(noticeOf(await UsersSettingsPage())).toBe("forbidden");

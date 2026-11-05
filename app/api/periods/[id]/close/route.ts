@@ -17,7 +17,7 @@ import { ConflictError, NotFoundError, ValidationError } from "@/lib/auth/errors
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// POST /api/periods/[id]/close — cierre del período (OWNER / ADMIN / ACCOUNTANT).
+// POST /api/periods/[id]/close — cierre del período (OWNER / ADMIN / ACCOUNTANT / OPERATOR).
 //
 // Orden: auth -> organización -> rol -> parseo (400) -> expectedUpdatedAt
 // (422) -> acceso al período (otra org o inexistente: MISMO 404) -> en una

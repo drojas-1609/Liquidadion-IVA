@@ -10,7 +10,7 @@ import { isPeriodClosed } from "@/lib/period-status";
 
 export const dynamic = "force-dynamic";
 
-// Alta de retención/percepción: OWNER / ADMIN / ACCOUNTANT (ROLES_CREATE).
+// Alta de retención/percepción: OWNER / ADMIN / ACCOUNTANT / OPERATOR (ROLES_CREATE).
 // VIEWER ve el aviso de permisos; organización, cliente o período que no
 // coinciden -> 404. El formulario recibe los límites de fecha del período.
 export default async function NewTaxPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {

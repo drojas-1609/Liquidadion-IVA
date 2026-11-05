@@ -12,7 +12,7 @@ import { isPeriodClosed } from "@/lib/period-status";
 
 export const dynamic = "force-dynamic";
 
-// Edición de retención/percepción: OWNER / ADMIN / ACCOUNTANT (ROLES_UPDATE).
+// Edición de retención/percepción: OWNER / ADMIN / ACCOUNTANT / OPERATOR (ROLES_UPDATE).
 // VIEWER ve el aviso de permisos; organización, cliente, período o registro
 // que no coinciden -> 404 (sin revelar cuál). El período no se cambia: el
 // formulario sólo ofrece fechas del período del registro. Un tipo histórico
