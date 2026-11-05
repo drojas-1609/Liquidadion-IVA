@@ -16,7 +16,7 @@ import {
 
 /**
  * Cierre / reapertura del período. Sólo se renderiza el botón que corresponde
- * al estado y al rol (cerrar: OWNER / ADMIN / ACCOUNTANT; reabrir: OWNER /
+ * al estado y al rol (cerrar: OWNER / ADMIN / ACCOUNTANT / OPERATOR; reabrir: OWNER /
  * ADMIN); la API vuelve a exigir el rol y rechaza con 409 si el estado cambió
  * desde que se cargó la pantalla (`updatedAt`). Confirmación visible en la
  * propia página: nunca `window.confirm`.

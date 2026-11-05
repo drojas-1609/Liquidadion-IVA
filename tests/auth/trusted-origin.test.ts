@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { getTrustedOrigin } from "@/lib/auth/origin";
+import { UnsafeRedirectOriginError, getTrustedOrigin } from "@/lib/auth/origin";
 
 const ENV_KEYS = [
   "CONTEXT",
@@ -61,25 +61,25 @@ describe("getTrustedOrigin — deploy preview", () => {
   beforeEach(() => setEnv({ CONTEXT: "deploy-preview" }));
 
   it("usa DEPLOY_PRIME_URL válido del propio sitio", () => {
-    setEnv({ DEPLOY_PRIME_URL: "https://deploy-preview-42--liquidadoriva.netlify.app" });
+    setEnv({ DEPLOY_PRIME_URL: "https://deploy-preview-42--derocompanygestion.netlify.app" });
     expect(getTrustedOrigin(req({ host: "evil.com" }))).toBe(
-      "https://deploy-preview-42--liquidadoriva.netlify.app",
+      "https://deploy-preview-42--derocompanygestion.netlify.app",
     );
   });
 
-  it("rechaza DEPLOY_PRIME_URL de otro dominio => origen de producción", () => {
+  it("rechaza DEPLOY_PRIME_URL de otro dominio => error, nunca producción", () => {
     setEnv({ DEPLOY_PRIME_URL: "https://evil.com" });
-    expect(getTrustedOrigin()).toBe("https://liquidadoriva.netlify.app");
+    expect(() => getTrustedOrigin()).toThrow(UnsafeRedirectOriginError);
   });
 
-  it("rechaza sufijo falsificado (host que NO termina exactamente en el sitio)", () => {
-    setEnv({ DEPLOY_PRIME_URL: "https://x--liquidadoriva.netlify.app.evil.com" });
-    expect(getTrustedOrigin()).toBe("https://liquidadoriva.netlify.app");
+  it("rechaza sufijo falsificado (host que NO termina exactamente en el sitio) => error, nunca producción", () => {
+    setEnv({ DEPLOY_PRIME_URL: "https://x--derocompanygestion.netlify.app.evil.com" });
+    expect(() => getTrustedOrigin()).toThrow(UnsafeRedirectOriginError);
   });
 
-  it("rechaza DEPLOY_PRIME_URL no-HTTPS", () => {
-    setEnv({ DEPLOY_PRIME_URL: "http://deploy-preview-1--liquidadoriva.netlify.app" });
-    expect(getTrustedOrigin()).toBe("https://liquidadoriva.netlify.app");
+  it("rechaza DEPLOY_PRIME_URL no-HTTPS => error, nunca producción", () => {
+    setEnv({ DEPLOY_PRIME_URL: "http://deploy-preview-1--derocompanygestion.netlify.app" });
+    expect(() => getTrustedOrigin()).toThrow(UnsafeRedirectOriginError);
   });
 });
 
@@ -92,18 +92,18 @@ describe("getTrustedOrigin — producción", () => {
   });
 
   it("si no hay origin explícito, usa la URL de Netlify (HTTPS)", () => {
-    setEnv({ CONTEXT: "production", URL: "https://liquidadoriva.netlify.app" });
-    expect(getTrustedOrigin()).toBe("https://liquidadoriva.netlify.app");
+    setEnv({ CONTEXT: "production", URL: "https://derocompanygestion.netlify.app" });
+    expect(getTrustedOrigin()).toBe("https://derocompanygestion.netlify.app");
   });
 
   it("descarta AUTH_PRODUCTION_ORIGIN con credenciales embebidas", () => {
     setEnv({ CONTEXT: "production", AUTH_PRODUCTION_ORIGIN: "https://u:p@app.derocompany.com.ar" });
-    expect(getTrustedOrigin()).toBe("https://liquidadoriva.netlify.app");
+    expect(getTrustedOrigin()).toBe("https://derocompanygestion.netlify.app");
   });
 
   it("descarta URL de Netlify no-HTTPS", () => {
-    setEnv({ CONTEXT: "production", URL: "http://liquidadoriva.netlify.app" });
-    expect(getTrustedOrigin()).toBe("https://liquidadoriva.netlify.app");
+    setEnv({ CONTEXT: "production", URL: "http://derocompanygestion.netlify.app" });
+    expect(getTrustedOrigin()).toBe("https://derocompanygestion.netlify.app");
   });
 });
 
@@ -112,8 +112,8 @@ describe("getTrustedOrigin — fallback a la request con allow-list estricta", (
 
   it("acepta un host de preview del propio sitio", () => {
     expect(
-      getTrustedOrigin(req({ host: "deploy-preview-9--liquidadoriva.netlify.app" })),
-    ).toBe("https://deploy-preview-9--liquidadoriva.netlify.app");
+      getTrustedOrigin(req({ host: "deploy-preview-9--derocompanygestion.netlify.app" })),
+    ).toBe("https://deploy-preview-9--derocompanygestion.netlify.app");
   });
 
   it("acepta el dominio de producción declarado", () => {
@@ -124,20 +124,20 @@ describe("getTrustedOrigin — fallback a la request con allow-list estricta", (
   });
 
   it("rechaza Host arbitrario => origen de producción", () => {
-    expect(getTrustedOrigin(req({ host: "evil.com" }))).toBe("https://liquidadoriva.netlify.app");
+    expect(getTrustedOrigin(req({ host: "evil.com" }))).toBe("https://derocompanygestion.netlify.app");
   });
 
   it("rechaza sufijo falsificado del dominio del sitio", () => {
     expect(
-      getTrustedOrigin(req({ host: "liquidadoriva.netlify.app.evil.com" })),
-    ).toBe("https://liquidadoriva.netlify.app");
+      getTrustedOrigin(req({ host: "derocompanygestion.netlify.app.evil.com" })),
+    ).toBe("https://derocompanygestion.netlify.app");
   });
 
   it("rechaza X-Forwarded-Host con lista de hosts (toma el primero y lo valida)", () => {
     expect(
       getTrustedOrigin(
-        req({ "x-forwarded-host": "evil.com, liquidadoriva.netlify.app", host: "liquidadoriva.netlify.app" }),
+        req({ "x-forwarded-host": "evil.com, derocompanygestion.netlify.app", host: "derocompanygestion.netlify.app" }),
       ),
-    ).toBe("https://liquidadoriva.netlify.app");
+    ).toBe("https://derocompanygestion.netlify.app");
   });
 });

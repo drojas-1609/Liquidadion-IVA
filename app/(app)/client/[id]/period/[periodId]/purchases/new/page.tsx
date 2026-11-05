@@ -6,7 +6,7 @@ import { PeriodClosedNotice } from "../../_components/period-closed-notice";
 
 export const dynamic = "force-dynamic";
 
-// Alta de compra: OWNER / ADMIN / ACCOUNTANT (ROLES_CREATE). VIEWER ve el aviso
+// Alta de compra: OWNER / ADMIN / ACCOUNTANT / OPERATOR (ROLES_CREATE). VIEWER ve el aviso
 // de permisos; período de otra organización, de otro cliente o inexistente -> 404.
 export default async function NewPurchasePage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
     const { id, periodId } = await params;

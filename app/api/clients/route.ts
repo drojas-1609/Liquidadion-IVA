@@ -6,6 +6,8 @@ import {
     requireAuthenticatedProfile,
     resolveActiveOrganization,
     requireOrganizationRole,
+    clientScopeWhere,
+    requireAllClientsScope,
     parseJsonBody,
     withApiAuthz,
 } from "@/lib/auth/authz";
@@ -14,19 +16,21 @@ import { replaceIibbProfile } from "@/lib/client-iibb-store";
 import { verifyProfileSources } from "@/lib/iibb-profile-sources";
 import { activityCatalogs } from "@/lib/activity-catalog/registry";
 import { usableRateRuleSets } from "@/lib/iibb-rates/registry";
-import { ROLES_READ, ROLES_CREATE } from "@/lib/auth/roles";
+import { ROLES_READ, ROLES_CLIENT_CREATE } from "@/lib/auth/roles";
 import { ValidationError } from "@/lib/auth/errors";
+import { MODULES_CLIENT_DIRECTORY } from "@/lib/auth/permissions";
 
-// GET /api/clients — clientes de la organización activa del usuario.
+// GET /api/clients — clientes de la organización activa del usuario, SÓLO los
+// de su alcance (clientScopeWhere). Módulo: Fichas de clientes o IVA.
 // Cualquier fallo se propaga a withApiAuthz (500 controlado); ya NO se
 // devuelve `[]` con 200 enmascarando errores.
 export const GET = withApiAuthz(async () => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_READ);
+    const access = await requireOrganizationRole(profileId, organizationId, ROLES_READ, { module: MODULES_CLIENT_DIRECTORY });
 
     const clients = await prisma.client.findMany({
-        where: { organizationId },
+        where: clientScopeWhere(access),
         orderBy: { name: "asc" },
     });
     return NextResponse.json(clients.map(serializeClient));
@@ -45,7 +49,9 @@ export const GET = withApiAuthz(async () => {
 export const POST = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_CREATE);
+    const access = await requireOrganizationRole(profileId, organizationId, ROLES_CLIENT_CREATE, { module: "CLIENTS" });
+    // Con alcance SELECTED la persona no vería el cliente que crea: 403.
+    requireAllClientsScope(access);
 
     const body = await parseJsonBody(request);
     const parsed = buildClientInput(body);

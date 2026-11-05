@@ -6,7 +6,7 @@ import { PeriodClosedNotice } from "../../../_components/period-closed-notice";
 
 export const dynamic = "force-dynamic";
 
-// Edición de compra: OWNER / ADMIN / ACCOUNTANT (ROLES_UPDATE). VIEWER ve el aviso
+// Edición de compra: OWNER / ADMIN / ACCOUNTANT / OPERATOR (ROLES_UPDATE). VIEWER ve el aviso
 // de permisos; organización, cliente, período, categoría o comprobante que no
 // coinciden -> 404. Fila propia no editable -> aviso estable, sin formulario.
 export default async function EditPurchasePage({

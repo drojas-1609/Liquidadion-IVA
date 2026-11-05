@@ -58,12 +58,12 @@ describe("/logout — GET", () => {
 describe("/logout — POST redirige al /login del MISMO entorno", () => {
   it("Deploy Preview: preserva el host del preview", async () => {
     env.NODE_ENV = "production";
-    const r = reqXfh("deploy-preview-3--liquidadoriva.netlify.app");
+    const r = reqXfh("deploy-preview-3--derocompanygestion.netlify.app");
     const res = await POST(r);
     expect(signOut).toHaveBeenCalledTimes(1);
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe(
-      "https://deploy-preview-3--liquidadoriva.netlify.app/login",
+      "https://deploy-preview-3--derocompanygestion.netlify.app/login",
     );
     expect(res.headers.get("cache-control")).toBe("no-store, max-age=0");
     expectSecurityHeaders(res);
@@ -71,15 +71,15 @@ describe("/logout — POST redirige al /login del MISMO entorno", () => {
 
   it("usa el helper compartido getSafeRedirectOrigin + '/login'", async () => {
     env.NODE_ENV = "production";
-    const r = reqXfh("deploy-preview-77--liquidadoriva.netlify.app");
+    const r = reqXfh("deploy-preview-77--derocompanygestion.netlify.app");
     const res = await POST(r);
     expect(res.headers.get("location")).toBe(`${getSafeRedirectOrigin(r)}/login`);
   });
 
   it("Producción: redirige al /login de producción", async () => {
     env.NODE_ENV = "production";
-    const res = await POST(reqXfh("liquidadoriva.netlify.app"));
-    expect(res.headers.get("location")).toBe("https://liquidadoriva.netlify.app/login");
+    const res = await POST(reqXfh("derocompanygestion.netlify.app"));
+    expect(res.headers.get("location")).toBe("https://derocompanygestion.netlify.app/login");
   });
 
   it("Producción con dominio propio declarado (AUTH_PRODUCTION_ORIGIN)", async () => {
@@ -104,16 +104,16 @@ describe("/logout — POST redirige al /login del MISMO entorno", () => {
   it("host reenviado malicioso -> NO se usa; redirige al fallback de producción", async () => {
     env.NODE_ENV = "production";
     const res = await POST(reqXfh("evil.com"));
-    expect(res.headers.get("location")).toBe("https://liquidadoriva.netlify.app/login");
+    expect(res.headers.get("location")).toBe("https://derocompanygestion.netlify.app/login");
   });
 
   it("redirige aunque signOut falle", async () => {
     env.NODE_ENV = "production";
     signOut.mockRejectedValueOnce(new Error("no session"));
-    const res = await POST(reqXfh("deploy-preview-9--liquidadoriva.netlify.app"));
+    const res = await POST(reqXfh("deploy-preview-9--derocompanygestion.netlify.app"));
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe(
-      "https://deploy-preview-9--liquidadoriva.netlify.app/login",
+      "https://deploy-preview-9--derocompanygestion.netlify.app/login",
     );
   });
 });

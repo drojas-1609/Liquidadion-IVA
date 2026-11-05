@@ -22,7 +22,7 @@ const TURIVA_HAS_VOUCHERS_MESSAGE =
     "El período tiene comprobantes TurIVA (195–197): no se puede desactivar la inclusión en el Régimen TurIVA.";
 
 // PATCH /api/periods/[id]/vat-settings — inclusión del período en el Régimen
-// TurIVA (OWNER / ADMIN / ACCOUNTANT).
+// TurIVA (OWNER / ADMIN / ACCOUNTANT / OPERATOR).
 //
 // Orden: auth -> organización -> rol -> parseo -> acceso al período (otra org o
 // inexistente: MISMO 404) -> en una única transacción: bloqueo de la fila Period

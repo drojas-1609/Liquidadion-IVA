@@ -4,8 +4,8 @@ import { precheck, FP, EXPECTED_MIGRATIONS, EXPECTED_RELATIONS } from "../../scr
 
 /**
  * Precheck del runner de homologación contra PostgreSQL LOCAL y descartable
- * (scripts/pg-local-regression.sh): runner_prev tiene las 10 migraciones previas y
- * runner_cur las 11, ambas aplicadas con Prisma. Datos sintéticos. Cada alteración
+ * (scripts/pg-local-regression.sh): runner_prev tiene las 12 migraciones previas y
+ * runner_cur las 13, ambas aplicadas con Prisma. Datos sintéticos. Cada alteración
  * se deshace y se comprueba que el precheck vuelve a pasar, para atribuir el rechazo
  * exactamente a esa alteración. La huella local difiere de la de DEV (otros UUID).
  */
@@ -39,20 +39,25 @@ describe.skipIf(!prevUrl || !curUrl)("runner de homologación: precheck de DEV",
     beforeAll(async () => {
         prev = new PrismaClient({ datasources: { db: { url: prevUrl! } } });
         cur = new PrismaClient({ datasources: { db: { url: curUrl! } } });
-        await cur.organization.create({ data: { id: "org_runner_sintetica", name: "ESTUDIO SINTETICO RUNNER" } });
+        // SQL explícito: runner_cur tiene el esquema del DEV actual (sin las columnas de
+        // migraciones posteriores, p. ej. Organization.seatLimit), que el cliente Prisma
+        // del repositorio ya conoce.
+        await cur.$executeRawUnsafe(`INSERT INTO "Organization" ("id", "name", "updatedAt") VALUES ('org_runner_sintetica', 'ESTUDIO SINTETICO RUNNER', now())`);
         await cur.arcaPadronOrganization.create({ data: { organizationId: "org_runner_sintetica" } });
         await cur.arcaWsaaTicket.create({ data: { key: "sintetico:runner", ciphertext: "v2:no-es-un-ticket", expiresAt: new Date(Date.now() + 3600000), updatedAt: new Date() } });
         localFp = (await cur.$queryRaw<Array<{ fp: string }>>`SELECT encode(sha256(convert_to(string_agg(id||':'||migration_name||':'||checksum,'|' ORDER BY migration_name),'UTF8')),'hex') AS fp FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`)[0].fp;
     });
     afterAll(async () => { await prev?.$disconnect(); await cur?.$disconnect(); });
 
-    it("fija 11 migraciones y la huella verificada en DEV", () => {
-        expect(EXPECTED_MIGRATIONS).toHaveLength(11);
+    it("fija 13 migraciones y la huella verificada en DEV", () => {
+        expect(EXPECTED_MIGRATIONS).toHaveLength(13);
         expect(EXPECTED_MIGRATIONS[10]).toEqual(["20261102120000_arca_production_controls", "1546bb960aee01bb4ad26871a3a22d4ba7f844b0215f64b293e5ef7f8ea2ca36"]);
-        expect(FP).toBe("8fdb3152a0c7aecf35581f2dd8c82ccbd25d769f9efc8be7f5a0b9d86164a04f");
+        expect(EXPECTED_MIGRATIONS[11]).toEqual(["20261104120000_studio_users_permissions", "cc70bc0be6b90df80151da841aa58f64b3e275ce72c96373d977f40492c3a512"]);
+        expect(EXPECTED_MIGRATIONS[12]).toEqual(["20261104230000_add_operator_role", "1bd8d2ce8a29934399a36871687e5946d7e776c8fb252d9dc2e4de96a438416f"]);
+        expect(FP).toBe("2c1519b91544df7c307396a70dd24a6483f7c9aaf5681db2d9e06313f816b9cb");
     });
 
-    it("rechaza el esquema anterior (10 migraciones), con cualquier huella", async () => {
+    it("rechaza el esquema anterior (12 migraciones), con cualquier huella", async () => {
         expect(await outcome(prev)).toBe("MIGRACIONES_DEV");
         const prevFp = (await prev.$queryRaw<Array<{ fp: string }>>`SELECT encode(sha256(convert_to(string_agg(id||':'||migration_name||':'||checksum,'|' ORDER BY migration_name),'UTF8')),'hex') AS fp FROM "_prisma_migrations"`)[0].fp;
         expect(await outcome(prev, prevFp)).toBe("MIGRACIONES_DEV");

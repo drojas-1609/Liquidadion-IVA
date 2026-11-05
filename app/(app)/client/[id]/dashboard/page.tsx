@@ -5,6 +5,7 @@ import { ROLES_READ, ROLES_CREATE, ROLES_CLIENT_MANAGE, ROLES_DELETE, roleAllows
 import { formatPeriodLabel } from "@/lib/period";
 import { periodStatusLabel } from "@/lib/period-status";
 import { NotFoundError } from "@/lib/auth/errors";
+import { MODULES_CLIENT_DIRECTORY } from "@/lib/auth/permissions";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { ClientActions } from "./client-actions";
 
@@ -15,21 +16,27 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
-        const { organizationId, role } = await requireClientAccess(profileId, id, ROLES_READ);
-        const full = await prisma.client.findFirst({
-            where: { id, organizationId },
-            include: {
-                periods: { orderBy: [{ year: "desc" }, { month: "desc" }] },
-            },
+        const { organizationId, role, modules } = await requireClientAccess(profileId, id, ROLES_READ, {
+            module: MODULES_CLIENT_DIRECTORY,
         });
+        const hasIva = modules.includes("IVA");
+        // Los períodos son del módulo IVA: sin él no se leen.
+        const full = hasIva
+            ? await prisma.client.findFirst({
+                  where: { id, organizationId },
+                  include: {
+                      periods: { orderBy: [{ year: "desc" }, { month: "desc" }] },
+                  },
+              })
+            : await prisma.client.findFirst({ where: { id, organizationId } }).then((c) => (c ? { ...c, periods: [] } : null));
         if (!full) throw new NotFoundError();
-        return { client: full, role };
+        return { client: full, role, hasIva, hasClients: modules.includes("CLIENTS") };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { client, role } = guard.data;
-    const canEdit = roleAllows(ROLES_CLIENT_MANAGE, role);
-    const canDelete = roleAllows(ROLES_DELETE, role);
-    const canCreatePeriod = roleAllows(ROLES_CREATE, role);
+    const { client, role, hasIva, hasClients } = guard.data;
+    const canEdit = hasClients && roleAllows(ROLES_CLIENT_MANAGE, role);
+    const canDelete = hasClients && roleAllows(ROLES_DELETE, role);
+    const canCreatePeriod = hasIva && roleAllows(ROLES_CREATE, role);
 
     return (
         <div className="container">
@@ -48,6 +55,7 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
                 <ClientActions clientId={client.id} clientName={client.name} canEdit={canEdit} canDelete={canDelete} />
             </div>
 
+            {hasIva && (<>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--spacing-lg)" }}>
                 <h2 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>Períodos fiscales</h2>
                 {canCreatePeriod && (
@@ -92,6 +100,7 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
                     </tbody>
                 </table>
             </div>
+            </>)}
         </div>
     );
 }

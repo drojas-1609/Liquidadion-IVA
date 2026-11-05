@@ -8,14 +8,14 @@ import { NewPeriodForm } from "./new-period-form";
 
 export const dynamic = "force-dynamic";
 
-// Alta de período: OWNER / ADMIN / ACCOUNTANT (ROLES_CREATE). VIEWER ve el
+// Alta de período: OWNER / ADMIN / ACCOUNTANT / OPERATOR (ROLES_CREATE). VIEWER ve el
 // aviso de permisos; cliente de otra organización o inexistente -> 404.
 export default async function NewPeriodPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
-        const { organizationId } = await requireClientAccess(profileId, id, ROLES_CREATE);
+        const { organizationId } = await requireClientAccess(profileId, id, ROLES_CREATE, { module: "IVA" });
         const client = await prisma.client.findFirst({
             where: { id, organizationId },
             select: { id: true, name: true },

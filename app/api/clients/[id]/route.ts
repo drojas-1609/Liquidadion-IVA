@@ -7,6 +7,7 @@ import {
     requireAuthenticatedProfile,
     resolveActiveOrganization,
     requireOrganizationRole,
+    assertClientInScope,
     parseJsonBody,
     withApiAuthz,
 } from "@/lib/auth/authz";
@@ -44,7 +45,7 @@ function changedFieldsOf(current: ClientRow, data: Omit<ClientUpdateFields, "pho
     });
 }
 
-// PATCH /api/clients/[id] — edición parcial de un cliente (OWNER / ADMIN).
+// PATCH /api/clients/[id] — edición parcial de un cliente (OWNER / ADMIN / OPERATOR).
 //
 // Orden (brief §7.1): auth -> organización -> rol -> parseo -> validación
 // (incluida `expectedUpdatedAt`, 422) -> transacción: FOR UPDATE de la fila
@@ -63,7 +64,9 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const { id } = await ctx.params;
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_CLIENT_MANAGE);
+    const access = await requireOrganizationRole(profileId, organizationId, ROLES_CLIENT_MANAGE, { module: "CLIENTS" });
+    // Fuera del alcance: el mismo 404 que un cliente inexistente.
+    await assertClientInScope(access, id);
 
     const body = await parseJsonBody(request);
     const parsed = buildClientUpdateInput(body);
@@ -167,7 +170,8 @@ export const DELETE = withApiAuthz(async (_request: Request, ctx: Ctx) => {
     const { id } = await ctx.params;
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    await requireOrganizationRole(profileId, organizationId, ROLES_DELETE);
+    const access = await requireOrganizationRole(profileId, organizationId, ROLES_DELETE, { module: "CLIENTS" });
+    await assertClientInScope(access, id);
 
     try {
         await prisma.$transaction(async (tx) => {
