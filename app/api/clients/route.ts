@@ -16,7 +16,7 @@ import { replaceIibbProfile } from "@/lib/client-iibb-store";
 import { verifyProfileSources } from "@/lib/iibb-profile-sources";
 import { activityCatalogs } from "@/lib/activity-catalog/registry";
 import { usableRateRuleSets } from "@/lib/iibb-rates/registry";
-import { ROLES_READ, ROLES_CREATE } from "@/lib/auth/roles";
+import { ROLES_READ, ROLES_CLIENT_CREATE } from "@/lib/auth/roles";
 import { ValidationError } from "@/lib/auth/errors";
 import { MODULES_CLIENT_DIRECTORY } from "@/lib/auth/permissions";
 
@@ -49,7 +49,7 @@ export const GET = withApiAuthz(async () => {
 export const POST = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
-    const access = await requireOrganizationRole(profileId, organizationId, ROLES_CREATE, { module: "CLIENTS" });
+    const access = await requireOrganizationRole(profileId, organizationId, ROLES_CLIENT_CREATE, { module: "CLIENTS" });
     // Con alcance SELECTED la persona no vería el cliente que crea: 403.
     requireAllClientsScope(access);
 

@@ -3,6 +3,7 @@ import type { Role } from "@prisma/client";
 import {
   ROLES_READ,
   ROLES_CREATE,
+  ROLES_CLIENT_CREATE,
   ROLES_EXPORT,
   ROLES_UPDATE,
   ROLES_DELETE,
@@ -18,7 +19,7 @@ import {
   roleAllows,
 } from "@/lib/auth/roles";
 
-const ALL: Role[] = ["OWNER", "ADMIN", "ACCOUNTANT", "VIEWER"];
+const ALL: Role[] = ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR", "VIEWER"];
 const sorted = (rs: readonly Role[]) => [...rs].sort();
 
 /**
@@ -28,18 +29,19 @@ const sorted = (rs: readonly Role[]) => [...rs].sort();
  */
 const MATRIX: Record<string, { roles: readonly Role[]; allowed: Role[] }> = {
   // Implementadas en 3B
-  ROLES_READ: { roles: ROLES_READ, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "VIEWER"] },
-  ROLES_CREATE: { roles: ROLES_CREATE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT"] },
-  ROLES_EXPORT: { roles: ROLES_EXPORT, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "VIEWER"] },
+  ROLES_READ: { roles: ROLES_READ, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR", "VIEWER"] },
+  ROLES_CREATE: { roles: ROLES_CREATE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR"] },
+  ROLES_CLIENT_CREATE: { roles: ROLES_CLIENT_CREATE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT"] },
+  ROLES_EXPORT: { roles: ROLES_EXPORT, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR", "VIEWER"] },
   // Gestión de clientes (editar)
-  ROLES_CLIENT_MANAGE: { roles: ROLES_CLIENT_MANAGE, allowed: ["OWNER", "ADMIN"] },
+  ROLES_CLIENT_MANAGE: { roles: ROLES_CLIENT_MANAGE, allowed: ["OWNER", "ADMIN", "OPERATOR"] },
   // Cierre y reapertura de períodos
-  ROLES_PERIOD_CLOSE: { roles: ROLES_PERIOD_CLOSE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT"] },
+  ROLES_PERIOD_CLOSE: { roles: ROLES_PERIOD_CLOSE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR"] },
   ROLES_PERIOD_REOPEN: { roles: ROLES_PERIOD_REOPEN, allowed: ["OWNER", "ADMIN"] },
   // Futuras
-  ROLES_UPDATE: { roles: ROLES_UPDATE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT"] },
+  ROLES_UPDATE: { roles: ROLES_UPDATE, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR"] },
   ROLES_DELETE: { roles: ROLES_DELETE, allowed: ["OWNER", "ADMIN"] },
-  ROLES_IMPORT: { roles: ROLES_IMPORT, allowed: ["OWNER", "ADMIN", "ACCOUNTANT"] },
+  ROLES_IMPORT: { roles: ROLES_IMPORT, allowed: ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR"] },
   ROLES_MEMBERS: { roles: ROLES_MEMBERS, allowed: ["OWNER", "ADMIN"] },
   ROLES_ROLE_CHANGE: { roles: ROLES_ROLE_CHANGE, allowed: ["OWNER"] },
   ROLES_CONFIG: { roles: ROLES_CONFIG, allowed: ["OWNER", "ADMIN"] },

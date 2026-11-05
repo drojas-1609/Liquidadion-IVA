@@ -5,14 +5,13 @@ import { useRouter } from "next/navigation";
 import type { AppModule, ClientScope, Role } from "@prisma/client";
 import { APP_MODULES, MODULE_LABELS, ROLE_LABELS, SCOPE_LABELS, STATUS_LABELS } from "@/lib/auth/permissions";
 import type { InvitationView, MemberView, UsersOverview } from "@/lib/users/views";
+import { ASSIGNABLE_ROLES } from "@/lib/auth/roles";
 
 /**
  * Gestión de usuarios del estudio (sólo se renderiza para el propietario; cada
  * API vuelve a exigirlo). Confirmaciones visibles en la página, nunca
  * `window.confirm`. Tras cada acción se recarga la vista del servidor.
  */
-
-const ASSIGNABLE: Role[] = ["ADMIN", "ACCOUNTANT", "VIEWER"];
 
 interface Permissions {
     role: Role;
@@ -126,7 +125,7 @@ function PermissionsFields({
         <div style={{ display: "grid", gap: "var(--spacing-md)", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
             <fieldset style={{ border: "none", padding: 0 }}>
                 <legend style={{ fontWeight: 600, marginBottom: "var(--spacing-xs)" }}>Rol</legend>
-                {ASSIGNABLE.map((r) => (
+                {ASSIGNABLE_ROLES.map((r) => (
                     <label key={r} style={{ display: "block", marginBottom: "var(--spacing-xs)" }}>
                         <input type="radio" name={`${idPrefix}-role`} checked={value.role === r} onChange={() => onChange({ ...value, role: r })} />{" "}
                         {ROLE_LABELS[r].label}

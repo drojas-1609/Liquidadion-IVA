@@ -7,7 +7,7 @@ import {
     clientScopeWhere,
     guardPage,
 } from "@/lib/auth/authz";
-import { ROLES_READ, ROLES_CREATE, roleAllows } from "@/lib/auth/roles";
+import { ROLES_READ, ROLES_CLIENT_CREATE, roleAllows } from "@/lib/auth/roles";
 import { MODULES_CLIENT_DIRECTORY } from "@/lib/auth/permissions";
 import { AccessNotice } from "@/app/_components/access-notice";
 
@@ -24,7 +24,7 @@ export default async function ClientsPage() {
             orderBy: { name: "asc" },
         });
         const canCreate =
-            roleAllows(ROLES_CREATE, access.role) && access.modules.includes("CLIENTS") && access.clientScope === "ALL";
+            roleAllows(ROLES_CLIENT_CREATE, access.role) && access.modules.includes("CLIENTS") && access.clientScope === "ALL";
         return { clients, canCreate };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
