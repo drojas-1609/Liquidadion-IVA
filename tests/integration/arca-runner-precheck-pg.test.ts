@@ -4,8 +4,8 @@ import { precheck, FP, EXPECTED_MIGRATIONS, EXPECTED_RELATIONS } from "../../scr
 
 /**
  * Precheck del runner de homologación contra PostgreSQL LOCAL y descartable
- * (scripts/pg-local-regression.sh): runner_prev tiene las 12 migraciones previas y
- * runner_cur las 13, ambas aplicadas con Prisma. Datos sintéticos. Cada alteración
+ * (scripts/pg-local-regression.sh): runner_prev tiene las 13 migraciones previas y
+ * runner_cur las 14, ambas aplicadas con Prisma. Datos sintéticos. Cada alteración
  * se deshace y se comprueba que el precheck vuelve a pasar, para atribuir el rechazo
  * exactamente a esa alteración. La huella local difiere de la de DEV (otros UUID).
  */
@@ -49,15 +49,16 @@ describe.skipIf(!prevUrl || !curUrl)("runner de homologación: precheck de DEV",
     });
     afterAll(async () => { await prev?.$disconnect(); await cur?.$disconnect(); });
 
-    it("fija 13 migraciones y la huella verificada en DEV", () => {
-        expect(EXPECTED_MIGRATIONS).toHaveLength(13);
+    it("fija 14 migraciones y la huella verificada en DEV", () => {
+        expect(EXPECTED_MIGRATIONS).toHaveLength(14);
         expect(EXPECTED_MIGRATIONS[10]).toEqual(["20261102120000_arca_production_controls", "1546bb960aee01bb4ad26871a3a22d4ba7f844b0215f64b293e5ef7f8ea2ca36"]);
         expect(EXPECTED_MIGRATIONS[11]).toEqual(["20261104120000_studio_users_permissions", "cc70bc0be6b90df80151da841aa58f64b3e275ce72c96373d977f40492c3a512"]);
         expect(EXPECTED_MIGRATIONS[12]).toEqual(["20261104230000_add_operator_role", "1bd8d2ce8a29934399a36871687e5946d7e776c8fb252d9dc2e4de96a438416f"]);
-        expect(FP).toBe("2c1519b91544df7c307396a70dd24a6483f7c9aaf5681db2d9e06313f816b9cb");
+        expect(EXPECTED_MIGRATIONS[13]).toEqual(["20261106120000_vat_credit_adjustments", "5093b64d9a968a736455a3e03c79ebae1c3e075c3da00c9ebd685e5ade156151"]);
+        expect(FP).toBe("5d50c0edf92d923b1042673b65b89163b601b9ec3b65a39f01e7b08c31739b77");
     });
 
-    it("rechaza el esquema anterior (12 migraciones), con cualquier huella", async () => {
+    it("rechaza el esquema anterior (13 migraciones), con cualquier huella", async () => {
         expect(await outcome(prev)).toBe("MIGRACIONES_DEV");
         const prevFp = (await prev.$queryRaw<Array<{ fp: string }>>`SELECT encode(sha256(convert_to(string_agg(id||':'||migration_name||':'||checksum,'|' ORDER BY migration_name),'UTF8')),'hex') AS fp FROM "_prisma_migrations"`)[0].fp;
         expect(await outcome(prev, prevFp)).toBe("MIGRACIONES_DEV");
