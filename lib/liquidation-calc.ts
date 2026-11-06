@@ -39,8 +39,11 @@ import {
  *      débito − crédito − saldo técnico a favor del período anterior.
  *    Positivo: a favor de ARCA. Negativo: a favor del contribuyente; se
  *    traslada y NO se compensa con retenciones ni percepciones.
- *  - Retenciones / percepciones sólo cancelan el saldo técnico a favor de
- *    ARCA; el excedente es saldo a favor de libre disponibilidad.
+ *  - Saldo de libre disponibilidad del período anterior (neto de usos, lo
+ *    carga el estudio), retenciones, percepciones y percepciones aduaneras
+ *    sólo cancelan el saldo técnico a favor de ARCA; el excedente es saldo a
+ *    favor de libre disponibilidad. Retención o percepción sale del tipo
+ *    (catálogo cerrado lib/tax-types) y la aduanera de `nature`.
  *  - Base IIBB       = Σ_ventas  signo × grossIncomeTaxBaseAmount
  *  El signo sale exclusivamente del código oficial del comprobante. Las filas
  *  heredadas sin representar se liquidan EXACTAMENTE como antes. Las
@@ -54,6 +57,8 @@ export type InvoiceForCalc = InvoiceRowLike;
 export interface TaxRecordForCalc {
   type: string;
   amount: Prisma.Decimal;
+  /** Detalle F.2051: CUSTOMS_PERCEPTION separa la percepción aduanera. */
+  nature?: string | null;
 }
 
 export type VatCreditAdjustmentRegimeLike = "LEY_27541_ANEXO_I" | "LEY_27467_ART_91";
@@ -68,7 +73,7 @@ export interface PeriodForCalc {
   taxRecords: TaxRecordForCalc[];
   client: { defaultIibbRate: Prisma.Decimal | null };
   /** Configuración de IVA del período; ausente = NONE, sin coeficiente, sin saldo anterior. */
-  vatSettings?: (PeriodVatSettingsLike & { previousTechnicalBalance?: Prisma.Decimal | null }) | null;
+  vatSettings?: (PeriodVatSettingsLike & { previousTechnicalBalance?: Prisma.Decimal | null; previousFreeBalance?: Prisma.Decimal | null }) | null;
   /** Ajustes al crédito fiscal por contribuciones a la Seguridad Social; ausente = ninguno. */
   vatCreditAdjustments?: VatCreditAdjustmentForCalc[] | null;
 }
@@ -106,13 +111,26 @@ export interface LiquidationResult {
     technicalBalanceArca: Prisma.Decimal;
     /** Saldo técnico a favor del contribuyente (≥ 0): se traslada al período siguiente. */
     technicalBalanceInFavor: Prisma.Decimal;
+    /** Retenciones + percepciones + percepciones aduaneras de IVA. */
     retentions: Prisma.Decimal;
+    /** Retenciones de IVA sufridas. */
+    withholdings: Prisma.Decimal;
+    /** Percepciones de IVA sufridas (excepto aduaneras). */
+    perceptions: Prisma.Decimal;
+    /** Percepciones aduaneras de IVA. */
+    customsPerceptions: Prisma.Decimal;
+    /** Saldo de libre disponibilidad del período anterior, neto de usos. */
+    previousFreeBalance: Prisma.Decimal;
     /**
-     * Saldo de impuesto: technicalBalanceArca − retenciones. Positivo: a pagar
-     * a ARCA. Negativo: saldo a favor de libre disponibilidad (sólo por
-     * retenciones / percepciones; nunca incluye el saldo técnico).
+     * Saldo de impuesto: technicalBalanceArca − libre disponibilidad anterior −
+     * retenciones y percepciones. Positivo: a pagar a ARCA. Negativo: saldo a
+     * favor de libre disponibilidad (nunca incluye el saldo técnico).
      */
     payable: Prisma.Decimal;
+    /** Saldo de impuesto a favor de ARCA (≥ 0). */
+    balanceToPay: Prisma.Decimal;
+    /** Saldo a favor de libre disponibilidad del contribuyente (≥ 0). */
+    freeBalanceInFavor: Prisma.Decimal;
   };
   iibb: {
     rate: Prisma.Decimal;
@@ -184,11 +202,17 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
   const zero = D("0");
   const technicalBalanceArca = ivaBalance.isPositive() && !ivaBalance.isZero() ? ivaBalance : zero;
   const technicalBalanceInFavor = ivaBalance.isNegative() ? ivaBalance.negated() : zero;
-  const ivaRetentions = sum(
-    period.taxRecords.filter((t) => isIvaRetention(t.type)).map((t) => t.amount),
-  );
-  // Las retenciones / percepciones sólo cancelan el saldo a favor de ARCA.
-  const ivaPayable = sub(technicalBalanceArca, ivaRetentions);
+  const ivaRecords = period.taxRecords.filter((t) => isIvaRetention(t.type));
+  const customsPerceptions = sum(ivaRecords.filter((t) => t.nature === "CUSTOMS_PERCEPTION").map((t) => t.amount));
+  const perceptions = sum(ivaRecords.filter((t) => t.nature !== "CUSTOMS_PERCEPTION" && t.type.includes("PERCEPCION")).map((t) => t.amount));
+  const ivaRetentions = sum(ivaRecords.map((t) => t.amount));
+  const withholdings = sub(sub(ivaRetentions, perceptions), customsPerceptions);
+  const previousFree = period.vatSettings?.previousFreeBalance ?? D("0");
+  if (previousFree.isNegative()) throw new Error("Liquidación: saldo de libre disponibilidad anterior negativo.");
+  // Libre disponibilidad anterior, retenciones y percepciones sólo cancelan el saldo a favor de ARCA.
+  const ivaPayable = sub(sub(technicalBalanceArca, previousFree), ivaRetentions);
+  const balanceToPay = ivaPayable.isPositive() && !ivaPayable.isZero() ? ivaPayable : zero;
+  const freeBalanceInFavor = ivaPayable.isNegative() ? ivaPayable.negated() : zero;
 
   const iibbRate = period.client.defaultIibbRate ?? D("3");
   const iibbBase = sum(sales.map((s) => s.grossIncomeTaxBase));
@@ -216,7 +240,13 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
       technicalBalanceArca,
       technicalBalanceInFavor,
       retentions: ivaRetentions,
+      withholdings,
+      perceptions,
+      customsPerceptions,
+      previousFreeBalance: previousFree,
       payable: ivaPayable,
+      balanceToPay,
+      freeBalanceInFavor,
     },
     iibb: {
       rate: iibbRate,

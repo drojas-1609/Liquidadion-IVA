@@ -3,6 +3,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const H = vi.hoisted(() => ({
   claims: { throw: null as unknown, value: null as unknown },
   db: { current: null as unknown },
+  snapshot: { calls: [] as unknown[][], packageReady: true },
+}));
+// La versión cerrada (carga del período, motor y paquete) se prueba contra
+// PostgreSQL en tests/integration/vat-export-close-pg.test.ts; acá sólo el
+// orden, los bloqueos y lo que la ruta guarda con su resultado.
+vi.mock("@/lib/vat-export/service", () => ({
+  closeSnapshot: async (...args: unknown[]) => {
+    H.snapshot.calls.push(args);
+    const ready = H.snapshot.packageReady;
+    return {
+      contentHash: "c".repeat(64),
+      summary: { engineVersion: "test", blockers: ready ? [] : [{ code: "SALE_ACTIVITY_MISSING", level: "EXPORT", count: 1, example: "x" }] },
+      packageZip: ready ? new Uint8Array([80, 75, 5, 6]) : null,
+      packageSha256: ready ? "d".repeat(64) : null,
+    };
+  },
 }));
 vi.mock("@/lib/auth/claims", () => ({
   getAuthClaims: async () => {
@@ -77,6 +93,8 @@ beforeEach(() => {
   });
   wireDb(db, world, rec);
   H.db.current = db;
+  H.snapshot.calls = [];
+  H.snapshot.packageReady = true;
   H.claims.throw = null;
   H.claims.value = claimsFor(SUB_OWNER_A);
 });
@@ -90,7 +108,9 @@ const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const req = (path: string, body: unknown) =>
   new Request(`http://localhost${path}`, { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body) });
 const close = (id = "p_a", body: unknown = { expectedUpdatedAt: T0 }) => CLOSE(req(`/api/periods/${id}/close`, body), ctx(id));
-const reopen = (id = "p_closed", body: unknown = { expectedUpdatedAt: T0 }) => REOPEN(req(`/api/periods/${id}/reopen`, body), ctx(id));
+const REASON = "Corrección de una factura de compra";
+const CLOSE_TX_OPTIONS = { maxWait: 5000, timeout: 40000 };
+const reopen = (id = "p_closed", body: unknown = { expectedUpdatedAt: T0, reason: REASON }) => REOPEN(req(`/api/periods/${id}/reopen`, body), ctx(id));
 const period = (id: string) => world.periods.find((p) => p.id === id)!;
 const order = (fn: { mock: { invocationCallOrder: number[] } }) => fn.mock.invocationCallOrder[0];
 
@@ -116,7 +136,7 @@ describe("POST /api/periods/[id]/close", () => {
     expect(p.closedById).toBe(sub);
     expect(p.updatedById).toBe(sub);
     expect(p.updatedAt.getTime()).toBeGreaterThan(new Date(T0).getTime());
-    expect(body).toEqual({ periodId: "p_a", status: "CLOSED", updatedAt: p.updatedAt.toISOString() });
+    expect(body).toEqual({ periodId: "p_a", status: "CLOSED", updatedAt: p.updatedAt.toISOString(), version: 1, packageReady: true });
     expect(rec.audits).toEqual([
       {
         organizationId: ORG_A,
@@ -124,9 +144,13 @@ describe("POST /api/periods/[id]/close", () => {
         action: "period.close",
         targetType: "Period",
         targetId: "p_a",
-        metadata: { clientId: "c_a", month: 5, year: 2026 },
+        metadata: { clientId: "c_a", month: 5, year: 2026, version: 1, packageReady: true },
       },
     ]);
+    // Versión cerrada guardada con el paquete, el actor y la misma fecha del cierre.
+    expect(world.liquidationVersions).toHaveLength(1);
+    expect(world.liquidationVersions![0]).toMatchObject({ periodId: "p_a", organizationId: ORG_A, version: 1, closedById: sub, packageSha256: "d".repeat(64), contentHash: "c".repeat(64), supersededAt: null });
+    expect(world.liquidationVersions![0].closedAt).toEqual(p.closedAt);
   });
 
   it("escribe SÓLO el estado, el cierre, el actor y la versión de la fila (organización acotada en el where)", async () => {
@@ -143,9 +167,11 @@ describe("POST /api/periods/[id]/close", () => {
     expect(rec.rawSteps).toEqual(periodLockSteps("0"));
     expect(rec.locks.map((l) => l.values)).toEqual([["p_a", ORG_A]]);
     expect(rec.locks[0].sql).toMatch(/"status"::text AS "status"/);
-    expect(rec.txOptions).toEqual([PERIOD_WRITE_TX_OPTIONS]);
+    expect(rec.txOptions).toEqual([CLOSE_TX_OPTIONS]);
     expect(periodLockOrder(db)).toBeGreaterThan(order(db.$transaction));
     expect(periodLockOrder(db)).toBeLessThan(order(db.period.findFirst));
+    expect(order(db.period.findFirst)).toBeLessThan(order(db.periodLiquidationVersion.create));
+    expect(order(db.periodLiquidationVersion.create)).toBeLessThan(order(db.period.update));
     expect(order(db.period.findFirst)).toBeLessThan(order(db.period.update));
     expect(order(db.period.update)).toBeLessThan(order(db.auditLog.create));
     expect(db.period.findFirst).toHaveBeenCalledWith({
@@ -154,12 +180,30 @@ describe("POST /api/periods/[id]/close", () => {
     });
   });
 
-  it("no exige que la liquidación sea calculable ni lee el contenido del período", async () => {
+  it("la versión se arma con el cliente de la transacción, con el período y la organización activa (bajo el bloqueo)", async () => {
     expect((await close()).status).toBe(200);
-    expect(db.invoice.findMany).not.toHaveBeenCalled();
-    expect(db.invoice.count).not.toHaveBeenCalled();
-    expect(db.taxRecord.count).not.toHaveBeenCalled();
-    expect(db.periodVatSettings.findUnique).not.toHaveBeenCalled();
+    expect(H.snapshot.calls).toHaveLength(1);
+    const [txArg, scope, version, now] = H.snapshot.calls[0];
+    expect(txArg).toBe(db);
+    expect(scope).toEqual({ organizationId: ORG_A, periodId: "p_a" });
+    expect(version).toBe(1);
+    expect(now).toEqual(period("p_a").closedAt);
+  });
+
+  it("no exige que la liquidación sea exportable: con bloqueos guarda la versión SIN paquete y cierra igual", async () => {
+    H.snapshot.packageReady = false;
+    const res = await close();
+    expect(res.status).toBe(200);
+    expect((await res.json()).packageReady).toBe(false);
+    expect(world.liquidationVersions![0]).toMatchObject({ packageZip: null, packageSha256: null });
+    expect(rec.audits[0].metadata).toMatchObject({ version: 1, packageReady: false });
+  });
+
+  it("cierre posterior a una reapertura -> versión siguiente", async () => {
+    world.liquidationVersions = [{ id: "lv_1", periodId: "p_a", organizationId: ORG_A, version: 1, supersededAt: new Date("2026-06-01T00:00:00.000Z") }];
+    const res = await close();
+    expect((await res.json()).version).toBe(2);
+    expect(world.liquidationVersions.map((v) => v.version)).toEqual([1, 2]);
   });
 
   it("VIEWER -> 403 FORBIDDEN antes de leer el cuerpo; sin transacción", async () => {
@@ -221,7 +265,7 @@ describe("POST /api/periods/[id]/close", () => {
   it("ya cerrado con el token vigente -> 200 sin escritura ni AuditLog (no-op), con el estado y la versión actuales", async () => {
     const res = await close("p_closed");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ periodId: "p_closed", status: "CLOSED", updatedAt: T0 });
+    expect(await res.json()).toEqual({ periodId: "p_closed", status: "CLOSED", updatedAt: T0, version: null, packageReady: false });
     expectNoTransition();
   });
 
@@ -301,11 +345,33 @@ describe("POST /api/periods/[id]/reopen", () => {
         action: "period.reopen",
         targetType: "Period",
         targetId: "p_closed",
-        metadata: { clientId: "c_a", month: 4, year: 2026 },
+        metadata: { clientId: "c_a", month: 4, year: 2026, version: null, reasonLength: REASON.length },
       },
     ]);
     expect(rec.txOptions).toEqual([PERIOD_WRITE_TX_OPTIONS]);
     expect(rec.rawSteps).toEqual(periodLockSteps("0"));
+  });
+
+  it("la versión cerrada vigente queda REEMPLAZADA con quién, cuándo y el motivo (se conserva)", async () => {
+    world.liquidationVersions = [{ id: "lv_1", periodId: "p_closed", organizationId: ORG_A, version: 3, supersededAt: null, packageSha256: "e".repeat(64) }];
+    expect((await reopen()).status).toBe(200);
+    expect(world.liquidationVersions[0]).toMatchObject({ version: 3, supersededById: SUB_OWNER_A, reopenReason: REASON, packageSha256: "e".repeat(64) });
+    expect(world.liquidationVersions[0].supersededAt).toBeInstanceOf(Date);
+    expect(rec.audits[0].metadata).toEqual({ clientId: "c_a", month: 4, year: 2026, version: 3, reasonLength: REASON.length });
+    expect(order(db.periodLiquidationVersion.update)).toBeLessThan(order(db.period.update));
+  });
+
+  it.each([
+    ["sin motivo", { expectedUpdatedAt: T0 }],
+    ["motivo corto", { expectedUpdatedAt: T0, reason: " ok  " }],
+    ["motivo no texto", { expectedUpdatedAt: T0, reason: 12345 }],
+    ["motivo con caracteres de control", { expectedUpdatedAt: T0, reason: "error\u0000grave" }],
+  ])("%s -> 422 reason; sin transacción y sigue cerrado", async (_l, body) => {
+    const res = await reopen("p_closed", body);
+    expect(res.status).toBe(422);
+    expect((await res.json()).field).toBe("reason");
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(period("p_closed").status).toBe("CLOSED");
   });
 
   it("escribe SÓLO estado, limpieza del cierre, actor y versión", async () => {
@@ -335,7 +401,7 @@ describe("POST /api/periods/[id]/reopen", () => {
   });
 
   it("token obsoleto -> 409 CONFLICT exacto, sin update ni AuditLog; sigue cerrado", async () => {
-    const res = await reopen("p_closed", { expectedUpdatedAt: "2026-01-01T00:00:00.001Z" });
+    const res = await reopen("p_closed", { expectedUpdatedAt: "2026-01-01T00:00:00.001Z", reason: REASON });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual(STALE_BODY);
     expectNoTransition();
@@ -376,7 +442,7 @@ describe("pantallas viejas y bloqueo compartido con las escrituras", () => {
 
     // Pantalla vieja (T0) que intenta cerrar otra vez o reabrir: ambas obsoletas.
     expect(await (await close("p_a", { expectedUpdatedAt: T0 })).json()).toEqual(STALE_BODY);
-    expect(await (await reopen("p_a", { expectedUpdatedAt: T0 })).json()).toEqual(STALE_BODY);
+    expect(await (await reopen("p_a", { expectedUpdatedAt: T0, reason: REASON })).json()).toEqual(STALE_BODY);
     expect(period("p_a").status).toBe("CLOSED");
     expect(period("p_a").updatedAt.toISOString()).toBe(v1);
     expect(rec.audits.map((a) => a.action)).toEqual(["period.close"]);
@@ -384,9 +450,9 @@ describe("pantallas viejas y bloqueo compartido con las escrituras", () => {
 
   it("cerrar -> reabrir -> la pantalla que vio el primer cierre ya no puede reabrir ni cerrar", async () => {
     const v1 = (await (await close()).json()).updatedAt;
-    const v2 = (await (await reopen("p_a", { expectedUpdatedAt: v1 })).json()).updatedAt;
+    const v2 = (await (await reopen("p_a", { expectedUpdatedAt: v1, reason: REASON })).json()).updatedAt;
     expect(v2 > v1).toBe(true);
-    expect((await reopen("p_a", { expectedUpdatedAt: v1 })).status).toBe(409);
+    expect((await reopen("p_a", { expectedUpdatedAt: v1, reason: REASON })).status).toBe(409);
     expect((await close("p_a", { expectedUpdatedAt: v1 })).status).toBe(409);
     expect(period("p_a").status).toBe("OPEN");
     expect(rec.audits.map((a) => a.action)).toEqual(["period.close", "period.reopen"]);
@@ -398,14 +464,14 @@ describe("pantallas viejas y bloqueo compartido con las escrituras", () => {
 
     await expectPeriodClosedResponse(await createTax());
 
-    expect((await reopen("p_a", { expectedUpdatedAt: v1 })).status).toBe(200);
+    expect((await reopen("p_a", { expectedUpdatedAt: v1, reason: REASON })).status).toBe(200);
     expect((await createTax()).status).toBe(201);
     expect(rec.audits.map((a) => a.action)).toEqual(["taxrecord.create", "period.close", "period.reopen", "taxrecord.create"]);
   });
 
   it("cerrar y escribir usan el MISMO FOR UPDATE de Period (mismo SQL y parámetros)", async () => {
     await close();
-    await reopen("p_a", { expectedUpdatedAt: period("p_a").updatedAt.toISOString() });
+    await reopen("p_a", { expectedUpdatedAt: period("p_a").updatedAt.toISOString(), reason: REASON });
     await createTax();
     const periodLocks = rec.locks.filter((l) => /FROM "Period"/.test(l.sql));
     expect(periodLocks).toHaveLength(3);

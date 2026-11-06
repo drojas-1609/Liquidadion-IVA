@@ -290,13 +290,110 @@ export const TAX_PERIOD_IMMUTABLE_MESSAGE =
   "No se puede cambiar el período de una retención/percepción: eliminala y cargala en el período correcto.";
 
 /** Campos de negocio de un TaxRecord, comunes al alta y a la edición. */
-export interface TaxFieldsData {
+export interface TaxFieldsData extends TaxDetailData {
   /** Medianoche UTC del día informado (`AAAA-MM-DD`). */
   date: Date;
   type: TaxRecordType;
   /** Estrictamente mayor que cero, hasta 2 decimales, dentro de NUMERIC(18,2). */
   amount: Prisma.Decimal;
   description: string | null;
+}
+
+/**
+ * Detalle del F.2051 (F2051-IVA-especificacion-de-importaciones.pdf, 12/11/2025).
+ * Todo opcional al cargar (null = sin dato; la exportación lo exige); el
+ * reemplazo es completo: una clave ausente se guarda como null.
+ */
+export interface TaxDetailData {
+  nature: "RETENTION" | "PERCEPTION" | "CUSTOMS_PERCEPTION" | null;
+  taxCode: number | null;
+  regimeCode: number | null;
+  agentCuit: string | null;
+  intermediaryCuit: string | null;
+  voucherTypeCode: number | null;
+  voucherNumber: string | null;
+  certificateNumber: string | null;
+  customsDocument: string | null;
+  invoiceId: string | null;
+}
+
+/** Tabla "tipo de comprobantes" del F.2051 (códigos admitidos en la importación). */
+export const F2051_VOUCHER_TYPE_CODES: readonly number[] = [
+  1, 2, 3, 4, 5, 6, 9, 10, 11, 17, 18, 19, 20, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
+];
+const F2051_NUMBER_RE = /^[0-9A-Za-z]+(-[0-9A-Za-z]+)?$/;
+const CUSTOMS_DOCUMENT_RE = /^\d{2}-\d{3}-[0-9A-Z]{4}-\d{6}-[A-HJ-NPR-Z]$/;
+const CUID_RE = /^[a-z0-9]{20,40}$/;
+
+function optionalCuitDigits(v: unknown, field: string): InputResult<string | null> {
+  if (v === undefined || v === null || v === "") return { ok: true, data: null };
+  const r = normalizeCuit(v);
+  if (!r.ok) return fail(field, r.error);
+  return { ok: true, data: r.value.replace(/-/g, "") };
+}
+function optionalPositiveInt(v: unknown, field: string, max: number): InputResult<number | null> {
+  if (v === undefined || v === null || v === "") return { ok: true, data: null };
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v.trim()) : NaN;
+  if (!Number.isInteger(n) || n <= 0 || n > max) return fail(field, "debe ser un número entero positivo");
+  return { ok: true, data: n };
+}
+function optionalPattern(v: unknown, field: string, re: RegExp, max: number, message: string): InputResult<string | null> {
+  if (v === undefined || v === null) return { ok: true, data: null };
+  if (typeof v !== "string") return fail(field, message);
+  const t = v.trim();
+  if (t === "") return { ok: true, data: null };
+  if (t.length > max || !re.test(t)) return fail(field, message);
+  return { ok: true, data: t };
+}
+
+function parseTaxDetail(b: Record<string, unknown>, type: TaxRecordType): InputResult<TaxDetailData> {
+  const nature = b.nature === undefined || b.nature === null || b.nature === "" ? null : b.nature;
+  if (nature !== null && nature !== "RETENTION" && nature !== "PERCEPTION" && nature !== "CUSTOMS_PERCEPTION") return fail("nature", "naturaleza inválida");
+  if (nature !== null && !type.includes("IVA")) return fail("nature", "el detalle del F.2051 es sólo para retenciones y percepciones de IVA");
+  if (nature === "RETENTION" && type !== "RETENCION IVA") return fail("nature", "una retención debe ser de tipo Retención IVA");
+  if ((nature === "PERCEPTION" || nature === "CUSTOMS_PERCEPTION") && type !== "PERCEPCION IVA") return fail("nature", "una percepción debe ser de tipo Percepción IVA");
+
+  const taxCode = optionalPositiveInt(b.taxCode, "taxCode", 999);
+  if (!taxCode.ok) return taxCode;
+  if (taxCode.data !== null && taxCode.data !== 767 && taxCode.data !== 216) return fail("taxCode", "impuesto: 767 o 216 según corresponda");
+  const regimeCode = optionalPositiveInt(b.regimeCode, "regimeCode", 99999);
+  if (!regimeCode.ok) return regimeCode;
+  const agentCuit = optionalCuitDigits(b.agentCuit, "agentCuit");
+  if (!agentCuit.ok) return agentCuit;
+  const intermediaryCuit = optionalCuitDigits(b.intermediaryCuit, "intermediaryCuit");
+  if (!intermediaryCuit.ok) return intermediaryCuit;
+  const voucherTypeCode = optionalPositiveInt(b.voucherTypeCode, "voucherTypeCode", 999);
+  if (!voucherTypeCode.ok) return voucherTypeCode;
+  if (voucherTypeCode.data !== null && !F2051_VOUCHER_TYPE_CODES.includes(voucherTypeCode.data)) return fail("voucherTypeCode", "tipo de comprobante fuera de la tabla del F.2051");
+  const numberMsg = "número con dígitos o letras y a lo sumo un guion intermedio";
+  const voucherNumber = optionalPattern(b.voucherNumber, "voucherNumber", F2051_NUMBER_RE, 20, numberMsg);
+  if (!voucherNumber.ok) return voucherNumber;
+  const certificateNumber = optionalPattern(b.certificateNumber, "certificateNumber", F2051_NUMBER_RE, 40, numberMsg);
+  if (!certificateNumber.ok) return certificateNumber;
+  const customsDocument = optionalPattern(b.customsDocument, "customsDocument", CUSTOMS_DOCUMENT_RE, 24, "liquidación o despacho con formato 99-999-XXXX-999999-X (la última letra no puede ser I, O ni Q)");
+  if (!customsDocument.ok) return customsDocument;
+  let invoiceId: string | null = null;
+  if (b.invoiceId !== undefined && b.invoiceId !== null && b.invoiceId !== "") {
+    if (typeof b.invoiceId !== "string" || !CUID_RE.test(b.invoiceId)) return fail("invoiceId", "comprobante inválido");
+    invoiceId = b.invoiceId;
+  }
+
+  // Coherencia por naturaleza (sin completar nada por defecto).
+  if (nature !== "RETENTION" && (taxCode.data !== null || certificateNumber.data !== null)) return fail(taxCode.data !== null ? "taxCode" : "certificateNumber", "el impuesto y el certificado son sólo de retenciones");
+  if (nature !== "CUSTOMS_PERCEPTION" && customsDocument.data !== null) return fail("customsDocument", "la liquidación o despacho es sólo de percepciones aduaneras");
+  if (nature === "CUSTOMS_PERCEPTION" && (agentCuit.data !== null || voucherTypeCode.data !== null || voucherNumber.data !== null)) return fail("agentCuit", "la percepción aduanera no lleva agente ni comprobante");
+  if (nature !== "PERCEPTION" && invoiceId !== null) return fail("invoiceId", "sólo una percepción se toma de un comprobante de compra");
+  if (nature === null && (regimeCode.data !== null || agentCuit.data !== null || intermediaryCuit.data !== null || voucherTypeCode.data !== null || voucherNumber.data !== null)) {
+    return fail("nature", "indicá si es retención, percepción o percepción aduanera");
+  }
+  return {
+    ok: true,
+    data: {
+      nature, taxCode: taxCode.data, regimeCode: regimeCode.data, agentCuit: agentCuit.data, intermediaryCuit: intermediaryCuit.data,
+      voucherTypeCode: voucherTypeCode.data, voucherNumber: voucherNumber.data, certificateNumber: certificateNumber.data,
+      customsDocument: customsDocument.data, invoiceId,
+    },
+  };
 }
 
 export interface TaxCreateData extends TaxFieldsData {
@@ -334,7 +431,9 @@ function parseTaxFields(b: Record<string, unknown>): InputResult<TaxFieldsData> 
     description = trimmed === "" ? null : trimmed;
   } else return fail("description", "descripción inválida: debe ser texto");
 
-  return { ok: true, data: { date, type: b.type, amount: amount.value, description } };
+  const detail = parseTaxDetail(b, b.type);
+  if (!detail.ok) return detail;
+  return { ok: true, data: { date, type: b.type, amount: amount.value, description, ...detail.data } };
 }
 
 /**
@@ -576,6 +675,31 @@ export function buildPeriodTransitionInput(body: unknown): InputResult<PeriodTra
   const expected = parseExpectedUpdatedAt((body as Record<string, unknown>).expectedUpdatedAt);
   if (!expected.ok) return fail("expectedUpdatedAt", PERIOD_EXPECTED_UPDATED_AT_ERROR);
   return { ok: true, data: { expectedUpdatedAt: expected.data } };
+}
+
+export interface PeriodReopenData extends PeriodTransitionData {
+  reason: string;
+}
+
+export const REOPEN_REASON_MIN = 5;
+export const REOPEN_REASON_MAX = 500;
+
+/**
+ * Reapertura: `{ expectedUpdatedAt, reason }`. El motivo es obligatorio (queda
+ * en la versión reemplazada; en el AuditLog sólo su longitud): de 5 a 500
+ * caracteres, sin caracteres de control. Los espacios se normalizan.
+ */
+export function buildPeriodReopenInput(body: unknown): InputResult<PeriodReopenData> {
+  const base = buildPeriodTransitionInput(body);
+  if (!base.ok) return base;
+  const raw = (body as Record<string, unknown>).reason;
+  if (typeof raw !== "string") return fail("reason", "indicá el motivo de la reapertura");
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(raw)) return fail("reason", "el motivo tiene caracteres no admitidos");
+  const reason = raw.replace(/\s+/g, " ").trim();
+  if (reason.length < REOPEN_REASON_MIN) return fail("reason", `el motivo debe tener al menos ${REOPEN_REASON_MIN} caracteres`);
+  if (reason.length > REOPEN_REASON_MAX) return fail("reason", `el motivo admite hasta ${REOPEN_REASON_MAX} caracteres`);
+  return { ok: true, data: { ...base.data, reason } };
 }
 
 /**

@@ -310,6 +310,8 @@ const WRITERS: Record<string, readonly string[]> = {
   "app/api/periods/[id]/reopen/route.ts": ["POST"],
   // Importación del Libro IVA Digital: comprobantes y líneas en lote bajo lockPeriodForWrite.
   "app/api/periods/[id]/libro-iva-import/confirm/route.ts": ["POST"],
+  // Clasificaciones para la presentación, por lote, bajo lockPeriodForWrite.
+  "app/api/periods/[id]/invoice-classification/route.ts": ["PATCH"],
 };
 
 /**
@@ -334,9 +336,9 @@ const codes = (file: string, src: string, methods?: readonly string[], transitio
 const details = (file: string, src: string, methods?: readonly string[]) => analyzeSource(file, src, methods).map((v) => v.detail).join(" | ");
 
 describe("cobertura estructural — producción", () => {
-  it("el inventario es exacto: 12 handlers en 10 archivos (10 writers del contenido + 2 transiciones de estado)", () => {
-    expect(Object.keys(WRITERS)).toHaveLength(10);
-    expect(Object.values(WRITERS).flat()).toHaveLength(12);
+  it("el inventario es exacto: 13 handlers en 11 archivos (11 writers del contenido + 2 transiciones de estado)", () => {
+    expect(Object.keys(WRITERS)).toHaveLength(11);
+    expect(Object.values(WRITERS).flat()).toHaveLength(13);
     expect(Object.values(TRANSITIONS).flat()).toHaveLength(2);
     for (const [f, ms] of Object.entries(TRANSITIONS)) for (const m of ms) expect(WRITERS[f], f).toContain(m);
     expect(productionFiles.length).toBeGreaterThan(20);
@@ -408,6 +410,17 @@ describe("cobertura estructural — fuentes sintéticas: transición de estado",
     ["sin escrituras", () => mutate(mutate(TRANSITION_OK, PERIOD_UPDATE_LINE, "const updated = period;"), "await recordAudit(tx, {});\n", ""), ["NO_WRITES"]],
   ] as const)("%s -> exactamente las violaciones previstas", (_l, src, expected) => {
     expect(transitionCodes(src())).toEqual([...expected]);
+  });
+
+  it("versiones cerradas: se escriben en la transición; fuera de ella -> LIQUIDATION_VERSION_WRITE_OUTSIDE_TRANSITION", () => {
+    const withVersion = mutate(TRANSITION_OK, PERIOD_UPDATE_LINE, "await tx.periodLiquidationVersion.create({ data: {} });\n        " + PERIOD_UPDATE_LINE);
+    expect(transitionCodes(withVersion)).toEqual([]);
+    // Inventariado como writer del contenido (no transición): además de las violaciones de siempre.
+    expect(codes("app/api/synthetic/route.ts", withVersion, ["POST"])).toContain("LIQUIDATION_VERSION_WRITE_OUTSIDE_TRANSITION");
+    expect(codes("lib/synthetic.ts", "export async function f(tx) { await tx.periodLiquidationVersion.update({ where: {}, data: {} }); }")).toEqual(["LIQUIDATION_VERSION_WRITE_OUTSIDE_TRANSITION"]);
+    expect(codes("lib/synthetic.ts", "export async function f(db) { await db[\"periodLiquidationVersion\"].deleteMany({}); }")).toEqual(["DYNAMIC_ACCESS", "LIQUIDATION_VERSION_WRITE_OUTSIDE_TRANSITION"]);
+    // Las lecturas no son escrituras.
+    expect(codes("lib/synthetic.ts", "export async function f(db) { return db.periodLiquidationVersion.findFirst({}); }")).toEqual([]);
   });
 });
 
@@ -556,7 +569,7 @@ describe("cobertura estructural — fuentes sintéticas: opciones de la transacc
     expect(codes(IMPORT_FILE, withTxOptions("}, { maxWait: 2000, timeout: 40000 });"), ["POST"])).toEqual(["TX_MAX_WAIT_INVALID"]);
     // En cualquier otro handler, 40000 sigue siendo inválido.
     expect(handler(at("40000"))).toEqual(["TX_TIMEOUT_INVALID"]);
-    expect(Object.keys(HANDLER_TX_TIMEOUT_OVERRIDES)).toEqual([IMPORT_FILE]);
+    expect(Object.keys(HANDLER_TX_TIMEOUT_OVERRIDES)).toEqual([IMPORT_FILE, "app/api/periods/[id]/close/route.ts"]);
   });
 
   it("ambos valores incorrectos -> una violación por opción, sin otras", () => {

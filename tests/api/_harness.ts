@@ -215,6 +215,8 @@ export interface World {
   vatSettings?: any[];
   /** Filas de PeriodVatCreditAdjustment (periodId, organizationId, regime, importes, referencia). */
   vatCreditAdjustments?: any[];
+  /** Filas de PeriodLiquidationVersion (periodId, organizationId, version, supersededAt, …). */
+  liquidationVersions?: any[];
   /** Ficha IIBB: ClientJurisdiction, ClientActivity y ClientActivityRate. */
   clientJurisdictions?: any[];
   clientActivities?: any[];
@@ -255,6 +257,7 @@ export interface DbMock {
   auditLog: { create: Fn };
   periodVatSettings: { findUnique: Fn; create: Fn; update: Fn };
   periodVatCreditAdjustment: { findMany: Fn; deleteMany: Fn; upsert: Fn };
+  periodLiquidationVersion: { findFirst: Fn; create: Fn; update: Fn; count: Fn };
   clientJurisdiction: { findMany: Fn; deleteMany: Fn; createMany: Fn };
   clientActivity: { findMany: Fn; deleteMany: Fn; create: Fn };
   clientActivityRate: { findMany: Fn; deleteMany: Fn; createMany: Fn };
@@ -283,6 +286,7 @@ export function freshDbMock(): DbMock {
     auditLog: { create: vi.fn() },
     periodVatSettings: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     periodVatCreditAdjustment: { findMany: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn() },
+    periodLiquidationVersion: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
     clientJurisdiction: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     clientActivity: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
     clientActivityRate: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
@@ -742,6 +746,29 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   // periodId + organizationId (+ regime notIn), como en la ruta.
   const adjMatches = (w: any) => (a: any) =>
     a.periodId === w.periodId && a.organizationId === w.organizationId && (!w.regime?.notIn || !w.regime.notIn.includes(a.regime));
+  // PeriodLiquidationVersion: igualdad simple por clave (supersededAt: null = vigente) y orden por versión.
+  const versionsWhere = (where: any) =>
+    (world.liquidationVersions ?? []).filter((v) => Object.entries(where ?? {}).every(([k, x]) => (x === null ? v[k] === null || v[k] === undefined : v[k] === x)));
+  db.periodLiquidationVersion.findFirst.mockImplementation(async ({ where, select, orderBy }: AnyArgs) => {
+    const rows = versionsWhere(where).slice().sort((a, b) => (orderBy?.version === "desc" ? b.version - a.version : a.version - b.version));
+    const hit = rows[0];
+    return hit ? (select ? Object.fromEntries(Object.keys(select).map((k) => [k, hit[k] ?? null])) : { ...hit }) : null;
+  });
+  db.periodLiquidationVersion.count.mockImplementation(async ({ where }: AnyArgs) => versionsWhere(where).length);
+  db.periodLiquidationVersion.create.mockImplementation(async ({ data }: AnyArgs) => {
+    const row = { id: mkId("lv"), supersededAt: null, supersededById: null, reopenReason: null, ...data };
+    world.liquidationVersions = [...(world.liquidationVersions ?? []), row];
+    rec.created.liquidationVersion = data;
+    return { id: row.id };
+  });
+  db.periodLiquidationVersion.update.mockImplementation(async ({ where, data }: AnyArgs) => {
+    const row = (world.liquidationVersions ?? []).find((v) => v.id === where.id);
+    if (!row) throw new Prisma.PrismaClientKnownRequestError("Record not found", { code: "P2025", clientVersion: "test" });
+    Object.assign(row, data);
+    rec.created.liquidationVersionUpdate = { where, data };
+    return { id: row.id };
+  });
+
   db.periodVatCreditAdjustment.findMany.mockImplementation(async ({ where, select }: AnyArgs) => {
     const rows = (world.vatCreditAdjustments ?? []).filter(adjMatches(where)).sort((x: any, y: any) => x.regime.localeCompare(y.regime));
     return select ? rows.map((row: any) => Object.fromEntries(Object.keys(select).map((k) => [k, row[k]]))) : rows;
@@ -943,6 +970,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     const invoicesBefore = world.invoices?.slice();
     const invoiceVatLinesBefore = world.invoiceVatLines?.slice();
     const taxRecordsBefore = world.taxRecords?.map((t) => ({ ...t }));
+    const liquidationVersionsBefore = world.liquidationVersions?.map((v) => ({ ...v }));
     const clientJurisdictionsBefore = world.clientJurisdictions!.slice();
     const clientActivitiesBefore = world.clientActivities!.slice();
     const clientActivityRatesBefore = world.clientActivityRates!.slice();
@@ -958,6 +986,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       world.invoices = invoicesBefore;
       world.invoiceVatLines = invoiceVatLinesBefore;
       world.taxRecords = taxRecordsBefore;
+      world.liquidationVersions = liquidationVersionsBefore;
       world.clientJurisdictions!.splice(0, world.clientJurisdictions!.length, ...clientJurisdictionsBefore);
       world.clientActivities!.splice(0, world.clientActivities!.length, ...clientActivitiesBefore);
       world.clientActivityRates!.splice(0, world.clientActivityRates!.length, ...clientActivityRatesBefore);

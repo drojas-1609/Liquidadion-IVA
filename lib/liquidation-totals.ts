@@ -55,9 +55,9 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
     const period = await db.period.findFirst({
         where: { id: scope.periodId, organizationId: scope.organizationId },
         select: {
-            taxRecords: { select: { type: true, amount: true } },
+            taxRecords: { select: { type: true, amount: true, nature: true } },
             client: { select: { defaultIibbRate: true } },
-            vatSettings: { select: { creditProrationMode: true, globalCoefficient: true, previousTechnicalBalance: true } },
+            vatSettings: { select: { creditProrationMode: true, globalCoefficient: true, previousTechnicalBalance: true, previousFreeBalance: true } },
             vatCreditAdjustments: { select: { regime: true, computableAmount: true }, orderBy: { regime: "asc" } },
         },
     });

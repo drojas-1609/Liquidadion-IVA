@@ -268,6 +268,9 @@ export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
         const row = editableRowOf(locked, lockedLines.map((l) => l.vatRateCode));
         const deletability = invoiceDeletability(row);
         if (!deletability.ok) throw notEditable(deletability.reason);
+        // Percepción registrada desde este comprobante (FK RESTRICT): se quita primero.
+        const linked = await tx.taxRecord.count({ where: { invoiceId: id, organizationId } });
+        if (linked > 0) throw new ConflictError("El comprobante tiene una percepción registrada a partir de él: eliminá o desvinculá esa percepción antes de eliminarlo.");
 
         const lines = await tx.invoiceVatLine.deleteMany({ where: { invoiceId: id, organizationId } });
         if (lines.count !== row.vatRateCodes.length) {

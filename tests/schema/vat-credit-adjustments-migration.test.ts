@@ -22,10 +22,12 @@ const code = sql
   .trim();
 
 describe(`migración ${MIGRATION} — revisión estática`, () => {
-  it("es la última y sigue a la del rol Operador sin cambiarla", () => {
+  it("sigue a la del rol Operador sin cambiarla; sólo la sigue la de exportación y cierre (y ella misma no cambia: aplicada en DEV)", () => {
     const dirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-    expect(dirs.at(-1)).toBe(MIGRATION);
-    expect(dirs.at(-2)).toBe(PREVIOUS);
+    expect(dirs.at(-1)).toBe("20261107120000_vat_export_close_versions");
+    expect(dirs.at(-2)).toBe(MIGRATION);
+    expect(dirs.at(-3)).toBe(PREVIOUS);
+    expect(createHash("sha256").update(readFileSync(migrationsDir + MIGRATION + "/migration.sql")).digest("hex")).toBe("5093b64d9a968a736455a3e03c79ebae1c3e075c3da00c9ebd685e5ade156151");
     expect(createHash("sha256").update(readFileSync(migrationsDir + PREVIOUS + "/migration.sql")).digest("hex")).toBe(PREVIOUS_SHA256);
   });
 

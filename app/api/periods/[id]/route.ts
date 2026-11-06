@@ -53,6 +53,9 @@ export const DELETE = withApiAuthz(async (_request: Request, ctx: Ctx) => {
                 tx.taxRecord.count({ where: { periodId: id, organizationId } }),
             ]);
             if (invoices > 0 || taxRecords > 0) throw new ConflictError(PERIOD_HAS_MOVEMENTS_MESSAGE);
+            // Historial de liquidaciones cerradas (FK RESTRICT): no se borra.
+            const versions = await tx.periodLiquidationVersion.count({ where: { periodId: id, organizationId } });
+            if (versions > 0) throw new ConflictError("El período tiene liquidaciones cerradas registradas: no se puede eliminar.");
 
             await tx.period.delete({ where: { id_organizationId: { id, organizationId } } });
             await recordAudit(tx, {

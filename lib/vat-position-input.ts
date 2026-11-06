@@ -7,6 +7,9 @@ import { parseMoney } from "./validation/decimal";
  *
  *  - previousTechnicalBalance: "Saldo técnico a favor del contribuyente del
  *    período anterior" (>= 0), con su referencia opcional.
+ *  - previousFreeBalance: "Saldo a favor de libre disponibilidad del período
+ *    anterior", neto de usos (>= 0), con su referencia. OPCIONALES: si no
+ *    vienen, se conservan los valores guardados (pantallas anteriores).
  *  - adjustments: un ítem por régimen (a lo sumo uno de cada uno):
  *      · LEY_27541_ANEXO_I: Crédito Fiscal por Contribuciones a la Seguridad
  *        Social - Anexo I Ley 27.541.
@@ -40,6 +43,8 @@ export interface VatCreditAdjustmentData {
 export interface VatPositionData {
   previousTechnicalBalance: Prisma.Decimal;
   previousTechnicalBalanceReference: string | null;
+  /** undefined = no informado: se conserva el valor guardado. */
+  previousFreeBalance?: { amount: Prisma.Decimal; reference: string | null };
   adjustments: VatCreditAdjustmentData[];
 }
 
@@ -67,7 +72,7 @@ export function buildVatPositionInput(body: unknown): VatPositionInput {
   if (typeof body !== "object" || body === null || Array.isArray(body)) return bad("body", "cuerpo inválido");
   const b = body as Record<string, unknown>;
   for (const k of Object.keys(b)) {
-    if (!["previousTechnicalBalance", "previousTechnicalBalanceReference", "adjustments"].includes(k)) {
+    if (!["previousTechnicalBalance", "previousTechnicalBalanceReference", "previousFreeBalance", "previousFreeBalanceReference", "adjustments"].includes(k)) {
       return bad(k, "campo no admitido");
     }
   }
@@ -76,6 +81,17 @@ export function buildVatPositionInput(body: unknown): VatPositionInput {
   if (!prev.ok) return bad("previousTechnicalBalance", prev.error);
   const prevRef = parseReference(b.previousTechnicalBalanceReference);
   if (!prevRef.ok) return bad("previousTechnicalBalanceReference", prevRef.error);
+
+  let previousFreeBalance: VatPositionData["previousFreeBalance"];
+  if (b.previousFreeBalance !== undefined) {
+    const free = parseMoney(b.previousFreeBalance, { allowNegative: false });
+    if (!free.ok) return bad("previousFreeBalance", free.error);
+    const freeRef = parseReference(b.previousFreeBalanceReference);
+    if (!freeRef.ok) return bad("previousFreeBalanceReference", freeRef.error);
+    previousFreeBalance = { amount: free.value, reference: freeRef.value };
+  } else if (b.previousFreeBalanceReference !== undefined) {
+    return bad("previousFreeBalance", "indicá el saldo de libre disponibilidad junto con su referencia");
+  }
 
   if (!Array.isArray(b.adjustments)) return bad("adjustments", "adjustments debe ser una lista");
   if (b.adjustments.length > VAT_CREDIT_ADJUSTMENT_REGIMES.length) return bad("adjustments", "demasiados ajustes");
@@ -112,6 +128,6 @@ export function buildVatPositionInput(body: unknown): VatPositionInput {
   adjustments.sort((x, y) => x.regime.localeCompare(y.regime));
   return {
     ok: true,
-    data: { previousTechnicalBalance: prev.value, previousTechnicalBalanceReference: prevRef.value, adjustments },
+    data: { previousTechnicalBalance: prev.value, previousTechnicalBalanceReference: prevRef.value, ...(previousFreeBalance ? { previousFreeBalance } : {}), adjustments },
   };
 }

@@ -15,6 +15,7 @@ import {
 } from "@/lib/auth/authz";
 import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_DELETE, ROLES_UPDATE } from "@/lib/auth/roles";
+import { assertPerceptionLink, sameTaxDetail, TAX_DETAIL_SELECT } from "@/lib/tax-record-link";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/auth/errors";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -114,7 +115,11 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
             throw new ValidationError(`la fecha debe pertenecer al período ${formatPeriodLabel(period)}`, "date");
         }
 
+        const currentDetail = await tx.taxRecord.findFirst({ where: { id, organizationId }, select: TAX_DETAIL_SELECT });
+        if (!currentDetail) throw new NotFoundError();
+        await assertPerceptionLink(tx, { periodId: authorized.periodId, organizationId }, input, input.amount);
         const changed = changedFieldsOf(locked, input);
+        if (!sameTaxDetail(currentDetail, input)) changed.push("f2051Detail");
         // Sin cambios: 200 con la fila bloqueada, sin escritura ni AuditLog.
         if (changed.length === 0) return locked;
 
@@ -125,6 +130,16 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 type: input.type,
                 amount: input.amount,
                 description: input.description,
+                nature: input.nature,
+                taxCode: input.taxCode,
+                regimeCode: input.regimeCode,
+                agentCuit: input.agentCuit,
+                intermediaryCuit: input.intermediaryCuit,
+                voucherTypeCode: input.voucherTypeCode,
+                voucherNumber: input.voucherNumber,
+                certificateNumber: input.certificateNumber,
+                customsDocument: input.customsDocument,
+                invoiceId: input.invoiceId,
                 updatedById: profileId,
             },
         });
