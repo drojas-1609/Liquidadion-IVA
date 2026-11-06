@@ -3,7 +3,8 @@
 Rama `feature/iva-exportacion-cierre` (sale de `feature/liquidacion-ajustes-credito-fiscal`, PR #32, que a su vez incluye #33).
 Migración `20261107120000_vat_export_close_versions`, aditiva, aplicada en DEV el 06/11/2026 ([DEV-MIGRACION.md](DEV-MIGRACION.md)).
 
-**Orden a main:** #33 (Tique Factura A 081) → #32 (ajustes al crédito fiscal) → esta rama.
+**Orden a main:** #33 (Tique Factura A 081) → #32 (ajustes al crédito fiscal) → esta rama (PR #34).
+El PR #34 tiene base `main` para generar su Deploy Preview, así que incluye también los commits de #33 (`1989e6e`) y de #32 (`3ac69dc`, `7653d10`, `2891b98`). No se mergea antes que ellos. Diff sólo de esta etapa: `git diff 2891b98...feature/iva-exportacion-cierre`.
 
 La aplicación **genera** los archivos, la conciliación y el resumen. **No** sube archivos a ARCA ni presenta declaraciones.
 
