@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer, useRef, useTransition } from "react";
+import { useReducer, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitPeriodTransition, PERIOD_TRANSITION_UNCERTAIN_ERROR, type PeriodTransition } from "@/lib/period-mutations";
 import {
@@ -47,6 +47,7 @@ export function PeriodStatusActions({
     const [state, dispatch] = useReducer(periodTransitionReducer, PERIOD_TRANSITION_INITIAL);
     const [refreshing, startRefresh] = useTransition();
     const inFlight = useRef(false);
+    const [reason, setReason] = useState("");
 
     const view: PeriodVersion = { status: closed ? "CLOSED" : "OPEN", updatedAt };
     const display = periodTransitionDisplay(state, view);
@@ -63,7 +64,7 @@ export function PeriodStatusActions({
         inFlight.current = true;
         dispatch({ type: "start", view });
         try {
-            const result = await submitPeriodTransition(transition, periodId, updatedAt);
+            const result = await submitPeriodTransition(transition, periodId, updatedAt, fetch, transition === "reopen" ? reason : undefined);
             if (result.ok) {
                 dispatch({ type: "succeed", confirmed: result.confirmed, view });
             } else if (result.uncertain) {
@@ -113,9 +114,14 @@ export function PeriodStatusActions({
             {confirming && (
                 <div role="alertdialog" aria-live="polite" className="card" style={{ maxWidth: "420px" }}>
                     {closed ? (
-                        <p style={{ marginBottom: "var(--spacing-sm)" }}>
-                            ¿Reabrir el período <strong>{periodLabel}</strong>? Se podrán volver a cargar, editar y eliminar sus datos.
-                        </p>
+                        <>
+                            <p style={{ marginBottom: "var(--spacing-sm)" }}>
+                                ¿Reabrir el período <strong>{periodLabel}</strong>? Se podrán volver a cargar, editar y eliminar sus datos.
+                                La liquidación cerrada vigente queda reemplazada (se conserva en el historial) y un nuevo cierre genera otra versión.
+                            </p>
+                            <label htmlFor="reopen-reason" style={{ display: "block", marginBottom: "var(--spacing-xs)" }}>Motivo de la reapertura (obligatorio)</label>
+                            <textarea id="reopen-reason" value={reason} maxLength={500} rows={3} disabled={loading} onChange={(e) => setReason(e.target.value)} style={{ width: "100%", marginBottom: "var(--spacing-sm)" }} />
+                        </>
                     ) : (
                         <>
                             <p style={{ marginBottom: "var(--spacing-sm)" }}>
@@ -128,7 +134,7 @@ export function PeriodStatusActions({
                         <button type="button" className="btn btn-secondary" disabled={loading} onClick={() => dispatch({ type: "cancel", view })}>
                             Cancelar
                         </button>
-                        <button type="button" className="btn btn-primary" disabled={loading} aria-busy={loading} onClick={handleConfirm}>
+                        <button type="button" className="btn btn-primary" disabled={loading || (closed && reason.trim().length < 5)} aria-busy={loading} onClick={handleConfirm}>
                             {loading ? (closed ? "Reabriendo período..." : "Cerrando período...") : closed ? "Sí, reabrir" : "Sí, cerrar"}
                         </button>
                     </div>

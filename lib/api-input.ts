@@ -694,7 +694,6 @@ export function buildPeriodReopenInput(body: unknown): InputResult<PeriodReopenD
   if (!base.ok) return base;
   const raw = (body as Record<string, unknown>).reason;
   if (typeof raw !== "string") return fail("reason", "indicá el motivo de la reapertura");
-  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(raw)) return fail("reason", "el motivo tiene caracteres no admitidos");
   const reason = raw.replace(/\s+/g, " ").trim();
   if (reason.length < REOPEN_REASON_MIN) return fail("reason", `el motivo debe tener al menos ${REOPEN_REASON_MIN} caracteres`);

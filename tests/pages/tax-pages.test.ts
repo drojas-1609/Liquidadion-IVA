@@ -213,7 +213,8 @@ describe("página de alta (servidor + formulario compartido)", () => {
       periodLabel: "05/2026",
       dateMin: "2026-05-01",
       dateMax: "2026-05-31",
-      initial: { date: "", type: "RETENCION IVA", amount: "", description: "" },
+      initial: { date: "", type: "RETENCION IVA", amount: "", description: "", detail: { nature: "", taxCode: "", regimeCode: "", agentCuit: "", intermediaryCuit: "", voucherTypeCode: "", voucherNumber: "", certificateNumber: "", customsDocument: "", invoiceId: "" } },
+      perceptionSources: [],
     });
   });
 
@@ -253,7 +254,9 @@ describe("página de alta (servidor + formulario compartido)", () => {
     expectAttrs(inputTag(markup, "description"), ['type="text"', 'placeholder="Ej. Banco Galicia"', 'maxLength="200"', 'value=""']);
     expect(inputTag(markup, "description")).not.toContain("required");
     const options = [...markup.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => [m[1], m[2]]);
-    expect(options).toEqual([
+    // Selector de tipo (catálogo) y, para IVA, el de naturaleza del detalle del F.2051.
+    expect(options.slice(6)).toEqual([["", "Sin detalle (pendiente)"], ["RETENTION", "Retención"]]);
+    expect(options.slice(0, 6)).toEqual([
       ["RETENCION IVA", "Retención IVA"],
       ["PERCEPCION IVA", "Percepción IVA"],
       ["RETENCION IIBB", "Retención IIBB"],
@@ -286,8 +289,9 @@ describe("página de edición", () => {
       periodLabel: "05/2026",
       dateMin: "2026-05-01",
       dateMax: "2026-05-31",
-      initial: { date: "2026-05-10", type: "RETENCION IVA", amount: "2500.00", description: "Banco Galicia" },
+      initial: { date: "2026-05-10", type: "RETENCION IVA", amount: "2500.00", description: "Banco Galicia", detail: { nature: "", taxCode: "", regimeCode: "", agentCuit: "", intermediaryCuit: "", voucherTypeCode: "", voucherNumber: "", certificateNumber: "", customsDocument: "", invoiceId: "" } },
       edit: { taxId: "t_a", updatedAt: T0, unknownType: null },
+      perceptionSources: [],
     });
     expect(JSON.stringify(el.props)).not.toMatch(/organizationId|createdById|updatedById|ORG_A|org_a/);
   });
@@ -316,7 +320,7 @@ describe("página de edición", () => {
 
   it("tipo histórico desconocido: selector vacío, opción deshabilitada marcada y guardado bloqueado", async () => {
     const el: any = await call("t_legacy");
-    expect(el.props.initial).toEqual({ date: "2026-05-31", type: "", amount: "2500.00", description: "" });
+    expect(el.props.initial).toEqual({ date: "2026-05-31", type: "", amount: "2500.00", description: "", detail: { nature: "", taxCode: "", regimeCode: "", agentCuit: "", intermediaryCuit: "", voucherTypeCode: "", voucherNumber: "", certificateNumber: "", customsDocument: "", invoiceId: "" } });
     expect(el.props.edit).toEqual({ taxId: "t_legacy", updatedAt: T0, unknownType: "RETENCION GANANCIAS" });
     const markup = html(el);
     expect(markup).toMatch(/<option value="" disabled="" selected="">Tipo no reconocido: RETENCION GANANCIAS<\/option>/);
