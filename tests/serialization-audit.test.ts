@@ -45,6 +45,8 @@ const EXPECTED = {
   // Clasificación por lote: responde sólo el conteo. Paquete: binario ZIP (sin JSON con importes).
   "app/api/periods/[id]/invoice-classification/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/vat-package/route.ts": { models: [], serializer: null },
+  // Vista previa / confirmación de percepciones: importes como string con toFixed(2) en la ruta.
+  "app/api/periods/[id]/perceptions-import/route.ts": { models: [], serializer: null },
   // Cierre / reapertura: responden { periodId, status, updatedAt } (sin Decimal ni la fila cruda).
   "app/api/periods/[id]/close/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/reopen/route.ts": { models: [], serializer: null },

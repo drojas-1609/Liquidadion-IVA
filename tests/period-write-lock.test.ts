@@ -312,6 +312,8 @@ const WRITERS: Record<string, readonly string[]> = {
   "app/api/periods/[id]/libro-iva-import/confirm/route.ts": ["POST"],
   // Clasificaciones para la presentación, por lote, bajo lockPeriodForWrite.
   "app/api/periods/[id]/invoice-classification/route.ts": ["PATCH"],
+  // Importación de percepciones de IVA (descarga de ARCA) bajo lockPeriodForWrite.
+  "app/api/periods/[id]/perceptions-import/route.ts": ["POST"],
 };
 
 /**
@@ -336,9 +338,9 @@ const codes = (file: string, src: string, methods?: readonly string[], transitio
 const details = (file: string, src: string, methods?: readonly string[]) => analyzeSource(file, src, methods).map((v) => v.detail).join(" | ");
 
 describe("cobertura estructural — producción", () => {
-  it("el inventario es exacto: 13 handlers en 11 archivos (11 writers del contenido + 2 transiciones de estado)", () => {
-    expect(Object.keys(WRITERS)).toHaveLength(11);
-    expect(Object.values(WRITERS).flat()).toHaveLength(13);
+  it("el inventario es exacto: 14 handlers en 12 archivos (12 writers del contenido + 2 transiciones de estado)", () => {
+    expect(Object.keys(WRITERS)).toHaveLength(12);
+    expect(Object.values(WRITERS).flat()).toHaveLength(14);
     expect(Object.values(TRANSITIONS).flat()).toHaveLength(2);
     for (const [f, ms] of Object.entries(TRANSITIONS)) for (const m of ms) expect(WRITERS[f], f).toContain(m);
     expect(productionFiles.length).toBeGreaterThan(20);

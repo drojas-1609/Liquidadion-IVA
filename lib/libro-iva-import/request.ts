@@ -14,7 +14,7 @@ export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 export interface ImportRequest {
     clientId: string;
     category: LidCategory;
-    /** LID_TXT (par de TXT) o PORTAL_CSV (descarga de Portal IVA: un CSV o ZIP en vouchersFile). */
+    /** LID_TXT (par de TXT), PORTAL_CSV (descarga de Portal IVA) o MIS_COMPROBANTES (consulta de Mis Comprobantes): las dos últimas, un CSV o ZIP en vouchersFile. */
     format: ImportSource;
     vouchers: Uint8Array;
     aliquots: Uint8Array;
@@ -45,12 +45,12 @@ export function parseImportRequest(body: unknown, opts: { requireToken: boolean 
     if (typeof b.clientId !== "string" || b.clientId.trim() === "") return { ok: false, field: "clientId", error: "clientId requerido" };
     if (b.category !== "SALES" && b.category !== "PURCHASES") return { ok: false, field: "category", error: "category debe ser SALES o PURCHASES" };
     const format = b.format === undefined ? "LID_TXT" : b.format;
-    if (format !== "LID_TXT" && format !== "PORTAL_CSV") return { ok: false, field: "format", error: "format debe ser LID_TXT o PORTAL_CSV" };
-    const vouchers = decodeFile(b.vouchersFile, format === "PORTAL_CSV" ? "la descarga de Portal IVA" : "comprobantes");
+    if (format !== "LID_TXT" && format !== "PORTAL_CSV" && format !== "MIS_COMPROBANTES") return { ok: false, field: "format", error: "format debe ser LID_TXT, PORTAL_CSV o MIS_COMPROBANTES" };
+    const vouchers = decodeFile(b.vouchersFile, format === "PORTAL_CSV" ? "la descarga de Portal IVA" : format === "MIS_COMPROBANTES" ? "la consulta de Mis Comprobantes" : "comprobantes");
     if (!vouchers.ok) return { ok: false, field: "vouchersFile", error: vouchers.error };
     let aliquots: { ok: true; bytes: Uint8Array } | { ok: false; error: string } = { ok: true, bytes: new Uint8Array(0) };
     if (format === "LID_TXT") aliquots = decodeFile(b.aliquotsFile, "alícuotas");
-    else if (b.aliquotsFile !== undefined) return { ok: false, field: "aliquotsFile", error: "la descarga de Portal IVA es un único archivo: no se envía archivo de alícuotas" };
+    else if (b.aliquotsFile !== undefined) return { ok: false, field: "aliquotsFile", error: "la descarga es un único archivo: no se envía archivo de alícuotas" };
     if (!aliquots.ok) return { ok: false, field: "aliquotsFile", error: aliquots.error };
     let token: string | null = null;
     if (opts.requireToken) {

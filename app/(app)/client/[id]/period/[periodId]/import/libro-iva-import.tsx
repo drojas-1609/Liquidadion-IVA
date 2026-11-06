@@ -13,7 +13,7 @@ import { failureText, operatorState, RESULT_WAIT_MS, resultText, type Attempt, t
  */
 
 type Category = "SALES" | "PURCHASES";
-type Format = "LID_TXT" | "PORTAL_CSV";
+type Format = "LID_TXT" | "PORTAL_CSV" | "MIS_COMPROBANTES";
 type Totals = Record<string, string | number>;
 interface PreviewRow {
     line: number;
@@ -136,7 +136,7 @@ async function sha256Hex(file: File | null): Promise<string> {
 }
 const POLL_MS = 4000;
 const CATEGORY_LABEL: Record<string, string> = { SALES: "Ventas", PURCHASES: "Compras" };
-const FORMAT_LABEL: Record<string, string> = { LID_TXT: "TXT", PORTAL_CSV: "Portal IVA" };
+const FORMAT_LABEL: Record<string, string> = { LID_TXT: "TXT", PORTAL_CSV: "Portal IVA", MIS_COMPROBANTES: "Mis Comprobantes" };
 
 async function toBase64(file: File): Promise<string> {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -352,7 +352,9 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-sm)" }}>
                     {format === "LID_TXT"
                         ? <>Archivos TXT del Libro IVA Digital (R.G. 4597): el de comprobantes y el de alícuotas del <strong>mismo período y libro</strong>, en ANSI, hasta 2 MB cada uno.</>
-                        : <>Descarga de comprobantes del período de Portal IVA: el ZIP <code>comprobantes_periodo_AAAAMM_…</code> tal como se descarga, o el CSV que contiene (montos expresados en pesos), hasta 2 MB.</>}
+                        : format === "PORTAL_CSV"
+                            ? <>Descarga de comprobantes del período de Portal IVA: el ZIP <code>comprobantes_periodo_AAAAMM_…</code> tal como se descarga, o el CSV que contiene (montos expresados en pesos), hasta 2 MB.</>
+                            : <>Consulta de Mis Comprobantes exportada como CSV: el ZIP <code>comprobantes_consulta_csv_emitidos_…</code> (ventas) o <code>…_recibidos_…</code> (compras), o el CSV que contiene, hasta 2 MB. No informa percepciones de IVA (van agrupadas en «Otros Tributos»): registralas como retención/percepción.</>}
                     Régimen TurIVA del período: <strong>{turivaIncluded ? "incluido" : "no incluido"}</strong>. Prorrateo del crédito: <strong>{prorationMode}</strong>.
                 </p>
                 <div style={{ display: "flex", gap: "var(--spacing-md)", flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -360,6 +362,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                         <select value={format} onChange={(e) => { setFormat(e.target.value as Format); setPreview(null); setVouchers(null); setAliquots(null); }} disabled={busy}>
                             <option value="LID_TXT">Libro IVA Digital (par de TXT)</option>
                             <option value="PORTAL_CSV">Descarga de Portal IVA (ZIP o CSV)</option>
+                            <option value="MIS_COMPROBANTES">Mis Comprobantes (ZIP o CSV)</option>
                         </select>
                     </label>
                     <label>Libro<br />
@@ -378,7 +381,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                             </label>
                         </>
                     ) : (
-                        <label>Descarga de Portal IVA<br />
+                        <label>{format === "PORTAL_CSV" ? "Descarga de Portal IVA" : "Consulta de Mis Comprobantes"}<br />
                             <input key="portal" type="file" accept=".zip,.csv,application/zip,text/csv" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); }} />
                         </label>
                     )}

@@ -66,8 +66,17 @@ Se consultó la API de Netlify, en modo lectura, con la sesión guardada del CLI
 
 **Por metadatos queda demostrado** que la Preview no recibe la clave de servicio de Supabase, el certificado ni la clave de ARCA, la clave de caché ni las variables de invitación de producción, y que su URL pública de Supabase es la de DEV.
 
-**No demostrado: `DATABASE_URL` y `DIRECT_URL`.**
-- La API enmascara los valores secretos en todos los contextos salvo `dev` ([Netlify, Secrets Controller](https://docs.netlify.com/build/environment-variables/secrets-controller/)).
-- Las máscaras son fichas de 20 caracteres. En `DATABASE_URL`, `deploy-preview` y `production` tienen **la misma** ficha, y `branch-deploy` y `dev-server` otra. En `DIRECT_URL`, `deploy-preview` y `production` coinciden.
-- El smoke escribió en DEV, así que la Preview usa DEV. Si la ficha depende del valor, producción apuntaría a la misma base. Si no depende, la igualdad no prueba nada.
-- Hay que resolverlo en el panel de Netlify o con una lectura de PROD autorizada (ver el informe).
+**`DATABASE_URL` y `DIRECT_URL`: base efectiva de cada contexto.** Se resolvió con evidencia del servidor, en solo lectura, el 06/11/2026.
+
+1. **Las máscaras de la API no sirven para comparar.** La API las enmascara en todos los contextos salvo `dev` ([Netlify, Secrets Controller](https://docs.netlify.com/build/environment-variables/secrets-controller/)). Que `deploy-preview` y `production` muestren la misma máscara no indica un valor compartido: cada contexto tiene **su propia entrada de valor** (ids `03b5b0…` y `77a2e0…` en `DATABASE_URL`; `451891…` y `4b3553…` en `DIRECT_URL`).
+2. **Deploy Preview → DEV.** Todo lo que hizo el smoke en la Preview (cliente, período, comprobantes, versiones y AuditLog) quedó en DEV (`esyfpakajthdifhnhcew`), y el cliente sintético **no existe** en PROD.
+3. **Production → PROD.** Hay escrituras que sólo genera la app, hechas por actores de la autenticación de PROD, y están en PROD (`bqqruaikbqculvmtirvy`):
+   - `member.invite` el 05/11 22:54 UTC y `liquidation.export` el 05/11 22:23;
+   - `arca.cuit_lookup` el 04/11, que **sólo puede salir del contexto `production`**: las variables de ARCA tienen valor únicamente ahí.
+
+   Esos dos actores **no existen** en la autenticación ni en los perfiles de DEV, y esos eventos no están en DEV.
+4. **Sin cambios desde entonces:** `DATABASE_URL` y `DIRECT_URL` no se modificaron desde el 08/09/2026, y el deploy de producción publicado (06/11 00:21 UTC, `main@4ebf540`) es posterior. Recibe los mismos valores.
+
+**Conclusión:** producción usa la base de PROD y la Deploy Preview usa la de DEV.
+
+**Falta verificar:** una escritura hecha por el deploy publicado *actual*. La última escritura de producción, del 05/11 22:54, es anterior a ese deploy. Se cierra leyendo en PROD, en solo lectura, el próximo evento de uso real de producción.

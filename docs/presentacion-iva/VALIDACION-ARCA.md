@@ -1,4 +1,4 @@
-# Validación de aceptación en ARCA (procedimiento propuesto, NO ejecutado)
+# Validación de aceptación en ARCA (procedimiento propuesto, NO ejecutado: pendiente)
 
 **Objetivo:** confirmar que el Portal IVA **acepta importar** los archivos del paquete, sin presentar el Libro IVA Digital (F.2083) ni la declaración F.2051, y sin pagar.
 
@@ -9,7 +9,7 @@ Lo ejecuta una persona del estudio con clave fiscal y con autorización explíci
 1. **Período elegido:** un período **no presentado** de un cliente real, por ejemplo el próximo a liquidar, ya procesado en la app y **cerrado**, con su paquete final.
    - **No usar un período ya presentado** (como 09/2026): importar ahí lleva a una rectificativa.
 2. **Archivos:** descargar el paquete final y anotar el sha256 de cada archivo, que figura en `RESUMEN.txt`.
-3. **Variante del encabezado:** preparar una copia de cada `IVA_SIMPLE_*.csv` **sin la primera línea**, por si el Portal rechaza el encabezado (decisión 2 del README).
+3. **Encabezado:** se importan los `IVA_SIMPLE_*.csv` **tal como los genera la app**. Si el Portal los rechaza, se registra el mensaje textual y se **detiene** esa parte. No se reintenta quitando el encabezado ni con otro formato sin evidencia del formato que exige el Portal: un diseño o una plantilla oficial, o un mensaje que lo indique.
 4. **Constancia:** acordar quién hace las capturas de cada pantalla antes y después de cada importación.
 
 ## En el Portal IVA (período elegido)
@@ -20,8 +20,8 @@ Lo ejecuta una persona del estudio con clave fiscal y con autorización explíci
 | 2 | Libro IVA → Ventas → Importar: `LIBRO_IVA_DIGITAL_VENTAS_CBTE.txt` + `_ALICUOTAS.txt`, con «Los Importes están expresados en Pesos Argentinos» | Si se aceptó y cualquier mensaje, textual. Si el Portal ofrece «reemplazar» o «agregar» frente a lo precargado, anotar la opción y **no** elegir sin revisar |
 | 3 | Libro IVA → Compras → Importar el par de compras | Ídem |
 | 4 | Comparar los totales del Portal (débito, crédito) con `RESUMEN.txt` | Diferencias, si las hay |
-| 5 | Ajustes y otros conceptos → Apertura → importar cada `IVA_SIMPLE_*.csv` en su bloque | Aceptado o rechazado. Si se rechaza, mensaje textual y reintento con la variante sin encabezado |
-| 6 | Retenciones y percepciones: importar `F2051_*.csv` **sólo si** no hay precargadas que se dupliquen | Aceptado o rechazado; duplicados detectados |
+| 5 | Ajustes y otros conceptos → Apertura → importar cada `IVA_SIMPLE_*.csv` en su bloque | Aceptado o rechazado. Si se rechaza, mensaje textual y **sin reintentos** |
+| 6 | Retenciones y percepciones: importar `F2051_*.csv` **sólo si** no hay precargadas que se dupliquen | Aceptado o rechazado; duplicados detectados. La descarga de percepciones observada (8 campos, punto decimal) difiere del diseño publicado (7 campos, coma): registrar cuál acepta el Portal |
 | 7 | Ver la determinación del Portal (sin presentar) y compararla con `RESUMEN.txt` y `CONCEPTOS_A_CARGAR_EN_ARCA.txt` | Saldo del Portal frente al de la app |
 | 8 | Cerrar la sesión **sin presentar** | — |
 

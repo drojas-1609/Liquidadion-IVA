@@ -7,6 +7,7 @@ import { ConflictError, NotFoundError, ValidationError } from "../auth/errors";
 import { parseLidFile, type LidCategory } from "./format";
 import { buildImportPreview, voucherKey, type ImportPreview, type ImportSource, type SectionTotals } from "./build";
 import { parsePortalDownload } from "./portal-csv";
+import { parseMisComprobantes } from "./mis-comprobantes-csv";
 import { recordAudit } from "../auth/audit";
 import { isAuthError } from "../auth/errors";
 import type { ImportOperationView, OperationResult } from "./operation";
@@ -70,7 +71,7 @@ export interface PreviewResult {
 export async function previewImport(scope: ImportScope, files: ImportFiles, db: Db = defaultPrisma): Promise<PreviewResult> {
     const period = await db.period.findFirst({
         where: { id: scope.periodId, organizationId: scope.organizationId, clientId: scope.clientId },
-        select: { month: true, year: true, status: true },
+        select: { month: true, year: true, status: true, client: { select: { cuit: true } } },
     });
     if (!period) throw new NotFoundError();
     const settingsRow = await db.periodVatSettings.findUnique({
@@ -84,6 +85,9 @@ export async function previewImport(scope: ImportScope, files: ImportFiles, db: 
     if (format === "PORTAL_CSV") {
         const portal = parsePortalDownload(files.vouchers, files.category);
         preview = buildImportPreview({ ...ctx, source: "PORTAL_CSV" }, portal.vouchers, portal.aliquots, { fileErrors: portal.fileErrors, rowNotes: portal.totalColumnNotes });
+    } else if (format === "MIS_COMPROBANTES") {
+        const mc = parseMisComprobantes(files.vouchers, files.category, period.client.cuit.replace(/\D/g, ""));
+        preview = buildImportPreview({ ...ctx, source: "MIS_COMPROBANTES" }, mc.vouchers, mc.aliquots, { fileErrors: mc.fileErrors, rowNotes: mc.rowNotes });
     } else {
         preview = buildImportPreview(ctx, parseLidFile(files.vouchers, files.category, "VOUCHERS"), parseLidFile(files.aliquots, files.category, "ALIQUOTS"));
     }

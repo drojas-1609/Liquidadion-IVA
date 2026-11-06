@@ -22,11 +22,9 @@ La aplicación **genera** los archivos, la conciliación y el resumen. **No** su
 | 8. Descargar | Presentación ARCA → borrador (abierto) o versión final (cerrado) | **Nuevo** |
 | 9. Reabrir | Período → Reabrir (con motivo) | **Nuevo**: la versión queda reemplazada y auditada |
 
-**Pendiente, falta una muestra:**
-- importar Mis Comprobantes;
-- importar Mis Retenciones.
-
-Ver «Límites».
+**Descargas de ARCA:** desde el 06/11/2026 también se importan, con lectores probados con muestras sintéticas que reproducen la forma de las descargas reales (ver «Descargas de ARCA»):
+- Mis Comprobantes;
+- percepciones de IVA.
 
 ## Fuentes oficiales (consultadas el 06/11/2026)
 
@@ -218,10 +216,7 @@ El Operador conserva su alcance por clientes asignados y no reabre.
 
 ## Límites y pendientes
 
-**Mis Comprobantes y Mis Retenciones:** falta una muestra autorizada.
-- No se inventaron columnas.
-- Las retenciones y percepciones se cargan a mano con el detalle del F.2051.
-- La descarga de Portal IVA y el TXT ya cubren los comprobantes.
+**Retenciones de IVA** (certificados de Mis Retenciones): no hubo muestra; se cargan a mano con el detalle del F.2051.
 
 **Formatos no generados:**
 - importaciones (despacho), importación de servicios, bienes usados, liquidaciones de granos e intermediarios: no se modelan;
@@ -238,6 +233,41 @@ El Operador conserva su alcance por clientes asignados y no reabre.
 **IIBB:** sigue siendo informativo y no se congela con el cierre.
 
 **Automatización de ARCA:** ver [AUTOMATIZACION.md](AUTOMATIZACION.md).
+
+## Descargas de ARCA (muestras observadas el 06/11/2026, período 10/2026)
+
+Las muestras se leyeron en un directorio aislado. No hay datos reales en el repositorio ni en las pruebas.
+
+### Mis Comprobantes
+
+Formato «Mis Comprobantes» en Importar, emitidos = ventas y recibidos = compras. Lector: `lib/libro-iva-import/mis-comprobantes-csv.ts`.
+
+- **Forma observada:** el ZIP con un CSV UTF-8 sin BOM, separado por `;`, con encabezado entre comillas, salto LF, fecha `AAAA-MM-DD` y decimal `,`. Hay 28 columnas en emitidos y 30 en recibidos (documento del emisor y del receptor). Para cada alícuota, el neto y el IVA vienen en columnas separadas; además trae «Otros Tributos», «Total IVA» e «Imp. Total».
+- **Impuestos incluidos:** IVA por alícuota, no gravado, exento y «Otros Tributos». **No trae percepciones de IVA separadas, código de operación ni crédito computable.**
+- **Signo:** las notas de crédito vienen **positivas** (a diferencia de la descarga de Portal IVA). El signo sale del código, como en el TXT.
+- **Reglas que aplica la app:**
+  - el encabezado se valida exacto;
+  - en recibidos, el receptor debe ser el cliente (si no, error);
+  - «Otros Tributos» queda como otros tributos, con una nota: puede incluir percepciones, que no se computan hasta registrarlas;
+  - el crédito computable es igual al IVA **sólo** sin prorrateo; con prorrateo, la fila queda para revisar.
+- **Resultado con la muestra de octubre:**
+  - emitidos: 21 filas, 19 importables y 2 para revisar (denominación vacía);
+  - recibidos: 25 filas, 22 importables y 3 para revisar: tipos 18 y 63, fuera del catálogo admitido, y un total que no cierra.
+
+### Percepciones de IVA
+
+Archivo `Percepciones-impositivas-AAAAMM.csv`, en Retenciones y percepciones → Importar. Lector: `lib/tax-import/perceptions-csv.ts`.
+
+- **Forma observada:** sin encabezado, `;`, LF y **8 campos**: régimen · un campo sin documentar (observado `0`) · CUIT del agente · CUIT intermediario (vacío) · fecha ISO · tipo de comprobante · número (16 dígitos, sin guion) · importe con **punto** decimal.
+- **Discrepancia con el diseño de IMPORTACIÓN publicado del F.2051** (12/11/2025): ese diseño tiene **7 campos** e importe con **coma**. El lector acepta sólo la forma observada (y la coma); si el segundo campo no es `0`, la fila queda para revisar.
+- **El exportador del F.2051 no se cambió:** sigue el diseño publicado mientras no haya evidencia de qué acepta el Portal IVA. También queda por confirmar el número de 16 dígitos frente al formato `99999-99999999` de la tabla para el tipo 1.
+- **Reglas de la importación:**
+  - con fecha fuera del período, la fila queda para revisar (la imputación según RG 5750 se carga a mano);
+  - con tipo fuera de la tabla del F.2051, queda para revisar;
+  - una percepción ya registrada se omite;
+  - una fila repetida en el archivo es un error;
+  - la confirmación vuelve a calcular todo bajo el bloqueo del período, con token y AuditLog `taxrecord.import` (sin importes ni CUIT).
+- **Resultado con la muestra de octubre:** 1 percepción importable. Si se usa en septiembre, queda para revisar por la fecha: octubre no se mezcla con la conciliación de septiembre.
 
 ## Evidencia y validación
 

@@ -151,7 +151,12 @@ export interface PreviewContext {
     source?: ImportSource;
 }
 
-export type ImportSource = "LID_TXT" | "PORTAL_CSV";
+export type ImportSource = "LID_TXT" | "PORTAL_CSV" | "MIS_COMPROBANTES";
+
+/** Descargas de ARCA sin código de operación ni reintegro TurIVA (no son el TXT del Libro IVA Digital). */
+function downloadLabel(source: ImportSource | undefined): string | null {
+    return source === "PORTAL_CSV" ? "la descarga de Portal IVA" : source === "MIS_COMPROBANTES" ? "la consulta de Mis Comprobantes" : null;
+}
 
 export interface PreviewExtras {
     /** Errores de archivo detectados por el lector (encabezado, ZIP). */
@@ -281,7 +286,7 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     if (row.name === "") {
         // La descarga de Portal IVA deja vacía la denominación de algunos consumidores
         // identificados (p. ej. con DNI): falta un dato, no es un registro inválido.
-        if (ctx.source === "PORTAL_CSV") d.raise("REVIEW", "la descarga de Portal IVA no informa la denominación de la contraparte: completarla antes de importar");
+        if (downloadLabel(ctx.source)) d.raise("REVIEW", `${downloadLabel(ctx.source)} no informa la denominación de la contraparte: completarla antes de importar`);
         else d.raise("ERROR", "apellido y nombre o denominación vacío");
     }
 
@@ -305,9 +310,11 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     // Pestaña: TurIVA sólo 195–197 y sólo en el archivo de TurIVA.
     const section: LidSection = turivaFile ? "TURIVA" : "GENERAL";
     row.section = section;
+    // portal: importes CON signo (notas de crédito en negativo). download: descargas sin código de operación ni TurIVA.
     const portal = ctx.source === "PORTAL_CSV";
-    if (vt && portal) {
-        if (vt.letter === "T") d.raise("REVIEW", "la descarga de Portal IVA no informa el reintegro TurIVA: importar este comprobante con el TXT de TurIVA");
+    const download = downloadLabel(ctx.source);
+    if (vt && download) {
+        if (vt.letter === "T") d.raise("REVIEW", `${download} no informa el reintegro TurIVA: importar este comprobante con el TXT de TurIVA`);
     } else if (vt) {
         if (vt.letter === "T" && !turivaFile) d.raise("ERROR", "los comprobantes clase T (195–197) van en el archivo de TurIVA");
         if (vt.letter !== "T" && turivaFile) d.raise("ERROR", "el archivo de TurIVA sólo admite comprobantes clase T (195–197)");
@@ -362,9 +369,9 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
             // Venta C sin IVA: el neto va sin discriminación.
         } else if (category === "SALES" && vt.letter === "B") {
             d.raise("REVIEW", "venta B sin detalle de alícuotas: no se puede determinar el débito fiscal");
-        } else if (portal && (!header.exempt.isZero() || !header.nonTaxed.isZero())) {
+        } else if (download && (!header.exempt.isZero() || !header.nonTaxed.isZero())) {
             // Comprobante sólo exento / no gravado: la descarga no trae línea de alícuota 0 % ni código de operación.
-            d.row.notes.push("operación exenta o no gravada: la descarga de Portal IVA no informa el código de operación");
+            d.row.notes.push(`operación exenta o no gravada: ${download} no informa el código de operación`);
         } else {
             d.raise("ERROR", "el comprobante discrimina IVA y no tiene alícuotas");
         }
@@ -389,7 +396,7 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
             d.raise("REVIEW", `IVA informado ${vat.abs().toFixed(2)} y calculado ${computed.toFixed(2)} difieren en más de 0,01 (línea ${a.line} de alícuotas)`);
         }
         if (code === 3 && operationCode === null) {
-            d.raise("REVIEW", portal ? "neto gravado al 0 %: la descarga de Portal IVA no informa el código de operación" : `alícuota 0% sin código de operación (línea ${a.line} de alícuotas)`);
+            d.raise("REVIEW", download ? `neto gravado al 0 %: ${download} no informa el código de operación` : `alícuota 0% sin código de operación (línea ${a.line} de alícuotas)`);
         }
         lines.push({
             vatRateCode: code,
@@ -416,7 +423,10 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     if (category === "PURCHASES") {
         reportedCredit = header.computableCredit.abs();
         const mode = ctx.settings.creditProrationMode;
-        if (mode === "GLOBAL" || mode === "DIRECT_AND_GLOBAL") {
+        if (ctx.source === "MIS_COMPROBANTES" && mode !== "NONE") {
+            // La consulta no informa el crédito computable: sólo sin prorrateo es igual al IVA (Especificaciones, campo 21).
+            d.raise("REVIEW", "la consulta de Mis Comprobantes no informa el crédito fiscal computable y el período tiene prorrateo: cargarlo por otra vía");
+        } else if (mode === "GLOBAL" || mode === "DIRECT_AND_GLOBAL") {
             d.raise("REVIEW", "período con prorrateo global: la asignación del crédito por línea no se puede determinar desde el archivo");
         } else if (reportedCredit.greaterThan(totalVat)) {
             d.raise("ERROR", "el crédito fiscal computable informado supera al IVA liquidado");
