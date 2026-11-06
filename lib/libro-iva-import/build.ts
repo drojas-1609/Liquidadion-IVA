@@ -495,10 +495,16 @@ export function buildImportPreview(ctx: PreviewContext, vouchers: ParsedFile, al
     for (const i of aliquots.issues) fileErrors.push(`alícuotas, línea ${i.line}: ${i.message}`);
     if (vouchers.records.length === 0 && vouchers.issues.length === 0) fileErrors.push("el archivo de comprobantes está vacío");
 
-    // Alícuotas agrupadas por comprobante, en el orden del archivo.
+    // Alícuotas agrupadas por comprobante, en el orden del archivo. En el par de
+    // TXT se vinculan por la clave del comprobante; en las descargas de un solo
+    // archivo (Portal IVA, Mis Comprobantes) cada alícuota sale de SU línea, así
+    // que se vinculan por línea: un comprobante repetido en el archivo no le
+    // suma sus alícuotas a la primera aparición.
+    const byLine = downloadLabel(ctx.source) !== null;
+    const linkKey = (r: ParsedRecord) => (byLine ? `L${r.line}` : aliquotKey(ctx.category, r));
     const byKey = new Map<string, ParsedRecord[]>();
     for (const a of aliquots.records) {
-        const k = aliquotKey(ctx.category, a);
+        const k = linkKey(a);
         byKey.set(k, [...(byKey.get(k) ?? []), a]);
     }
 
@@ -513,10 +519,12 @@ export function buildImportPreview(ctx: PreviewContext, vouchers: ParsedFile, al
     for (const rec of vouchers.records) {
         const d = draft(rec.line);
         const k = aliquotKey(ctx.category, rec);
-        const mine = byKey.get(k) ?? [];
-        // La primera aparición de la clave toma sus alícuotas; una repetición no.
-        const taken = seen.has(k) ? [] : mine;
-        if (!seen.has(k)) byKey.delete(k);
+        const lk = linkKey(rec);
+        const mine = byKey.get(lk) ?? [];
+        // TXT: la primera aparición de la clave toma sus alícuotas; una repetición
+        // no. Descargas: cada fila toma las de su línea.
+        const taken = !byLine && seen.has(k) ? [] : mine;
+        if (byLine || !seen.has(k)) byKey.delete(lk);
         buildRow(ctx, vouchers.turiva, rec, taken, d);
         d.row.notes.push(...(extras.rowNotes?.get(rec.line) ?? []));
         if (seen.has(k)) d.raise("ERROR", "comprobante repetido en el archivo");

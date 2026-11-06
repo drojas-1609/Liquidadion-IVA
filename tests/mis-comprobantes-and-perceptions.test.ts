@@ -174,3 +174,16 @@ describe("Retenciones de IVA con certificado: diseño del F.2051 (9 campos) y de
         expect(pv(file([d10({ date: "2027-09-30" })]), new Map()).rows[0].status).toBe("REVIEW");
     });
 });
+
+describe("Comprobante repetido dentro de una descarga de un solo archivo (regresión hallada en la Preview)", () => {
+    it("Mis Comprobantes: la primera aparición se importa con SUS alícuotas; la repetida queda con error", () => {
+        const fila = emitido("2027-10-05", 1, 11, "2315,00", { r21: ["1000,00", "210,00"], r105: ["1000,00", "105,00"] }, { netTotal: "2000,00", vat: "315,00" });
+        const p = parseMisComprobantes(utf8([H_EMITIDOS, fila, fila]), "SALES", CLIENT);
+        const pv = buildImportPreview({ ...CTX, category: "SALES" }, p.vouchers, p.aliquots, {});
+        expect(pv.rows.map((r) => r.status)).toEqual(["OK", "ERROR"]);
+        expect(pv.rows[0].aliquotLines).toEqual([2, 2]);
+        expect(pv.rows[1].messages).toContain("comprobante repetido en el archivo");
+        expect(pv.reconciliation.importable.CONSOLIDATED.vat.toFixed(2)).toBe("315.00");
+        expect(pv.reconciliation.files.orphanAliquots).toBe(0);
+    });
+});
