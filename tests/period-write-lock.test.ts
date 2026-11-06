@@ -312,8 +312,8 @@ const WRITERS: Record<string, readonly string[]> = {
   "app/api/periods/[id]/libro-iva-import/confirm/route.ts": ["POST"],
   // Clasificaciones para la presentación, por lote, bajo lockPeriodForWrite.
   "app/api/periods/[id]/invoice-classification/route.ts": ["PATCH"],
-  // Importación de percepciones de IVA (descarga de ARCA) bajo lockPeriodForWrite.
-  "app/api/periods/[id]/perceptions-import/route.ts": ["POST"],
+  // Importación de retenciones o percepciones de IVA (descargas de ARCA) bajo lockPeriodForWrite.
+  "app/api/periods/[id]/tax-import/route.ts": ["POST"],
 };
 
 /**

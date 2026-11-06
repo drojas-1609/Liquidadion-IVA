@@ -47,7 +47,7 @@ export const AUDIT_ACTIONS = [
   // Confirmación que terminó con error DESPUÉS de revertirse: no escribió nada.
   // Permite consultar el resultado si la respuesta no llegó al navegador.
   "invoice.import.failed",
-  // Importación de percepciones de IVA (descarga de ARCA): una fila por confirmación.
+  // Importación de retenciones o percepciones de IVA (descargas de ARCA): una fila por confirmación.
   "taxrecord.import",
   // Clasificaciones para la presentación, por lote (PATCH /api/periods/[id]/invoice-classification).
   "invoice.classification_change",
@@ -120,7 +120,7 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "period.close": ["clientId", "month", "year", "version", "packageReady"],
   "period.reopen": ["clientId", "month", "year", "version", "reasonLength"],
   // Conteos por estado y huella del archivo. NUNCA importes, CUIT ni números de comprobante.
-  "taxrecord.import": ["periodId", "importedCount", "duplicateCount", "reviewCount", "errorCount", "fileSha256"],
+  "taxrecord.import": ["periodId", "kind", "layout", "importedCount", "duplicateCount", "reviewCount", "errorCount", "fileSha256"],
   // Por lote: cantidad de comprobantes y NOMBRES de los campos cambiados.
   "invoice.classification_change": ["periodId", "category", "count", "changedFields"],
   // Modo (DRAFT/FINAL), versión y huella del ZIP entregado. Sin importes.

@@ -14,7 +14,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import { POST as PREVIEW } from "@/app/api/periods/[id]/libro-iva-import/preview/route";
 import { POST as CONFIRM } from "@/app/api/periods/[id]/libro-iva-import/confirm/route";
-import { POST as PERCEPTIONS } from "@/app/api/periods/[id]/perceptions-import/route";
+import { POST as TAX_IMPORT } from "@/app/api/periods/[id]/tax-import/route";
 import { cuit } from "../helpers/libro-iva-synth";
 
 /**
@@ -73,7 +73,7 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
 
     it("percepciones: roles y organización; vista previa; confirmación con token; segunda carga omitida; token viejo 409", async () => {
         const file = b64([`493;0;${AGENT};;2027-10-15;1;0007000000012345;1234.56`, `493;0;${AGENT};;2027-09-30;1;0007000000000002;5.00`].join("\n") + "\n");
-        const call = (sub: string, body: Record<string, unknown>) => { H.sub = sub; return PERCEPTIONS(new Request(`http://localhost/api/periods/${period}/perceptions-import`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }), ctx(period)); };
+        const call = (sub: string, body: Record<string, unknown>) => { H.sub = sub; return TAX_IMPORT(new Request(`http://localhost/api/periods/${period}/tax-import`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "PERCEPTIONS", ...body }) }), ctx(period)); };
         expect((await call(VIEWER, { file })).status).toBe(403);
         expect((await call(OTHER, { file })).status).toBe(404);
         const pv = await json(await call(OWNER, { file }));
@@ -90,18 +90,41 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
         expect((await call(OWNER, { file, confirm: true, token: pv.token })).status).toBe(409);
         expect(await db.taxRecord.count({ where: { periodId: period } })).toBe(1);
         const audit = await db.auditLog.findFirst({ where: { action: "taxrecord.import", targetId: period } });
-        expect(audit?.metadata).toMatchObject({ periodId: period, importedCount: 1, duplicateCount: 0, reviewCount: 1, errorCount: 0 });
+        expect(audit?.metadata).toMatchObject({ periodId: period, kind: "PERCEPTIONS", layout: "PERCEPTIONS_DOWNLOAD", importedCount: 1, duplicateCount: 0, reviewCount: 1, errorCount: 0 });
         expect(JSON.stringify(audit?.metadata)).not.toMatch(/1234|30700000|0007000000012345/);
+    });
+
+    it("retenciones: forma de diseño y luego la descarga con las mismas retenciones -> ya registradas; importes enteros sólo con confirmación", async () => {
+        const AG = cuit("3066666666");
+        const d9 = ["767;499;" + AG + ";;2027-10-14;6;000000000638;2027000001;3101.70", "767;499;" + AG + ";;2027-10-30;5;0000000030102027;2027000002;354480"];
+        const d10 = d9.map((l) => { const f = l.split(";"); f.splice(2, 0, "0"); return f.join(";"); });
+        const call = (body: Record<string, unknown>) => { H.sub = OWNER; return TAX_IMPORT(new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "RETENTIONS", ...body }) }), ctx(period)); };
+        const fileA = b64(d9.join("\r\n") + "\r\n");
+        const p1 = await json(await call({ file: fileA }));
+        expect([p1.layout, p1.counts]).toEqual(["F2051_DESIGN", { OK: 1, DUPLICATE: 0, REVIEW: 1, ERROR: 0 }]);
+        expect(p1.excludedTotal).toBe("354480.00");
+        const c1 = await call({ file: fileA, confirm: true, token: p1.token });
+        expect(c1.status).toBe(201);
+        // Con la confirmación de pesos enteros, la segunda se importa; la primera ya está registrada.
+        const p2 = await json(await call({ file: fileA, integerAmountsArePesos: true }));
+        expect(p2.counts).toEqual({ OK: 1, DUPLICATE: 1, REVIEW: 0, ERROR: 0 });
+        expect((await call({ file: fileA, integerAmountsArePesos: true, confirm: true, token: p2.token })).status).toBe(201);
+        // La descarga de ARCA con las MISMAS retenciones: todas ya registradas, nada se escribe.
+        const fileB = b64(d10.join("\n") + "\n");
+        const p3 = await json(await call({ file: fileB, integerAmountsArePesos: true }));
+        expect([p3.layout, p3.counts]).toEqual(["ARCA_DOWNLOAD", { OK: 0, DUPLICATE: 2, REVIEW: 0, ERROR: 0 }]);
+        const rec = await db.taxRecord.findMany({ where: { periodId: period, nature: "RETENTION" }, orderBy: { certificateNumber: "asc" }, select: { type: true, taxCode: true, regimeCode: true, certificateNumber: true, amount: true } });
+        expect(rec.map((r) => [r.type, r.taxCode, r.regimeCode, r.certificateNumber, r.amount.toFixed(2)])).toEqual([["RETENCION IVA", 767, 499, "2027000001", "3101.70"], ["RETENCION IVA", 767, 499, "2027000002", "354480.00"]]);
     });
 
     it("período cerrado: la confirmación se rechaza sin escribir", async () => {
         await db.period.update({ where: { id: period }, data: { status: "CLOSED", closedAt: new Date() } });
         H.sub = OWNER;
         const file = b64(`493;0;${AGENT};;2027-10-16;1;0007000000099999;1.00\n`);
-        const pv = await json(await PERCEPTIONS(new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ file }) }), ctx(period)));
-        const res = await PERCEPTIONS(new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ file, confirm: true, token: pv.token }) }), ctx(period));
+        const pv = await json(await TAX_IMPORT(new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "PERCEPTIONS", file }) }), ctx(period)));
+        const res = await TAX_IMPORT(new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "PERCEPTIONS", file, confirm: true, token: pv.token }) }), ctx(period));
         expect(res.status).toBe(409);
         expect((await json(res)).error?.code).toBe("PERIOD_CLOSED");
-        expect(await db.taxRecord.count({ where: { periodId: period } })).toBe(1);
+        expect(await db.taxRecord.count({ where: { periodId: period } })).toBe(3);
     });
 });

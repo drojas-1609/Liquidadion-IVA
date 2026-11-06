@@ -3,7 +3,8 @@ import { deflateRawSync } from "node:zlib";
 import { parseMisComprobantes } from "@/lib/libro-iva-import/mis-comprobantes-csv";
 import { buildImportPreview } from "@/lib/libro-iva-import/build";
 import { parsePerceptionsCsv } from "@/lib/tax-import/perceptions-csv";
-import { buildPerceptionsPreview } from "@/lib/tax-import/service";
+import { buildTaxImportPreview } from "@/lib/tax-import/service";
+import { parseRetentionsCsv } from "@/lib/tax-import/retentions-csv";
 import { cuit } from "./helpers/libro-iva-synth";
 
 /**
@@ -110,12 +111,66 @@ describe("Percepciones de IVA: descarga de ARCA (forma observada, 8 campos, sin 
 
     it("vista previa: fecha fuera del período a revisar, ya registradas omitidas, repetidas en el archivo con error", () => {
         const f = file([line(), line({ date: "2027-09-30", nro: "0007000000000002" }), line({ nro: "0007000000000003" }), line({ nro: "0007000000000003" })]);
-        const existing = new Set([`493|${AGENT}|1|0007000000012345`]);
-        const pv = buildPerceptionsPreview(f, { month: 10, year: 2027 }, existing, "per");
+        const existing = new Map([[`493|${AGENT}|1|0007000000012345`, "09/2027"]]);
+        const pv = buildTaxImportPreview("PERCEPTIONS", f, { month: 10, year: 2027 }, existing, "per", { integerAmountsArePesos: false });
         expect(pv.rows.map((r) => r.status)).toEqual(["DUPLICATE", "REVIEW", "OK", "ERROR"]);
+        expect(pv.rows[0].messages[0]).toBe("ya registrada para el cliente en el período 09/2027: se omite");
         expect(pv.counts).toEqual({ OK: 1, DUPLICATE: 1, REVIEW: 1, ERROR: 1 });
-        expect(pv.importableTotal).toBe("1234.56");
+        // Los pendientes quedan fuera del total importado y se informan aparte.
+        expect([pv.importableTotal, pv.excludedTotal]).toEqual(["1234.56", (1234.56 + 1234.56 + 1234.56).toFixed(2)]);
         // El token cambia si cambia el estado (otra carga en el medio).
-        expect(buildPerceptionsPreview(f, { month: 10, year: 2027 }, new Set(), "per").token).not.toBe(pv.token);
+        expect(buildTaxImportPreview("PERCEPTIONS", f, { month: 10, year: 2027 }, new Map(), "per", { integerAmountsArePesos: false }).token).not.toBe(pv.token);
+    });
+});
+
+describe("Retenciones de IVA con certificado: diseño del F.2051 (9 campos) y descarga de ARCA (10 campos)", () => {
+    const AGENT2 = cuit("3066666666");
+    const d9 = (o: Partial<Record<"tax" | "reg" | "agent" | "inter" | "date" | "type" | "nro" | "cert" | "amount", string>> = {}) =>
+        [o.tax ?? "767", o.reg ?? "499", o.agent ?? AGENT2, o.inter ?? "", o.date ?? "2027-10-14", o.type ?? "6", o.nro ?? "000000000638", o.cert ?? "2027000001", o.amount ?? "3101.70"].join(";");
+    const d10 = (o: Parameters<typeof d9>[0] & { extra?: string } = {}) => { const f = d9(o).split(";"); f.splice(2, 0, o.extra ?? "0"); return f.join(";"); };
+    const file = (lines: string[], eol = "\n") => new TextEncoder().encode(lines.join(eol) + eol);
+    const P = { month: 10, year: 2027 };
+    const pv = (f: Uint8Array, existing = new Map<string, string>(), integerAmountsArePesos = false) => buildTaxImportPreview("RETENTIONS", f, P, existing, "per", { integerAmountsArePesos });
+
+    it("detecta la forma por la cantidad de campos y lee los mismos datos en ambas", () => {
+        const a = parseRetentionsCsv(file([d9(), d9({ type: "5", nro: "0000000030092027", cert: "2027000002" })], "\r\n"));
+        const b = parseRetentionsCsv(file([d10(), d10({ type: "5", nro: "0000000030092027", cert: "2027000002" })]));
+        expect([a.layout, b.layout]).toEqual(["F2051_DESIGN", "ARCA_DOWNLOAD"]);
+        const pick = (r: (typeof a.rows)[number]) => [r.status, r.taxCode, r.regimeCode, r.agentCuit, r.date, r.voucherTypeCode, r.voucherNumber, r.certificateNumber, r.amount?.toFixed(2)];
+        expect(a.rows.map(pick)).toEqual(b.rows.map(pick));
+        expect(a.rows.map((r) => r.status)).toEqual(["OK", "OK"]);
+        expect(parseRetentionsCsv(file([d9(), d10()])).fileErrors[0]).toMatch(/distinta cantidad de campos/);
+        expect(parseRetentionsCsv(file(["767;499;x"])).fileErrors[0]).toMatch(/se esperan 9 .* o 10/);
+    });
+
+    it("validaciones: impuesto de IVA, CUIT, certificado, formato del número por tipo, campo sin documentar", () => {
+        const r = parseRetentionsCsv(file([
+            d9({ tax: "217" }),
+            d9({ agent: AGENT2.slice(0, 10) + String((Number(AGENT2[10]) + 1) % 10), cert: "2027000003" }),
+            d9({ cert: "", nro: "000000000639" }),
+            d9({ type: "6", nro: "0000000000639", cert: "2027000004" }),
+            d9({ type: "99", cert: "2027000005" }),
+        ])).rows;
+        expect(r.map((x) => x.status)).toEqual(["ERROR", "ERROR", "ERROR", "REVIEW", "REVIEW"]);
+        expect(r[0].messages[0]).toMatch(/767 o 216/);
+        expect(r[3].messages[0]).toMatch(/formato del tipo de comprobante 6/);
+        expect(parseRetentionsCsv(file([d10({ extra: "1" })])).rows[0].messages[0]).toMatch(/tercer campo/);
+    });
+
+    it("importe sin decimales: queda para revisar salvo confirmación explícita (nunca se elige la escala)", () => {
+        const f = file([d9({ amount: "310170" })]);
+        expect(pv(f).rows[0].status).toBe("REVIEW");
+        expect(pv(f).rows[0].messages.join()).toMatch(/sin decimales/);
+        const ok = pv(f, new Map(), true);
+        expect([ok.rows[0].status, ok.importableTotal]).toEqual(["OK", "310170.00"]);
+    });
+
+    it("duplicados: dentro del archivo (error), con otro período del cliente y entre formatos (ya registrada)", () => {
+        const inFile = pv(file([d9(), d9({ amount: "1.00" })]));
+        expect(inFile.rows.map((r) => r.status)).toEqual(["OK", "ERROR"]);
+        // La misma retención importada antes con la otra forma (misma clave agente + certificado).
+        const existing = new Map([[`${AGENT2}|2027000001`, "10/2027"]]);
+        expect(pv(file([d10()]), existing).rows[0].status).toBe("DUPLICATE");
+        expect(pv(file([d10({ date: "2027-09-30" })]), new Map()).rows[0].status).toBe("REVIEW");
     });
 });

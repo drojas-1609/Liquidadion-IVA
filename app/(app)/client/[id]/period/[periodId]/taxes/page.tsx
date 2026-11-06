@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PerceptionsImport } from "./_components/perceptions-import";
+import { TaxRecordsImport } from "./_components/tax-records-import";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
 import { ROLES_CREATE, ROLES_DELETE, ROLES_READ, ROLES_UPDATE } from "@/lib/auth/roles";
@@ -64,7 +64,7 @@ export default async function TaxesPage({ params }: { params: Promise<{ id: stri
                 {closed && <span role="status" style={{ color: "var(--secondary)" }}>Período cerrado: sólo consulta</span>}
             </div>
 
-            {canCreate && <PerceptionsImport periodId={periodId} />}
+            {canCreate && <TaxRecordsImport periodId={periodId} />}
 
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>
                 <table className="table">

@@ -1,5 +1,5 @@
-import { Prisma } from "@prisma/client";
-import { cuitCheckDigit } from "../cuit";
+import type { Prisma } from "@prisma/client";
+import { parseTaxAmount, raise as raiseRow, textLines, validCuit, validIsoDate, type ImportRowStatus } from "./common";
 
 /**
  * Lectura de la descarga de **percepciones impositivas de IVA** de ARCA
@@ -19,7 +19,7 @@ import { cuitCheckDigit } from "../cuit";
  * el diseño publicado (ver docs/presentacion-iva/README.md).
  */
 
-export type PerceptionRowStatus = "OK" | "DUPLICATE" | "REVIEW" | "ERROR";
+export type PerceptionRowStatus = ImportRowStatus;
 
 export interface PerceptionRow {
     line: number;
@@ -33,6 +33,8 @@ export interface PerceptionRow {
     voucherTypeCode: number | null;
     voucherNumber: string | null;
     amount: Prisma.Decimal | null;
+    /** Importe sin separador decimal (ambiguo). */
+    integerAmount: boolean;
 }
 
 export interface PerceptionsParse {
@@ -43,39 +45,14 @@ export interface PerceptionsParse {
 export const PERCEPTION_FIELDS = 8;
 const MAX_ROWS = 5000;
 
-function validCuit(v: string): boolean {
-    if (!/^\d{11}$/.test(v)) return false;
-    const d = cuitCheckDigit(v.slice(0, 10));
-    return d !== null && d === Number(v[10]);
-}
-
-/** Importe: "1234.56" (descarga observada) o "1234,56" (diseño publicado). Sin miles, hasta 2 decimales, > 0. */
-function parseAmount(raw: string): Prisma.Decimal | null {
-    const s = raw.trim();
-    if (!/^\d{1,16}([.,]\d{1,2})?$/.test(s)) return null;
-    const d = new Prisma.Decimal(s.replace(",", "."));
-    return d.isZero() ? null : d;
-}
-
 export function parsePerceptionsCsv(bytes: Uint8Array): PerceptionsParse {
-    let text: string;
-    try {
-        text = new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^﻿/, "");
-    } catch {
-        return { rows: [], fileErrors: ["el archivo no es texto (ASCII/UTF-8) como la descarga de percepciones"] };
-    }
-    const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
-    if (lines.length === 0) return { rows: [], fileErrors: ["el archivo está vacío"] };
-    if (lines.length > MAX_ROWS) return { rows: [], fileErrors: [`demasiadas filas (máximo ${MAX_ROWS})`] };
-    if (/[A-Za-z]{3,}/.test(lines[0].split(";")[0] ?? "")) return { rows: [], fileErrors: ["la primera línea parece un encabezado: la descarga observada no lo trae (¿otro archivo?)"] };
+    const t = textLines(bytes, "descarga de percepciones", MAX_ROWS);
+    if ("error" in t) return { rows: [], fileErrors: [t.error] };
+    const lines = t.lines;
 
     const rows = lines.map((l, i): PerceptionRow => {
-        const row: PerceptionRow = { line: i + 1, status: "OK", messages: [], regimeCode: null, agentCuit: null, intermediaryCuit: null, date: null, voucherTypeCode: null, voucherNumber: null, amount: null };
-        const raise = (status: PerceptionRowStatus, m: string) => {
-            row.messages.push(m);
-            const rank = { OK: 0, DUPLICATE: 1, REVIEW: 2, ERROR: 3 } as const;
-            if (rank[status] > rank[row.status]) row.status = status;
-        };
+        const row: PerceptionRow = { line: i + 1, status: "OK", messages: [], regimeCode: null, agentCuit: null, intermediaryCuit: null, date: null, voucherTypeCode: null, voucherNumber: null, amount: null, integerAmount: false };
+        const raise = (status: PerceptionRowStatus, m: string) => raiseRow(row, status, m);
         const f = l.split(";").map((x) => x.trim());
         if (f.length !== PERCEPTION_FIELDS) {
             raise("ERROR", `la fila tiene ${f.length} campos y la descarga observada ${PERCEPTION_FIELDS}`);
@@ -91,16 +68,17 @@ export function parsePerceptionsCsv(bytes: Uint8Array): PerceptionsParse {
             if (validCuit(intermediary)) row.intermediaryCuit = intermediary;
             else raise("ERROR", "CUIT intermediario inválido");
         }
-        const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-        const dt = dm ? new Date(Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]))) : null;
-        if (dm && dt && dt.getUTCDate() === Number(dm[3]) && dt.getUTCMonth() === Number(dm[2]) - 1) row.date = date;
+        if (validIsoDate(date)) row.date = date;
         else raise("ERROR", "fecha inválida (AAAA-MM-DD)");
         if (/^\d{1,3}$/.test(vtype) && Number(vtype) > 0) row.voucherTypeCode = Number(vtype);
         else raise("ERROR", "tipo de comprobante inválido");
         if (/^[0-9A-Za-z]{1,20}(-[0-9A-Za-z]+)?$/.test(vnumber) && vnumber.length <= 20) row.voucherNumber = vnumber;
         else raise("ERROR", "número de comprobante inválido");
-        const a = parseAmount(amount);
-        if (a) row.amount = a;
+        const a = parseTaxAmount(amount);
+        if (a) {
+            row.amount = a.value;
+            row.integerAmount = a.integer;
+        }
         else raise("ERROR", "importe inválido (positivo, sin separador de miles, hasta 2 decimales)");
         return row;
     });
