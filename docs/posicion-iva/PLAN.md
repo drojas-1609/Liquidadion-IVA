@@ -13,7 +13,15 @@
 - Pantalla de liquidación y Excel con los renglones de la "Determinación del impuesto" del F.2051.
 - Edición: `PUT /api/periods/[id]/vat-position`, con rol de edición, módulo IVA, cliente en el alcance y período abierto (`lockPeriodForWrite`). AuditLog `period.vat_position_change` sólo con nombres de campo y regímenes.
 
-Siguen pendientes: defectos 2 y 3 (fuente única de percepciones de compras, retenciones y percepciones separadas), libre disponibilidad anterior, "Crédito fiscal por otros conceptos" (POS, Ley 27.618) y la clasificación de IIBB por jurisdicción.
+Etapa 3 (rama `feature/iva-exportacion-cierre`, ver [docs/presentacion-iva/README.md](../presentacion-iva/README.md)):
+- defectos 2 y 3 resueltos: la fuente única son las retenciones y percepciones **registradas**. La percepción de una compra se registra tomándola del comprobante, sin duplicar. Retenciones, percepciones y percepciones aduaneras van por separado;
+- libre disponibilidad anterior;
+- clasificaciones de la apertura (tipo de sujeto comprador, concepto del crédito y demás);
+- cierre versionado y paquete para ARCA.
+
+Siguen pendientes:
+- "Crédito fiscal por otros conceptos" (POS, Ley 27.618) y pagos a cuenta;
+- la clasificación de IIBB por jurisdicción.
 
 ## Qué hacía el motor antes de la etapa 2 (`lib/liquidation-calc.ts`)
 
