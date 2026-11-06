@@ -440,3 +440,32 @@ describe("Paquete de presentación (ZIP)", () => {
         expect(() => writeZip([{ name: "a.txt", data: new Uint8Array() }, { name: "a.txt", data: new Uint8Array() }], new Date())).toThrow();
     });
 });
+
+describe("Huella del contenido (versiones cerradas)", () => {
+    // Import dinámico: load.ts usa el cliente Prisma sólo en tipos.
+    const base = () => {
+        const invoices = sampleInvoices();
+        return {
+            period: { id: "per1", clientId: "c1", month: 1, year: 2027, status: "OPEN", updatedAt: new Date(0) },
+            settings: { creditProrationMode: "NONE", turivaIncluded: false, globalCoefficient: null, previousTechnicalBalance: D(0), previousTechnicalBalanceReference: null, previousFreeBalance: D(0), previousFreeBalanceReference: null },
+            adjustments: [],
+            invoices,
+            taxRecords: [] as ExportTaxRecord[],
+        };
+    };
+    it("v1: campos explícitos; un campo nuevo del cargador no la cambia; un cambio real sí; v0 se conserva para versiones viejas", async () => {
+        const { contentHash, contentHashFor, contentHashV0, CONTENT_HASH_SCHEME } = await import("@/lib/vat-export/load");
+        const d = base();
+        const h = contentHash(d);
+        expect(CONTENT_HASH_SCHEME).toBe("v1");
+        const withExtra = { ...d, invoices: d.invoices.map((i) => ({ ...i, campoFuturo: "x" }) as unknown as ExportInvoice) };
+        expect(contentHash(withExtra)).toBe(h);
+        const changed = { ...d, invoices: d.invoices.map((i, k) => (k === 0 ? { ...i, activityCode: "620101" } : i)) };
+        expect(contentHash(changed)).not.toBe(h);
+        const lineChanged = { ...d, invoices: d.invoices.map((i, k) => (k === 0 ? { ...i, vatLines: [{ ...i.vatLines[0], vatAmount: D("210.01") }, ...i.vatLines.slice(1)] } : i)) };
+        expect(contentHash(lineChanged)).not.toBe(h);
+        expect(contentHashFor("v1", d)).toBe(h);
+        expect(contentHashFor(undefined, d)).toBe(contentHashV0(d));
+        expect(contentHashFor("v9", d)).toBeNull();
+    });
+});

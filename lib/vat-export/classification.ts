@@ -103,6 +103,7 @@ export function needsZeroRateRecord(inv: ExportInvoice): boolean {
 }
 
 /** Controles de UN comprobante. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- la modalidad del período se usa en los controles futuros por modalidad
 export function invoiceIssues(inv: ExportInvoice, settings: ExportSettings): ExportIssue[] {
     const out: ExportIssue[] = [];
     const add = (level: IssueLevel, code: IssueCode, message: string) => out.push({ level, code, message, invoiceId: inv.id });
@@ -127,7 +128,6 @@ export function invoiceIssues(inv: ExportInvoice, settings: ExportSettings): Exp
             add("INFO", "EXPORT_VOUCHER", "exportación: no integra la apertura de débito fiscal; su importe figura en los conceptos a cargar en ARCA");
         } else {
             if (inv.activityCode === null) add("EXPORT", "SALE_ACTIVITY_MISSING", "falta la actividad de la operación (código ARCA de 6 dígitos)");
-            const hasExemptPart = !z(inv.exemptAmount).isZero() || !z(inv.nonTaxedAmount).isZero();
             const zeroRateOnly = inv.vatLines.length > 0 && inv.vatLines.every((l) => l.vatRateCode === 3);
             if (hasTaxed && !zeroRateOnly) {
                 if (inv.saleOperationType === null) add("EXPORT", "SALE_OPERATION_TYPE_MISSING", "falta el tipo de operación (cosas muebles, obras, locaciones y servicios, o bienes de uso)");
@@ -140,7 +140,6 @@ export function invoiceIssues(inv: ExportInvoice, settings: ExportSettings): Exp
             }
             if (!z(inv.netWithoutVatBreakdownAmount).isZero()) add("EXPORT", "SALE_NET_WITHOUT_BREAKDOWN", "venta con importe sin IVA discriminado: no se puede abrir por alícuota");
             if (inv.dationInPayment && z(inv.totalVatAmount).isZero()) add("WARNING", "DATION_WITHOUT_VAT", "marcada como dación en pago (Dto. 1145/09) sin débito fiscal");
-            void hasExemptPart;
         }
     } else {
         const noBreakdown = purchaseHasNoVatBreakdown("PURCHASES", code);
@@ -158,7 +157,6 @@ export function invoiceIssues(inv: ExportInvoice, settings: ExportSettings): Exp
             }
         }
     }
-    void settings;
     return out;
 }
 

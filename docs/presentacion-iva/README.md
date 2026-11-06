@@ -238,3 +238,9 @@ El Operador conserva su alcance por clientes asignados y no reabre.
 **IIBB:** sigue siendo informativo y no se congela con el cierre.
 
 **Automatización de ARCA:** ver [AUTOMATIZACION.md](AUTOMATIZACION.md).
+
+## Evidencia y validación
+
+- Smoke en la Deploy Preview, separado por interfaz y por API, con metadatos de Netlify: [SMOKE-PREVIEW.md](SMOKE-PREVIEW.md).
+- Procedimiento para validar que ARCA acepte los archivos, sin presentar: [VALIDACION-ARCA.md](VALIDACION-ARCA.md).
+- **Huella del contenido.** Usa un esquema versionado (`v1`, con campos explícitos). Las versiones cerradas antes de `v1`, sin `summary.hashScheme`, se verifican con el esquema `v0`, que se conserva sin cambios.

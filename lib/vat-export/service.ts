@@ -5,7 +5,7 @@ import { MissingGlobalProrationCoefficientError } from "../invoice-model";
 import { computeLiquidation, type LiquidationResult } from "../liquidation-calc";
 import { serializeLiquidation, type LiquidationDTO } from "../serializers";
 import type { ExportIssue, IssueCode, IssueLevel } from "./classification";
-import { contentHash, loadPeriodExportData, type PeriodExportData } from "./load";
+import { CONTENT_HASH_SCHEME, contentHash, loadPeriodExportData, type PeriodExportData } from "./load";
 import { buildPackage, hasExportBlockers, periodExportIssues, type PackageFileInfo, type PackageResult, type ReconciliationLine } from "./package";
 import type { OmittedFile } from "./types";
 import { VAT_EXPORT_ENGINE_VERSION } from "./version";
@@ -39,6 +39,10 @@ function liquidate(data: PeriodExportData): { result: LiquidationResult | null; 
 
 export function readinessOf(data: PeriodExportData): Readiness {
     const { result, error } = liquidate(data);
+    return readinessFrom(data, result, error);
+}
+
+function readinessFrom(data: PeriodExportData, result: LiquidationResult | null, error: string | null): Readiness {
     const issues = periodExportIssues(data.invoices, data.taxRecords, data.settings);
     if (error) issues.unshift({ level: "LIQUIDATION", code: "LIQUIDATION_NOT_COMPUTABLE", message: error });
     const counts: Record<IssueLevel, number> = { LIQUIDATION: 0, EXPORT: 0, WARNING: 0, INFO: 0 };
@@ -84,6 +88,8 @@ export function packageFor(data: PeriodExportData, liquidation: LiquidationResul
 /** Resumen guardado con la versión cerrada (JSON saneado: sin datos de contrapartes). */
 export interface VersionSummary {
     engineVersion: string;
+    /** Esquema de la huella del contenido (lib/vat-export/load.ts). */
+    hashScheme: string;
     identity: { clientName: string; clientCuit: string; month: number; year: number };
     liquidation: LiquidationDTO | null;
     liquidationError: string | null;
@@ -111,14 +117,15 @@ export interface CloseSnapshot {
 export async function closeSnapshot(tx: Db, scope: { organizationId: string; periodId: string }, version: number, now: Date): Promise<CloseSnapshot | null> {
     const data = await loadPeriodExportData(tx, scope);
     if (!data) return null;
-    const r = readinessOf(data);
-    const { result } = liquidate(data);
+    const { result, error } = liquidate(data);
+    const r = readinessFrom(data, result, error);
     let pkg: PackageResult | null = null;
     if (result && !r.blocked) pkg = packageFor(data, result, "FINAL", version, now);
     return {
         contentHash: r.contentHash,
         summary: {
             engineVersion: VAT_EXPORT_ENGINE_VERSION,
+            hashScheme: CONTENT_HASH_SCHEME,
             identity: { clientName: data.client.name, clientCuit: data.client.cuit, month: data.period.month, year: data.period.year },
             liquidation: r.liquidation,
             liquidationError: r.liquidationError,

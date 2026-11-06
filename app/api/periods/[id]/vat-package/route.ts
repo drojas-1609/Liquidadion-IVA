@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import prisma from "@/lib/prisma";
 import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { computeLiquidation } from "@/lib/liquidation-calc";
-import { contentHash, loadPeriodExportData } from "@/lib/vat-export/load";
+import { contentHashFor, loadPeriodExportData } from "@/lib/vat-export/load";
 import { packageFor } from "@/lib/vat-export/service";
 import {
     requireAuthenticatedProfile,
@@ -57,7 +57,10 @@ export const GET = withApiAuthz(async (request: Request, ctx: Ctx) => {
         if (!current.packageZip || !current.packageSha256) throw new ConflictError("La versión cerrada no tiene paquete: al cerrar había bloqueos de exportación. Reabrí el período, resolvelos y volvé a cerrar.");
         const bytes = new Uint8Array(current.packageZip);
         if (createHash("sha256").update(bytes).digest("hex") !== current.packageSha256) throw new Error("vat-package: el paquete guardado no coincide con su huella");
-        if (contentHash(data) !== current.contentHash) throw new ConflictError("El contenido del período no coincide con el de la versión cerrada: no se entrega el paquete. Avisá al administrador.");
+        const scheme = (current.summary as { hashScheme?: unknown } | null)?.hashScheme;
+        const recomputed = contentHashFor(scheme, data);
+        if (recomputed === null) throw new Error("vat-package: esquema de huella desconocido");
+        if (recomputed !== current.contentHash) throw new ConflictError("El contenido del período no coincide con el de la versión cerrada: no se entrega el paquete. Avisá al administrador.");
         zip = bytes;
         version = current.version;
         const identity = (current.summary as { identity?: { clientCuit?: string } } | null)?.identity;

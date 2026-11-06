@@ -135,8 +135,67 @@ export async function loadPeriodExportData(db: Db, scope: { organizationId: stri
  * del bloqueo y la descarga se rechaza. La ficha del cliente NO entra (se puede
  * editar con el período cerrado): su identificación al cierre queda en el
  * resumen de la versión y en el paquete guardado.
+ *
+ * Esquema v1 con una lista EXPLÍCITA y fija de campos (no la forma de los
+ * tipos): agregar un campo al cargador no cambia la huella de las versiones ya
+ * cerradas. Cambiar esta lista exige un esquema nuevo (v2) y conservar el v1
+ * para verificar las versiones anteriores.
  */
+export const CONTENT_HASH_SCHEME = "v1";
+
+const INVOICE_HASH_FIELDS = [
+    "id", "category", "voucherCode", "pointOfSale", "number", "numberTo", "voucherDate", "counterpartyDocType", "counterpartyDocNumber",
+    "counterpartyName", "counterpartyVatConditionCode", "currencyCode", "exchangeRate", "taxedNetAmount", "totalVatAmount",
+    "directComputableVatCreditAmount", "netWithoutVatBreakdownAmount", "nonTaxedAmount", "exemptAmount", "vatPerceptionAmount",
+    "nationalPerceptionAmount", "iibbPerceptionAmount", "municipalPerceptionAmount", "internalTaxesAmount", "otherTaxesAmount",
+    "voucherTotalAmount", "turivaRefundAmount", "lidSection", "operationCode", "activityCode", "saleOperationType", "buyerType",
+    "purchaseCreditConcept", "dationInPayment",
+] as const;
+const LINE_HASH_FIELDS = ["vatRateCode", "netAmount", "vatAmount", "creditAllocation", "computableVatAmount"] as const;
+const TAX_HASH_FIELDS = [
+    "id", "date", "type", "amount", "nature", "taxCode", "regimeCode", "agentCuit", "intermediaryCuit", "voucherTypeCode", "voucherNumber",
+    "certificateNumber", "customsDocument", "invoiceId",
+] as const;
+const SETTINGS_HASH_FIELDS = [
+    "creditProrationMode", "globalCoefficient", "turivaIncluded", "previousTechnicalBalance", "previousTechnicalBalanceReference",
+    "previousFreeBalance", "previousFreeBalanceReference",
+] as const;
+const ADJUSTMENT_HASH_FIELDS = ["regime", "contributionsAmount", "computableAmount", "reference"] as const;
+
+function pick(o: object, fields: readonly string[]): unknown[] {
+    const r = o as Record<string, unknown>;
+    return fields.map((f) => {
+        const v = r[f];
+        if (v === undefined || v === null) return null;
+        if (v instanceof Prisma.Decimal) return v.toFixed();
+        return v;
+    });
+}
+
 export function contentHash(d: Pick<PeriodExportData, "invoices" | "taxRecords" | "settings" | "adjustments" | "period">): string {
+    const h = createHash("sha256");
+    const put = (v: unknown) => h.update(JSON.stringify(v) + "\n");
+    put(["scheme", CONTENT_HASH_SCHEME]);
+    put(["period", d.period.id, d.period.month, d.period.year]);
+    put(["settings", pick(d.settings, SETTINGS_HASH_FIELDS)]);
+    for (const a of [...d.adjustments].sort((x, y) => x.regime.localeCompare(y.regime))) put(["adjustment", pick(a, ADJUSTMENT_HASH_FIELDS)]);
+    for (const i of [...d.invoices].sort((a, b) => a.id.localeCompare(b.id))) {
+        const lines = [...i.vatLines]
+            .map((l) => pick(l, LINE_HASH_FIELDS))
+            .sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y)));
+        put(["invoice", pick(i, INVOICE_HASH_FIELDS), lines]);
+    }
+    for (const t of [...d.taxRecords].sort((a, b) => a.id.localeCompare(b.id))) put(["tax", pick(t, TAX_HASH_FIELDS)]);
+    return h.digest("hex");
+}
+
+/**
+ * Esquema v0 (versiones cerradas antes de CONTENT_HASH_SCHEME, sin
+ * `summary.hashScheme`): serializaba los objetos completos del cargador del
+ * 06/11/2026. Se conserva SIN CAMBIOS sólo para verificar esas versiones; no se
+ * usa para cerrar.
+ */
+export function contentHashV0(d: Pick<PeriodExportData, "invoices" | "taxRecords" | "settings" | "adjustments" | "period">): string {
     const h = createHash("sha256");
     const put = (v: unknown) => h.update(JSON.stringify(v, (_k, x) => (x instanceof Prisma.Decimal ? x.toFixed() : x)) + "\n");
     put(["period", d.period.id, d.period.month, d.period.year]);
@@ -145,4 +204,11 @@ export function contentHash(d: Pick<PeriodExportData, "invoices" | "taxRecords" 
     for (const i of [...d.invoices].sort((a, b) => a.id.localeCompare(b.id))) put(["invoice", i]);
     for (const t of [...d.taxRecords].sort((a, b) => a.id.localeCompare(b.id))) put(["tax", t]);
     return h.digest("hex");
+}
+
+/** Huella con el esquema con que se cerró la versión (`summary.hashScheme`; ausente = v0). */
+export function contentHashFor(scheme: unknown, d: Parameters<typeof contentHash>[0]): string | null {
+    if (scheme === undefined || scheme === null) return contentHashV0(d);
+    if (scheme === CONTENT_HASH_SCHEME) return contentHash(d);
+    return null;
 }
