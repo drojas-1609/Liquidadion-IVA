@@ -131,6 +131,19 @@ const HANDLER_TX_OPTIONS = [
   { key: "timeout", literal: "10000", missing: "TX_TIMEOUT_MISSING", invalid: "TX_TIMEOUT_INVALID", unevaluable: "TX_TIMEOUT_UNEVALUABLE", duplicate: "TX_TIMEOUT_DUPLICATE" },
 ] as const satisfies ReadonlyArray<{ key: string; literal: string; missing: ViolationCode; invalid: ViolationCode; unevaluable: ViolationCode; duplicate: ViolationCode }>;
 
+/**
+ * Única excepción inventariada al `timeout` de 10000: la confirmación de la
+ * importación del Libro IVA Digital escribe miles de comprobantes en dos
+ * createMany. En la Deploy Preview (función en Ohio, base en São Paulo) cada
+ * lote de ~665 filas tardó ~1,1 s de red contra ~70 ms en Postgres: 4.001
+ * filas ya superaban los 10 s. 40000 deja el total (recálculo previo +
+ * transacción) por debajo del límite de 60 s de las funciones síncronas de
+ * Netlify. Se exige ESE literal en ESE archivo; el resto sigue en 10000.
+ */
+export const HANDLER_TX_TIMEOUT_OVERRIDES: Readonly<Record<string, string>> = {
+  "app/api/periods/[id]/libro-iva-import/confirm/route.ts": "40000",
+};
+
 // ── SQL inventariado ───────────────────────────────────────────────────────
 
 const READ_TIMEOUT_SQL = `SELECT current_setting('lock_timeout') AS "lockTimeout"`;
@@ -725,7 +738,9 @@ function checkHandlerTxOptions(ctx: Ctx, method: string, call: ts.CallExpression
     seen.set(name, [...(seen.get(name) ?? []), p]);
   }
 
-  for (const o of HANDLER_TX_OPTIONS) {
+  for (const base of HANDLER_TX_OPTIONS) {
+    const override = base.key === "timeout" ? HANDLER_TX_TIMEOUT_OVERRIDES[ctx.file] : undefined;
+    const o = override ? { ...base, literal: override } : base;
     const props = seen.get(o.key) ?? [];
     if (props.length === 0) {
       add(ctx, o.missing, opts, `${method}: falta ${o.key}: ${o.literal} en las opciones de $transaction`);

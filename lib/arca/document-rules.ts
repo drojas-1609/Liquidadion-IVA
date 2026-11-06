@@ -286,6 +286,17 @@ function normalizeDocNumber(
 }
 
 /**
+ * Formato técnico del número de documento para la IMPORTACIÓN del Libro IVA
+ * Digital (mismas reglas que la carga manual: CUIT/CUIL con dígito
+ * verificador, DNI numérico, extranjeros alfanuméricos). No evalúa la regla
+ * documental por condición fiscal: el formato del libro no informa la
+ * condición frente al IVA de la contraparte.
+ */
+export function normalizeImportedDocNumber(docType: number, raw: string): { ok: true; value: string } | { ok: false; error: string } {
+    return normalizeDocNumber(docType, raw, false);
+}
+
+/**
  * Valida el documento de la contraparte para una NUEVA carga manual.
  * Complementa (no reemplaza) la matriz de comprobantes de voucher-matrix.
  */

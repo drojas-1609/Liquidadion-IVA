@@ -44,7 +44,8 @@ echo "PostgreSQL local: $("${PG_BIN}/psql" "$URL" -X -qAt -c 'SHOW server_versio
 # Roles sintéticos y permisos por defecto como los que puede heredar una tabla en Supabase.
 "${PG_BIN}/psql" "$URL" -X -v ON_ERROR_STOP=1 -q -c 'CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN; ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO anon, authenticated, service_role;' >/dev/null
 
-CLEAN_ENV=(env -i PATH="$PATH" HOME="$HOME" CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPDATE_MESSAGE=1 NEXT_TELEMETRY_DISABLED=1)
+# LID_VOLUME=1 habilita la prueba de volumen del Libro IVA Digital (opcional, más lenta).
+CLEAN_ENV=(env -i PATH="$PATH" HOME="$HOME" CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPDATE_MESSAGE=1 NEXT_TELEMETRY_DISABLED=1 LID_VOLUME="${LID_VOLUME:-0}")
 ( cd "$REPO" && "${CLEAN_ENV[@]}" DATABASE_URL="$URL" DIRECT_URL="$URL" npx --no-install prisma migrate deploy ) \
   || { tail -20 "$TMP/server.log"; die "falló prisma migrate deploy en el clúster local"; }
 "${PG_BIN}/psql" "$URL" -X -qAt -c \
@@ -92,7 +93,7 @@ SHADOW="postgresql://postgres@127.0.0.1:${PORT}/prisma_shadow"
     --to-schema-datamodel prisma/schema.prisma --shadow-database-url "$SHADOW" --exit-code >/dev/null ) \
   && echo "schema.prisma == migraciones: sin diferencias" || die "schema.prisma y las migraciones difieren"
 
-( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" PR17_LOCAL_PG_DEVLIKE_URL="$DEVLIKE" PR17_LOCAL_PG_RUNNER_PREV_URL="$RUNNER_PREV" PR17_LOCAL_PG_RUNNER_URL="$RUNNER_CUR" npx --no-install vitest run --no-file-parallelism tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts tests/integration/arca-production-pg.test.ts tests/integration/arca-devlike-pg.test.ts tests/integration/arca-runner-precheck-pg.test.ts tests/integration/users-permissions-pg.test.ts tests/integration/period-totals-pg.test.ts )
+( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" PR17_LOCAL_PG_DEVLIKE_URL="$DEVLIKE" PR17_LOCAL_PG_RUNNER_PREV_URL="$RUNNER_PREV" PR17_LOCAL_PG_RUNNER_URL="$RUNNER_CUR" npx --no-install vitest run --no-file-parallelism tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts tests/integration/arca-production-pg.test.ts tests/integration/arca-devlike-pg.test.ts tests/integration/arca-runner-precheck-pg.test.ts tests/integration/users-permissions-pg.test.ts tests/integration/period-totals-pg.test.ts tests/integration/libro-iva-import-pg.test.ts tests/integration/libro-iva-import-volume-pg.test.ts )
 
 # Ensayo de la prueba DEV de usuarias sintéticas (tests/dev-smoke) contra el clúster local,
 # DESPUÉS de las pruebas anteriores: sus datos hacen de "estudio real" que no debe cambiar.

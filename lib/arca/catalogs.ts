@@ -31,6 +31,17 @@ export const SOURCE_LID_ESPECIFICACIONES: OfficialSource = {
     retrievedAt: "2026-09-25",
 };
 
+/**
+ * "Libro IVA Digital – ANEXO I – Diseños de Registros": posiciones de los
+ * archivos de importación (ventas, ventas TurIVA, compras, compras TurIVA y
+ * alícuotas). Texto extraído del PDF oficial (sha256 d8ea46d0…ba1571).
+ */
+export const SOURCE_LID_DISENO_REGISTROS: OfficialSource = {
+    document: "Libro IVA Digital – Anexo I – Diseños de Registros",
+    url: "https://www.afip.gob.ar/iva/documentos/libro-iva-digital-diseno-registros.pdf",
+    retrievedAt: "2026-11-03",
+};
+
 /** "Tipos de responsables" (Factura Electrónica), V.0 del 06/02/2025. */
 export const SOURCE_TIPOS_RESPONSABLES: OfficialSource = {
     document: "Tipos de responsables (TABLA-TIPO-RESPONSABLES-V.0-06022025)",

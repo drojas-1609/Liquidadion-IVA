@@ -18,7 +18,7 @@ import {
   ValidationError,
 } from "@/lib/auth/errors";
 import { TURIVA_NOT_INCLUDED_MESSAGE } from "@/lib/invoice-model";
-import { analyzeSource, codesOf } from "./_period-lock-structure";
+import { analyzeSource, codesOf, HANDLER_TX_TIMEOUT_OVERRIDES } from "./_period-lock-structure";
 
 /**
  * Bloqueo del período antes de modificar su contenido (PR-1).
@@ -306,6 +306,8 @@ const WRITERS: Record<string, readonly string[]> = {
   "app/api/periods/[id]/route.ts": ["DELETE"],
   "app/api/periods/[id]/close/route.ts": ["POST"],
   "app/api/periods/[id]/reopen/route.ts": ["POST"],
+  // Importación del Libro IVA Digital: comprobantes y líneas en lote bajo lockPeriodForWrite.
+  "app/api/periods/[id]/libro-iva-import/confirm/route.ts": ["POST"],
 };
 
 /**
@@ -330,9 +332,9 @@ const codes = (file: string, src: string, methods?: readonly string[], transitio
 const details = (file: string, src: string, methods?: readonly string[]) => analyzeSource(file, src, methods).map((v) => v.detail).join(" | ");
 
 describe("cobertura estructural — producción", () => {
-  it("el inventario es exacto: 10 handlers en 8 archivos (8 writers del contenido + 2 transiciones de estado)", () => {
-    expect(Object.keys(WRITERS)).toHaveLength(8);
-    expect(Object.values(WRITERS).flat()).toHaveLength(10);
+  it("el inventario es exacto: 11 handlers en 9 archivos (9 writers del contenido + 2 transiciones de estado)", () => {
+    expect(Object.keys(WRITERS)).toHaveLength(9);
+    expect(Object.values(WRITERS).flat()).toHaveLength(11);
     expect(Object.values(TRANSITIONS).flat()).toHaveLength(2);
     for (const [f, ms] of Object.entries(TRANSITIONS)) for (const m of ms) expect(WRITERS[f], f).toContain(m);
     expect(productionFiles.length).toBeGreaterThan(20);
@@ -542,6 +544,19 @@ describe("cobertura estructural — fuentes sintéticas: opciones de la transacc
     expect(details(HANDLER_FILE, src, ["POST"])).toMatch(message);
   });
 
+  it("excepción inventariada: sólo la confirmación del Libro IVA Digital exige timeout 40000", () => {
+    const IMPORT_FILE = "app/api/periods/[id]/libro-iva-import/confirm/route.ts";
+    const at = (t: string) => withTxOptions(`}, { maxWait: 5000, timeout: ${t} });`);
+    expect(codes(IMPORT_FILE, at("40000"), ["POST"])).toEqual([]);
+    expect(codes(IMPORT_FILE, at("10000"), ["POST"])).toEqual(["TX_TIMEOUT_INVALID"]);
+    expect(details(IMPORT_FILE, at("10000"), ["POST"])).toMatch(/timeout 10000 \(se exige exactamente 40000\)/);
+    expect(codes(IMPORT_FILE, at("60000"), ["POST"])).toEqual(["TX_TIMEOUT_INVALID"]);
+    expect(codes(IMPORT_FILE, withTxOptions("}, { maxWait: 2000, timeout: 40000 });"), ["POST"])).toEqual(["TX_MAX_WAIT_INVALID"]);
+    // En cualquier otro handler, 40000 sigue siendo inválido.
+    expect(handler(at("40000"))).toEqual(["TX_TIMEOUT_INVALID"]);
+    expect(Object.keys(HANDLER_TX_TIMEOUT_OVERRIDES)).toEqual([IMPORT_FILE]);
+  });
+
   it("ambos valores incorrectos -> una violación por opción, sin otras", () => {
     expect(handler(withTxOptions("}, { maxWait: 2000, timeout: 5000 });"))).toEqual(["TX_MAX_WAIT_INVALID", "TX_TIMEOUT_INVALID"]);
     expect(handler(withTxOptions("}, {});"))).toEqual(["TX_MAX_WAIT_MISSING", "TX_TIMEOUT_MISSING"]);
@@ -563,13 +578,15 @@ describe("cobertura estructural — fuentes sintéticas: opciones de la transacc
     expect(codes(HANDLER_FILE, "export const GET = withApiAuthz(async () => prisma.$transaction(async (tx) => tx.client.findMany()));")).toEqual([]);
   });
 
-  it("los 6 handlers productivos inventariados llevan exactamente { maxWait: 5000, timeout: 10000 } en su única transacción", () => {
+  it("los handlers productivos inventariados llevan exactamente { maxWait: 5000, timeout: 10000 } (o la excepción inventariada) en su única transacción", () => {
     for (const [file, methods] of Object.entries(WRITERS)) {
       const { handlers } = splitHandlers(code(read(file)));
+      const override = HANDLER_TX_TIMEOUT_OVERRIDES[file];
+      const expected = override ? `{ maxWait: 5000, timeout: ${override} }` : TX_OPTIONS;
       for (const m of methods) {
         expect(handlers[m], `${file} ${m}`).toBeDefined();
         expect(handlers[m].match(/\$transaction\(/g), `${file} ${m}`).toHaveLength(1);
-        expect(handlers[m], `${file} ${m}`).toContain(`}, ${TX_OPTIONS})`);
+        expect(handlers[m], `${file} ${m}`).toContain(`}, ${expected})`);
       }
     }
   });

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
-import { ROLES_READ, ROLES_DELETE, ROLES_UPDATE, ROLES_PERIOD_CLOSE, ROLES_PERIOD_REOPEN, roleAllows } from "@/lib/auth/roles";
+import { ROLES_READ, ROLES_CREATE, ROLES_DELETE, ROLES_UPDATE, ROLES_PERIOD_CLOSE, ROLES_PERIOD_REOPEN, roleAllows } from "@/lib/auth/roles";
 import { formatPeriodLabel } from "@/lib/period";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
@@ -73,6 +73,11 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
     const statusHeader = (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "var(--spacing-sm)" }}>
             {statusActions}
+            {roleAllows(ROLES_CREATE, role) && !closed && (
+                <Link href={`/client/${id}/period/${period.id}/import`} className="btn btn-secondary">
+                    Importar Libro IVA Digital
+                </Link>
+            )}
             <PeriodActions
                 clientId={id}
                 periodId={period.id}
