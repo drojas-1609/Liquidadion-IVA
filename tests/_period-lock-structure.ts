@@ -99,7 +99,7 @@ export interface Violation {
 }
 
 /** Modelos del contenido del período: toda operación de escritura cuenta. */
-const CONTENT_MODELS = new Set(["invoice", "invoiceVatLine", "taxRecord", "periodVatSettings"]);
+const CONTENT_MODELS = new Set(["invoice", "invoiceVatLine", "taxRecord", "periodVatSettings", "periodVatCreditAdjustment"]);
 const WRITE_OPS = new Set([
   "create",
   "createMany",
@@ -116,7 +116,7 @@ const PERIOD_WRITE_OPS = new Set(["delete", "deleteMany", "update", "updateMany"
 /** Operaciones de Period que pueden anidar escrituras del contenido. */
 const PERIOD_NESTING_OPS = new Set(["create", "createMany", "createManyAndReturn", "update", "updateMany", "updateManyAndReturn", "upsert"]);
 /** Relaciones de Period hacia el contenido. */
-const PERIOD_CONTENT_RELATIONS = new Set(["invoices", "invoicesByClient", "taxRecords", "vatSettings"]);
+const PERIOD_CONTENT_RELATIONS = new Set(["invoices", "invoicesByClient", "taxRecords", "vatSettings", "vatCreditAdjustments"]);
 /** Identificadores que designan un cliente Prisma (o la transacción). */
 const CLIENT_NAMES = new Set(["prisma", "tx", "db"]);
 const BANNED_RAW = new Set(["$executeRaw", "$executeRawUnsafe", "$queryRawUnsafe"]);

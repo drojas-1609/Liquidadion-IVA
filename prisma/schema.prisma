@@ -25,17 +25,19 @@ model Profile {
   // invitación sobrevive al borrado de quien invitó; la autoría queda en AuditLog).
   sentInvitations OrganizationInvitation[] @relation("InvitationInvitedBy")
 
-  createdClients           Client[]            @relation("ClientCreatedBy")
-  updatedClients           Client[]            @relation("ClientUpdatedBy")
-  createdPeriods           Period[]            @relation("PeriodCreatedBy")
-  updatedPeriods           Period[]            @relation("PeriodUpdatedBy")
-  closedPeriods            Period[]            @relation("PeriodClosedBy")
-  createdInvoices          Invoice[]           @relation("InvoiceCreatedBy")
-  updatedInvoices          Invoice[]           @relation("InvoiceUpdatedBy")
-  createdTaxRecords        TaxRecord[]         @relation("TaxRecordCreatedBy")
-  updatedTaxRecords        TaxRecord[]         @relation("TaxRecordUpdatedBy")
-  createdPeriodVatSettings PeriodVatSettings[] @relation("PeriodVatSettingsCreatedBy")
-  updatedPeriodVatSettings PeriodVatSettings[] @relation("PeriodVatSettingsUpdatedBy")
+  createdClients              Client[]                    @relation("ClientCreatedBy")
+  updatedClients              Client[]                    @relation("ClientUpdatedBy")
+  createdPeriods              Period[]                    @relation("PeriodCreatedBy")
+  updatedPeriods              Period[]                    @relation("PeriodUpdatedBy")
+  closedPeriods               Period[]                    @relation("PeriodClosedBy")
+  createdInvoices             Invoice[]                   @relation("InvoiceCreatedBy")
+  updatedInvoices             Invoice[]                   @relation("InvoiceUpdatedBy")
+  createdTaxRecords           TaxRecord[]                 @relation("TaxRecordCreatedBy")
+  updatedTaxRecords           TaxRecord[]                 @relation("TaxRecordUpdatedBy")
+  createdPeriodVatSettings    PeriodVatSettings[]         @relation("PeriodVatSettingsCreatedBy")
+  updatedPeriodVatSettings    PeriodVatSettings[]         @relation("PeriodVatSettingsUpdatedBy")
+  createdVatCreditAdjustments PeriodVatCreditAdjustment[] @relation("VatCreditAdjustmentCreatedBy")
+  updatedVatCreditAdjustments PeriodVatCreditAdjustment[] @relation("VatCreditAdjustmentUpdatedBy")
 
   // Tarea 3B: actor de la traza de auditoría. onDelete: SetNull (el historial
   // sobrevive al borrado del Profile).
@@ -253,14 +255,17 @@ model Period {
 
   // Tarea 3B: relación COMPUESTA. Un Period sólo puede referenciar un Client
   // de la MISMA organización (PostgreSQL rechaza cualquier otra combinación).
-  client           Client             @relation(fields: [clientId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
-  invoices         Invoice[]          @relation("InvoicePeriod")
+  client               Client                      @relation(fields: [clientId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
+  invoices             Invoice[]                   @relation("InvoicePeriod")
   // Fase A (M1): destino de la FK (periodId, clientId, organizationId) que
   // garantiza en la base que Invoice.clientId coincide con el del período.
-  invoicesByClient Invoice[]          @relation("InvoicePeriodClient")
+  invoicesByClient     Invoice[]                   @relation("InvoicePeriodClient")
   // Fase A: configuración de IVA del período (1:1, opcional).
-  vatSettings      PeriodVatSettings?
-  taxRecords       TaxRecord[]
+  vatSettings          PeriodVatSettings?
+  // Ajustes al crédito fiscal por contribuciones a la Seguridad Social (Portal
+  // IVA → Ajustes al Crédito Fiscal). A lo sumo uno por régimen.
+  vatCreditAdjustments PeriodVatCreditAdjustment[]
+  taxRecords           TaxRecord[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -503,15 +508,21 @@ enum CoefficientStatus {
 /// El ajuste anual del prorrateo NO se modela todavía (tendrá su propio
 /// modelo por cliente y ejercicio).
 model PeriodVatSettings {
-  id                      String              @id @default(cuid())
-  organizationId          String
-  periodId                String              @unique
-  creditProrationMode     CreditProrationMode @default(NONE)
+  id                                String              @id @default(cuid())
+  organizationId                    String
+  periodId                          String              @unique
+  creditProrationMode               CreditProrationMode @default(NONE)
   /// Coeficiente de prorrateo global (0..1). Obligatorio en GLOBAL / DIRECT_AND_GLOBAL.
-  globalCoefficient       Decimal?            @db.Decimal(11, 10)
-  globalCoefficientStatus CoefficientStatus?
+  globalCoefficient                 Decimal?            @db.Decimal(11, 10)
+  globalCoefficientStatus           CoefficientStatus?
   /// "Incluido en el Régimen TurIVA".
-  turivaIncluded          Boolean             @default(false)
+  turivaIncluded                    Boolean             @default(false)
+  /// F.2051 "Saldo técnico a favor del contribuyente del período anterior".
+  /// Lo carga el estudio desde la DJ anterior (no se deduce de otro período).
+  /// CHECK en la base: >= 0.
+  previousTechnicalBalance          Decimal             @default(0) @db.Decimal(18, 2)
+  /// Referencia del origen (p. ej. "DJ F.2051 08/2026, transacción ...").
+  previousTechnicalBalanceReference String?             @db.VarChar(120)
 
   // FK COMPUESTA: la configuración sólo puede referenciar un Period de la
   // MISMA organización. Se borra con el período (es parte de él).
@@ -526,6 +537,49 @@ model PeriodVatSettings {
 
   // 1:1 con la FK compuesta (también es el índice explícito de la FK).
   @@unique([periodId, organizationId])
+  @@index([organizationId])
+}
+
+/// Régimen del crédito fiscal por contribuciones a la Seguridad Social, con
+/// los nombres del Portal IVA (Ajustes al Crédito Fiscal):
+///  - LEY_27541_ANEXO_I: Ley 27.541 art. 21 y Anexo I (régimen general de
+///    empleadores). Se suma al crédito fiscal, sin tope.
+///  - LEY_27467_ART_91: Ley 27.467 art. 91 (3er art. s/n a continuación del
+///    art. 24 de la ley de IVA): radiodifusión, señales y editoras. Se computa
+///    antes que los demás créditos y hasta el débito fiscal del período; no
+///    genera saldo a favor.
+enum VatCreditAdjustmentRegime {
+  LEY_27541_ANEXO_I
+  LEY_27467_ART_91
+}
+
+/// Ajuste al crédito fiscal por contribuciones a la Seguridad Social de un
+/// período. El estudio carga las contribuciones efectivamente abonadas
+/// ("Crédito Fiscal" en el Portal IVA, informativo) y el importe computable
+/// ("Crédito Fiscal Computable", el que entra en la liquidación). La app no
+/// calcula porcentajes ni zonas. CHECK en la base: 0 <= computable <= contribuciones.
+model PeriodVatCreditAdjustment {
+  id                  String                    @id @default(cuid())
+  organizationId      String
+  periodId            String
+  regime              VatCreditAdjustmentRegime
+  contributionsAmount Decimal                   @db.Decimal(18, 2)
+  computableAmount    Decimal                   @db.Decimal(18, 2)
+  /// Referencia del origen (p. ej. "F.931 09/2026").
+  reference           String?                   @db.VarChar(120)
+
+  // FK COMPUESTA: sólo un Period de la MISMA organización; se borra con él.
+  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+  createdBy   Profile? @relation("VatCreditAdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy   Profile? @relation("VatCreditAdjustmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([periodId, regime])
+  @@index([periodId, organizationId])
   @@index([organizationId])
 }
 

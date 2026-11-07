@@ -202,7 +202,7 @@ describe("liquidation — sección IIBB", () => {
   it("'Base Imponible IIBB' muestra iibb.base (no las ventas netas) y no queda el rótulo 'Ventas Netas'", async () => {
     db.period.findFirst.mockImplementation(async ({ where }: { where: { id: string; organizationId: string } }) =>
       where.id === "p_a" && where.organizationId === ORG_A
-        ? { ...periodRow("p_a", "c_a", ORG_A), invoices: [sale], taxRecords: [], client: clientRow("c_a", ORG_A), vatSettings: null }
+        ? { ...periodRow("p_a", "c_a", ORG_A), invoices: [sale], taxRecords: [], client: clientRow("c_a", ORG_A), vatSettings: null, vatCreditAdjustments: [] }
         : null,
     );
     const r = rows(await call(LiquidationPage as PageFn, "c_a", "p_a"));

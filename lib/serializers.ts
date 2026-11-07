@@ -229,13 +229,22 @@ export interface LiquidationDTO {
   purchases: { net: string; vat: string; total: string };
   iva: {
     debit: string;
-    /** Crédito fiscal computable total = directo + prorrateo global. */
+    /** Total del crédito fiscal del período = compras + ajustes aplicados. */
     credit: string;
+    /** Crédito por compras = directo + prorrateo global. */
+    creditPurchases: string;
     creditDirect: string;
     creditProrated: string;
     /** IVA sujeto a prorrateo global (base del prorrateo). */
     globalProrationVat: string;
+    creditSocialSecurityAnnexI: string;
+    creditSocialSecurityArt91Declared: string;
+    creditSocialSecurityArt91: string;
+    previousTechnicalBalance: string;
+    /** Saldo técnico con signo (débito − crédito − saldo técnico anterior). */
     balance: string;
+    technicalBalanceArca: string;
+    technicalBalanceInFavor: string;
     retentions: string;
     payable: string;
   };
@@ -250,10 +259,17 @@ export function serializeLiquidation(r: LiquidationResult): LiquidationDTO {
     iva: {
       debit: money(r.iva.debit),
       credit: money(r.iva.credit),
+      creditPurchases: money(r.iva.creditPurchases),
       creditDirect: money(r.iva.creditDirect),
       creditProrated: money(r.iva.creditProrated),
       globalProrationVat: money(r.iva.globalProrationVat),
+      creditSocialSecurityAnnexI: money(r.iva.creditSocialSecurityAnnexI),
+      creditSocialSecurityArt91Declared: money(r.iva.creditSocialSecurityArt91Declared),
+      creditSocialSecurityArt91: money(r.iva.creditSocialSecurityArt91),
+      previousTechnicalBalance: money(r.iva.previousTechnicalBalance),
       balance: money(r.iva.balance),
+      technicalBalanceArca: money(r.iva.technicalBalanceArca),
+      technicalBalanceInFavor: money(r.iva.technicalBalanceInFavor),
       retentions: money(r.iva.retentions),
       payable: money(r.iva.payable),
     },

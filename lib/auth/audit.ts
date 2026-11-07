@@ -33,6 +33,9 @@ export const AUDIT_ACTIONS = [
   // Configuración de IVA del período (declarada en Fase A; se emitirá cuando
   // exista el endpoint que modifique PeriodVatSettings).
   "period.vat_settings_change",
+  // Posición de IVA cargada por el estudio (PUT /api/periods/[id]/vat-position):
+  // saldo técnico anterior y ajustes al crédito fiscal por contribuciones.
+  "period.vat_position_change",
   // Corrección de comprobantes manuales (PATCH / DELETE /api/invoices/[id])
   "invoice.update",
   "invoice.delete",
@@ -121,6 +124,9 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "turivaIncludedBefore",
     "turivaIncludedAfter",
   ],
+  // Sólo NOMBRES de campo y regímenes (catálogo cerrado). NUNCA importes ni
+  // referencias (texto libre).
+  "period.vat_position_change": ["changedFields", "regimesBefore", "regimesAfter"],
   "period.update": [],
   // Corrección de comprobantes manuales. Identifican el comprobante (código,
   // punto de venta y número) sin datos personales ni importes. Los "Before" y

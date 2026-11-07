@@ -57,7 +57,8 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
         select: {
             taxRecords: { select: { type: true, amount: true } },
             client: { select: { defaultIibbRate: true } },
-            vatSettings: { select: { creditProrationMode: true, globalCoefficient: true } },
+            vatSettings: { select: { creditProrationMode: true, globalCoefficient: true, previousTechnicalBalance: true } },
+            vatCreditAdjustments: { select: { regime: true, computableAmount: true }, orderBy: { regime: "asc" } },
         },
     });
     if (!period) return null;
@@ -129,6 +130,7 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
         taxRecords: period.taxRecords,
         client: period.client,
         vatSettings: period.vatSettings,
+        vatCreditAdjustments: period.vatCreditAdjustments,
         invoiceCount: [...modeled, ...legacy].reduce((n, g) => n + g._count._all, 0),
     };
 }

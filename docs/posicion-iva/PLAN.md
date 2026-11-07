@@ -2,7 +2,20 @@
 
 **Estado:** relevamiento, sin código. Las reglas se codifican sólo con fuente oficial vigente verificada. El control con el período real del estudio se hace localmente, fuera del repositorio; acá sólo hay ejemplos sintéticos.
 
-## Qué hace hoy el motor (`lib/liquidation-calc.ts`)
+## Implementado (rama `feature/liquidacion-ajustes-credito-fiscal`, migración `20261106120000_vat_credit_adjustments`)
+
+- **Ajustes al crédito fiscal por contribuciones a la Seguridad Social**, con los nombres del Portal IVA (Ajustes al Crédito Fiscal):
+  - *Anexo I Ley 27.541* ([Ley 27.541, art. 21](https://servicios.infoleg.gob.ar/infolegInternet/anexos/330000-334999/333564/norma.htm)): régimen general de empleadores. Se suma al crédito fiscal, sin tope.
+  - *Art. 91 Ley 27.467* ([Ley 27.467, art. 91](https://servicios.infoleg.gob.ar/infolegInternet/anexos/315000-319999/316974/norma.htm), 3er art. s/n tras el art. 24 de la ley de IVA): sólo radiodifusión, señales y editoras. Se computa antes que los demás créditos y hasta el débito fiscal, sin generar saldo a favor.
+  - El estudio carga las contribuciones abonadas ("Crédito Fiscal") y el **computable** que surge del F.931. La app **no** calcula porcentajes ni zonas; muestra el porcentaje resultante sólo como control.
+- **Saldo técnico a favor del contribuyente del período anterior** (F.2051), cargado por el estudio con su referencia.
+- **Defecto 1 corregido:** las retenciones y percepciones sólo cancelan el saldo técnico a favor de ARCA. Con saldo técnico a favor, ese saldo se traslada y las retenciones pasan a libre disponibilidad.
+- Pantalla de liquidación y Excel con los renglones de la "Determinación del impuesto" del F.2051.
+- Edición: `PUT /api/periods/[id]/vat-position`, con rol de edición, módulo IVA, cliente en el alcance y período abierto (`lockPeriodForWrite`). AuditLog `period.vat_position_change` sólo con nombres de campo y regímenes.
+
+Siguen pendientes: defectos 2 y 3 (fuente única de percepciones de compras, retenciones y percepciones separadas), libre disponibilidad anterior, "Crédito fiscal por otros conceptos" (POS, Ley 27.618) y la clasificación de IIBB por jurisdicción.
+
+## Qué hacía el motor antes de la etapa 2 (`lib/liquidation-calc.ts`)
 
 | Concepto | Hoy |
 |---|---|

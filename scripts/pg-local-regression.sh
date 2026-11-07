@@ -58,7 +58,7 @@ CLEAN_ENV=(env -i PATH="$PATH" HOME="$HOME" CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPD
 # de DEV (scripts/arca/homologation-runner.ts EXPECTED_MIGRATIONS). Hoy ninguna.
 NOT_IN_DEV='^$'
 # Última migración aplicada en DEV: runner_prev representa el DEV anterior a ella.
-LAST_IN_DEV='^20261104230000_add_operator_role$'
+LAST_IN_DEV='^20261106120000_vat_credit_adjustments$'
 
 # Base con el esquema del DEV actual: todas las migraciones salvo la de controles de producción.
 "${PG_BIN}/psql" "$URL" -X -qAt -c "CREATE DATABASE devlike" >/dev/null
@@ -68,12 +68,12 @@ for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v '^202611
 done
 
 # Bases propias del precheck del runner, aplicadas con Prisma (con _prisma_migrations):
-# runner_prev = las 12 previas (esquema anterior) y runner_cur = las 13. Privilegios por
+# runner_prev = las 13 previas (esquema anterior) y runner_cur = las 14. Privilegios por
 # defecto sobre tablas y secuencias como los que puede heredar un objeto en Supabase.
 RUNNER_PRISMA="$TMP/runner-prisma"
 mkdir -p "$RUNNER_PRISMA/migrations"; cp "$REPO/prisma/schema.prisma" "$RUNNER_PRISMA/"; cp "$REPO/prisma/migrations/migration_lock.toml" "$RUNNER_PRISMA/migrations/"
 for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v "$LAST_IN_DEV" | grep -v "$NOT_IN_DEV"); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_PRISMA/migrations/"; done
-# runner_cur = el DEV actual (las 13), también sin las migraciones posteriores.
+# runner_cur = el DEV actual (las 14), también sin las migraciones posteriores.
 RUNNER_CUR_PRISMA="$TMP/runner-cur-prisma"
 mkdir -p "$RUNNER_CUR_PRISMA/migrations"; cp "$REPO/prisma/schema.prisma" "$RUNNER_CUR_PRISMA/"; cp "$REPO/prisma/migrations/migration_lock.toml" "$RUNNER_CUR_PRISMA/migrations/"
 for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v "$NOT_IN_DEV"); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_CUR_PRISMA/migrations/"; done
@@ -93,7 +93,7 @@ SHADOW="postgresql://postgres@127.0.0.1:${PORT}/prisma_shadow"
     --to-schema-datamodel prisma/schema.prisma --shadow-database-url "$SHADOW" --exit-code >/dev/null ) \
   && echo "schema.prisma == migraciones: sin diferencias" || die "schema.prisma y las migraciones difieren"
 
-( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" PR17_LOCAL_PG_DEVLIKE_URL="$DEVLIKE" PR17_LOCAL_PG_RUNNER_PREV_URL="$RUNNER_PREV" PR17_LOCAL_PG_RUNNER_URL="$RUNNER_CUR" npx --no-install vitest run --no-file-parallelism tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts tests/integration/arca-production-pg.test.ts tests/integration/arca-devlike-pg.test.ts tests/integration/arca-runner-precheck-pg.test.ts tests/integration/users-permissions-pg.test.ts tests/integration/period-totals-pg.test.ts tests/integration/libro-iva-import-pg.test.ts tests/integration/libro-iva-import-volume-pg.test.ts )
+( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" PR17_LOCAL_PG_DEVLIKE_URL="$DEVLIKE" PR17_LOCAL_PG_RUNNER_PREV_URL="$RUNNER_PREV" PR17_LOCAL_PG_RUNNER_URL="$RUNNER_CUR" npx --no-install vitest run --no-file-parallelism tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts tests/integration/arca-production-pg.test.ts tests/integration/arca-devlike-pg.test.ts tests/integration/arca-runner-precheck-pg.test.ts tests/integration/users-permissions-pg.test.ts tests/integration/period-totals-pg.test.ts tests/integration/vat-position-pg.test.ts tests/integration/libro-iva-import-pg.test.ts tests/integration/libro-iva-import-volume-pg.test.ts )
 
 # Ensayo de la prueba DEV de usuarias sintéticas (tests/dev-smoke) contra el clúster local,
 # DESPUÉS de las pruebas anteriores: sus datos hacen de "estudio real" que no debe cambiar.

@@ -213,6 +213,8 @@ export interface World {
   taxRecords?: any[];
   /** Filas de PeriodVatSettings (periodId, organizationId, turivaIncluded, …). */
   vatSettings?: any[];
+  /** Filas de PeriodVatCreditAdjustment (periodId, organizationId, regime, importes, referencia). */
+  vatCreditAdjustments?: any[];
   /** Ficha IIBB: ClientJurisdiction, ClientActivity y ClientActivityRate. */
   clientJurisdictions?: any[];
   clientActivities?: any[];
@@ -238,7 +240,7 @@ export function makeWorld(over: Partial<World> = {}): World {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type AnyArgs = { where?: any; data?: any; select?: any; include?: any; orderBy?: any };
+type AnyArgs = { where?: any; data?: any; select?: any; include?: any; orderBy?: any; create?: any; update?: any };
 type Fn = ReturnType<typeof vi.fn>;
 
 export interface DbMock {
@@ -252,6 +254,7 @@ export interface DbMock {
   taxRecord: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; deleteMany: Fn };
   auditLog: { create: Fn };
   periodVatSettings: { findUnique: Fn; create: Fn; update: Fn };
+  periodVatCreditAdjustment: { findMany: Fn; deleteMany: Fn; upsert: Fn };
   clientJurisdiction: { findMany: Fn; deleteMany: Fn; createMany: Fn };
   clientActivity: { findMany: Fn; deleteMany: Fn; create: Fn };
   clientActivityRate: { findMany: Fn; deleteMany: Fn; createMany: Fn };
@@ -279,6 +282,7 @@ export function freshDbMock(): DbMock {
     taxRecord: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     auditLog: { create: vi.fn() },
     periodVatSettings: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    periodVatCreditAdjustment: { findMany: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn() },
     clientJurisdiction: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     clientActivity: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
     clientActivityRate: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
@@ -734,6 +738,34 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     return row;
   });
 
+  // PeriodVatCreditAdjustment: @@unique([periodId, regime]). Filtros sólo por
+  // periodId + organizationId (+ regime notIn), como en la ruta.
+  const adjMatches = (w: any) => (a: any) =>
+    a.periodId === w.periodId && a.organizationId === w.organizationId && (!w.regime?.notIn || !w.regime.notIn.includes(a.regime));
+  db.periodVatCreditAdjustment.findMany.mockImplementation(async ({ where, select }: AnyArgs) => {
+    const rows = (world.vatCreditAdjustments ?? []).filter(adjMatches(where)).sort((x: any, y: any) => x.regime.localeCompare(y.regime));
+    return select ? rows.map((row: any) => Object.fromEntries(Object.keys(select).map((k) => [k, row[k]]))) : rows;
+  });
+  db.periodVatCreditAdjustment.deleteMany.mockImplementation(async ({ where }: AnyArgs) => {
+    const before = world.vatCreditAdjustments ?? [];
+    const keep = before.filter((a: any) => !adjMatches(where)(a));
+    world.vatCreditAdjustments = keep;
+    rec.created.vatCreditAdjustmentsDeleted = before.length - keep.length;
+    return { count: before.length - keep.length };
+  });
+  db.periodVatCreditAdjustment.upsert.mockImplementation(async ({ where, create, update }: AnyArgs) => {
+    const { periodId, regime } = where.periodId_regime;
+    const rows = world.vatCreditAdjustments ?? [];
+    const row = rows.find((a: any) => a.periodId === periodId && a.regime === regime);
+    if (row) {
+      Object.assign(row, update);
+      return row;
+    }
+    const created = { reference: null, ...create };
+    world.vatCreditAdjustments = [...rows, created];
+    return created;
+  });
+
   // $queryRaw como tagged template: sólo se admiten EXACTAMENTE las consultas
   // de lockPeriodForWrite (lectura / set / restauración de lock_timeout y el
   // FOR UPDATE de Period) y el FOR UPDATE de Invoice. Cualquier otra falla.
@@ -907,6 +939,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     const clientsBefore = world.clients.slice();
     const periodsBefore = world.periods.slice();
     const vatSettingsBefore = world.vatSettings?.map((s) => ({ ...s }));
+    const vatCreditAdjustmentsBefore = world.vatCreditAdjustments?.map((a) => ({ ...a }));
     const invoicesBefore = world.invoices?.slice();
     const invoiceVatLinesBefore = world.invoiceVatLines?.slice();
     const taxRecordsBefore = world.taxRecords?.map((t) => ({ ...t }));
@@ -921,6 +954,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       world.clients.splice(0, world.clients.length, ...clientsBefore);
       world.periods.splice(0, world.periods.length, ...periodsBefore);
       world.vatSettings = vatSettingsBefore;
+      world.vatCreditAdjustments = vatCreditAdjustmentsBefore;
       world.invoices = invoicesBefore;
       world.invoiceVatLines = invoiceVatLinesBefore;
       world.taxRecords = taxRecordsBefore;

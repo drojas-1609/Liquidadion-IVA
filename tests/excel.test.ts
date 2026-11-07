@@ -14,10 +14,17 @@ const sampleData = {
   iva: {
     debit: "26250.00",
     credit: "16800.00",
+    creditPurchases: "16800.00",
     creditDirect: "16800.00",
     creditProrated: "0.00",
     globalProrationVat: "0.00",
+    creditSocialSecurityAnnexI: "0.00",
+    creditSocialSecurityArt91Declared: "0.00",
+    creditSocialSecurityArt91: "0.00",
+    previousTechnicalBalance: "0.00",
     balance: "9450.00",
+    technicalBalanceArca: "9450.00",
+    technicalBalanceInFavor: "0.00",
     retentions: "1234.56",
     payable: "8215.44",
   },
@@ -37,13 +44,13 @@ describe("lib/excel", () => {
     expect(b8.t).toBe("n"); // numérica, no string
     expect(b8.v).toBe(26250);
 
-    // "Base Imponible IIBB" -> B16
-    const b16 = ws["B16"];
-    expect(b16.t).toBe("n");
-    expect(b16.v).toBe(120000);
+    // "Base Imponible IIBB" -> B21 (tras las filas de la determinación del F.2051)
+    const b21 = ws["B21"];
+    expect(b21.t).toBe("n");
+    expect(b21.v).toBe(120000);
   });
 
-  it("bloque IIBB: B16 es la base imponible IIBB (no las ventas netas) y B17–B19 conservan posición y valor", () => {
+  it("bloque IIBB: B21 es la base imponible IIBB (no las ventas netas) y B22–B24 conservan el orden y el valor", () => {
     // Guardas del fixture: base ≠ ventas netas, e impuesto y saldo consistentes con la base.
     expect(sampleData.iibb.base).not.toBe(sampleData.sales.net);
     const base = new Prisma.Decimal(sampleData.iibb.base);
@@ -54,20 +61,50 @@ describe("lib/excel", () => {
     const row = (r: number) => [ws[`A${r}`]?.v, ws[`B${r}`]?.v, ws[`B${r}`]?.t];
 
     // La columna C sólo lleva la aclaración de alcance junto a la alícuota (texto); fórmulas y valores no cambian.
-    expect(ws["!ref"]).toBe("A1:C19");
-    expect(ws["C17"].v).toBe(LIQUIDATION_RATE_NOTE);
-    expect(Object.keys(ws).filter((k) => /^C\d+$/.test(k))).toEqual(["C17"]);
-    expect(ws["A14"].v).toBe("RESUMEN IIBB");
-    expect(row(15)).toEqual(["Concepto", "Importe", "s"]);
-    expect(row(16)).toEqual(["Base Imponible IIBB", 120000, "n"]);
-    expect(row(17)).toEqual(["Impuesto Determinado (3.523456%)", 4228.15, "n"]);
-    expect(row(18)).toEqual(["Retenciones/Percepciones IIBB", 750, "n"]);
-    expect(row(19)).toEqual(["Saldo a Pagar / (A Favor) IIBB", 3478.15, "n"]);
+    expect(ws["!ref"]).toBe("A1:C24");
+    expect(ws["C22"].v).toBe(LIQUIDATION_RATE_NOTE);
+    expect(Object.keys(ws).filter((k) => /^C\d+$/.test(k))).toEqual(["C22"]);
+    expect(ws["A19"].v).toBe("RESUMEN IIBB");
+    expect(row(20)).toEqual(["Concepto", "Importe", "s"]);
+    expect(row(21)).toEqual(["Base Imponible IIBB", 120000, "n"]);
+    expect(row(22)).toEqual(["Impuesto Determinado (3.523456%)", 4228.15, "n"]);
+    expect(row(23)).toEqual(["Retenciones/Percepciones IIBB", 750, "n"]);
+    expect(row(24)).toEqual(["Saldo a Pagar / (A Favor) IIBB", 3478.15, "n"]);
 
     // Las ventas netas no se exportan en ninguna celda, ni el rótulo anterior.
     const cells = Object.keys(ws).filter((k) => !k.startsWith("!")).map((k) => ws[k]);
     expect(cells.map((c) => c.v)).not.toContain(150000);
     expect(cells.map((c) => String(c.v))).not.toContain("Base Imponible (Ventas Netas)");
+  });
+
+  it("bloque IVA: renglones de la determinación del impuesto (F.2051) en orden, con los ajustes por contribuciones", () => {
+    const data = {
+      ...sampleData,
+      iva: {
+        ...sampleData.iva,
+        credit: "17400.00",
+        creditSocialSecurityAnnexI: "600.00",
+        previousTechnicalBalance: "9500.00",
+        balance: "-650.00",
+        technicalBalanceArca: "0.00",
+        technicalBalanceInFavor: "650.00",
+        payable: "-1234.56",
+      },
+    };
+    const ws = XLSX.read(generateLiquidationExcel(data), { type: "buffer" }).Sheets["Liquidacion"];
+    const rows = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17].map((r) => [ws[`A${r}`]?.v, ws[`B${r}`]?.v]);
+    expect(rows).toEqual([
+      ["Total del débito fiscal del período", 26250],
+      ["Crédito fiscal por compras", 16800],
+      ["Crédito Fiscal por Contribuciones a la Seguridad Social - Anexo I Ley 27.541", 600],
+      ["Crédito Fiscal por Contribuciones a la Seguridad Social - Art. 91 Ley 27.467", 0],
+      ["Total del crédito fiscal del período", 17400],
+      ["Saldo técnico a favor del contribuyente del período anterior", 9500],
+      ["Saldo técnico a favor de ARCA", 0],
+      ["Saldo técnico a favor del contribuyente", 650],
+      ["Retenciones/Percepciones IVA", 1234.56],
+      ["Saldo a Pagar / (A Favor, libre disponibilidad) IVA", -1234.56],
+    ]);
   });
 
   it("caso 16: conversión XLSX fuera del rango seguro FALLA explícitamente (no trunca)", () => {

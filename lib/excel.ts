@@ -52,11 +52,16 @@ export const generateLiquidationExcel = (data: LiquidationData) => {
         [],
         ["RESUMEN IVA"],
         ["Concepto", "Importe"],
-        ["Débito Fiscal (Ventas)", n(data.iva.debit)],
-        ["Crédito Fiscal (Compras)", n(data.iva.credit)],
-        ["Saldo Técnico", n(data.iva.balance)],
+        ["Total del débito fiscal del período", n(data.iva.debit)],
+        ["Crédito fiscal por compras", n(data.iva.creditPurchases)],
+        ["Crédito Fiscal por Contribuciones a la Seguridad Social - Anexo I Ley 27.541", n(data.iva.creditSocialSecurityAnnexI)],
+        ["Crédito Fiscal por Contribuciones a la Seguridad Social - Art. 91 Ley 27.467", n(data.iva.creditSocialSecurityArt91)],
+        ["Total del crédito fiscal del período", n(data.iva.credit)],
+        ["Saldo técnico a favor del contribuyente del período anterior", n(data.iva.previousTechnicalBalance)],
+        ["Saldo técnico a favor de ARCA", n(data.iva.technicalBalanceArca)],
+        ["Saldo técnico a favor del contribuyente", n(data.iva.technicalBalanceInFavor)],
         ["Retenciones/Percepciones IVA", n(data.iva.retentions)],
-        ["Saldo a Pagar / (A Favor) IVA", n(data.iva.payable)],
+        ["Saldo a Pagar / (A Favor, libre disponibilidad) IVA", n(data.iva.payable)],
         [],
         ["RESUMEN IIBB"],
         ["Concepto", "Importe"],
@@ -67,7 +72,7 @@ export const generateLiquidationExcel = (data: LiquidationData) => {
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(displayData);
-    ws["!cols"] = [{ wch: 40 }, { wch: 20 }, { wch: 100 }];
+    ws["!cols"] = [{ wch: 75 }, { wch: 20 }, { wch: 100 }];
     XLSX.utils.book_append_sheet(wb, ws, "Liquidacion");
 
     const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });

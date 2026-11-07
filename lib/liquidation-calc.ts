@@ -28,7 +28,19 @@ import {
  *  - Prorrateo       = HALF_UP(coeficiente global × Σ_compras signo × IVA de
  *                      las líneas GLOBAL_PRORATION, 2) — UNA vez, sobre el
  *                      total del PERÍODO. Sin coeficiente -> falla cerrada.
- *  - Crédito fiscal  = crédito directo + prorrateo
+ *  - Crédito por compras = crédito directo + prorrateo
+ *  - Ajustes al crédito fiscal por contribuciones a la Seguridad Social
+ *    (importe COMPUTABLE que carga el estudio; la app no calcula porcentajes):
+ *      · Ley 27.467 art. 91: antes que los demás créditos y hasta el débito
+ *        fiscal del período (el excedente no se computa: no genera saldo a favor).
+ *      · Ley 27.541 art. 21 y Anexo I: se suma al crédito, sin tope.
+ *  - Total del crédito fiscal = compras + art. 91 aplicado + Anexo I
+ *  - Saldo técnico (F.2051, Determinación del impuesto) =
+ *      débito − crédito − saldo técnico a favor del período anterior.
+ *    Positivo: a favor de ARCA. Negativo: a favor del contribuyente; se
+ *    traslada y NO se compensa con retenciones ni percepciones.
+ *  - Retenciones / percepciones sólo cancelan el saldo técnico a favor de
+ *    ARCA; el excedente es saldo a favor de libre disponibilidad.
  *  - Base IIBB       = Σ_ventas  signo × grossIncomeTaxBaseAmount
  *  El signo sale exclusivamente del código oficial del comprobante. Las filas
  *  heredadas sin representar se liquidan EXACTAMENTE como antes. Las
@@ -44,12 +56,21 @@ export interface TaxRecordForCalc {
   amount: Prisma.Decimal;
 }
 
+export type VatCreditAdjustmentRegimeLike = "LEY_27541_ANEXO_I" | "LEY_27467_ART_91";
+
+export interface VatCreditAdjustmentForCalc {
+  regime: VatCreditAdjustmentRegimeLike | string;
+  computableAmount: Prisma.Decimal;
+}
+
 export interface PeriodForCalc {
   invoices: InvoiceForCalc[];
   taxRecords: TaxRecordForCalc[];
   client: { defaultIibbRate: Prisma.Decimal | null };
-  /** Configuración de IVA del período; ausente = NONE, sin coeficiente. */
-  vatSettings?: PeriodVatSettingsLike | null;
+  /** Configuración de IVA del período; ausente = NONE, sin coeficiente, sin saldo anterior. */
+  vatSettings?: (PeriodVatSettingsLike & { previousTechnicalBalance?: Prisma.Decimal | null }) | null;
+  /** Ajustes al crédito fiscal por contribuciones a la Seguridad Social; ausente = ninguno. */
+  vatCreditAdjustments?: VatCreditAdjustmentForCalc[] | null;
 }
 
 export interface LiquidationTotals {
@@ -63,14 +84,34 @@ export interface LiquidationResult {
   purchases: LiquidationTotals;
   iva: {
     debit: Prisma.Decimal;
-    /** Crédito fiscal computable total = creditDirect + creditProrated. */
+    /** Total del crédito fiscal del período = creditPurchases + ajustes aplicados. */
     credit: Prisma.Decimal;
+    /** Crédito por compras = creditDirect + creditProrated. */
+    creditPurchases: Prisma.Decimal;
     creditDirect: Prisma.Decimal;
     creditProrated: Prisma.Decimal;
     /** IVA sujeto a prorrateo global (con signo). */
     globalProrationVat: Prisma.Decimal;
+    /** Ley 27.541 Anexo I: computable cargado (sin tope). */
+    creditSocialSecurityAnnexI: Prisma.Decimal;
+    /** Ley 27.467 art. 91: computable cargado. */
+    creditSocialSecurityArt91Declared: Prisma.Decimal;
+    /** Ley 27.467 art. 91 aplicado: min(cargado, débito). */
+    creditSocialSecurityArt91: Prisma.Decimal;
+    /** Saldo técnico a favor del contribuyente del período anterior (lo carga el estudio). */
+    previousTechnicalBalance: Prisma.Decimal;
+    /** Saldo técnico con signo: débito − crédito − saldo técnico anterior. */
     balance: Prisma.Decimal;
+    /** Saldo técnico a favor de ARCA (≥ 0). */
+    technicalBalanceArca: Prisma.Decimal;
+    /** Saldo técnico a favor del contribuyente (≥ 0): se traslada al período siguiente. */
+    technicalBalanceInFavor: Prisma.Decimal;
     retentions: Prisma.Decimal;
+    /**
+     * Saldo de impuesto: technicalBalanceArca − retenciones. Positivo: a pagar
+     * a ARCA. Negativo: saldo a favor de libre disponibilidad (sólo por
+     * retenciones / percepciones; nunca incluye el saldo técnico).
+     */
     payable: Prisma.Decimal;
   };
   iibb: {
@@ -120,12 +161,34 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
     if (coefficient === null) throw new MissingGlobalProrationCoefficientError();
     ivaCreditProrated = computeProratedCredit(coefficient, globalProrationVat);
   }
-  const ivaCredit = ivaCreditDirect.plus(ivaCreditProrated);
-  const ivaBalance = sub(ivaDebit, ivaCredit);
+  const ivaCreditPurchases = ivaCreditDirect.plus(ivaCreditProrated);
+
+  // Ajustes por contribuciones a la Seguridad Social (importe computable cargado).
+  const adjustments = period.vatCreditAdjustments ?? [];
+  for (const a of adjustments) {
+    if (a.regime !== "LEY_27541_ANEXO_I" && a.regime !== "LEY_27467_ART_91") {
+      throw new Error("Liquidación: régimen de ajuste al crédito fiscal desconocido.");
+    }
+    if (a.computableAmount.isNegative()) throw new Error("Liquidación: ajuste al crédito fiscal negativo.");
+  }
+  const annexI = sum(adjustments.filter((a) => a.regime === "LEY_27541_ANEXO_I").map((a) => a.computableAmount));
+  const art91Declared = sum(adjustments.filter((a) => a.regime === "LEY_27467_ART_91").map((a) => a.computableAmount));
+  // Art. 91: antes que los demás créditos y hasta el débito; sin débito, nada.
+  const debitCap = ivaDebit.isNegative() ? D("0") : ivaDebit;
+  const art91 = art91Declared.greaterThan(debitCap) ? debitCap : art91Declared;
+
+  const ivaCredit = sum([ivaCreditPurchases, art91, annexI]);
+  const previous = period.vatSettings?.previousTechnicalBalance ?? D("0");
+  if (previous.isNegative()) throw new Error("Liquidación: saldo técnico anterior negativo.");
+  const ivaBalance = sub(sub(ivaDebit, ivaCredit), previous);
+  const zero = D("0");
+  const technicalBalanceArca = ivaBalance.isPositive() && !ivaBalance.isZero() ? ivaBalance : zero;
+  const technicalBalanceInFavor = ivaBalance.isNegative() ? ivaBalance.negated() : zero;
   const ivaRetentions = sum(
     period.taxRecords.filter((t) => isIvaRetention(t.type)).map((t) => t.amount),
   );
-  const ivaPayable = sub(ivaBalance, ivaRetentions);
+  // Las retenciones / percepciones sólo cancelan el saldo a favor de ARCA.
+  const ivaPayable = sub(technicalBalanceArca, ivaRetentions);
 
   const iibbRate = period.client.defaultIibbRate ?? D("3");
   const iibbBase = sum(sales.map((s) => s.grossIncomeTaxBase));
@@ -141,10 +204,17 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
     iva: {
       debit: ivaDebit,
       credit: ivaCredit,
+      creditPurchases: ivaCreditPurchases,
       creditDirect: ivaCreditDirect,
       creditProrated: ivaCreditProrated,
       globalProrationVat,
+      creditSocialSecurityAnnexI: annexI,
+      creditSocialSecurityArt91Declared: art91Declared,
+      creditSocialSecurityArt91: art91,
+      previousTechnicalBalance: previous,
       balance: ivaBalance,
+      technicalBalanceArca,
+      technicalBalanceInFavor,
       retentions: ivaRetentions,
       payable: ivaPayable,
     },

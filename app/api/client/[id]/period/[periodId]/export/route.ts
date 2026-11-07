@@ -50,7 +50,7 @@ export const GET = withApiAuthz(
         // 2 · consultar el period y sus datos (ya autorizado)
         const full = await prisma.period.findFirst({
             where: { id: periodId, organizationId },
-            include: { invoices: { include: { vatLines: true } }, taxRecords: true, client: true, vatSettings: true },
+            include: { invoices: { include: { vatLines: true } }, taxRecords: true, client: true, vatSettings: true, vatCreditAdjustments: true },
         });
         if (!full) throw new NotFoundError();
 
