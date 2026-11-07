@@ -60,7 +60,10 @@ const MESSAGES: Record<TaxOperation, { generic: string; forbidden: string; notFo
 // ── Errores ────────────────────────────────────────────────────────────────
 
 /** Campos del formulario que pueden recibir un error propio. */
-export const TAX_FORM_FIELDS = ["date", "type", "amount", "description"] as const;
+export const TAX_FORM_FIELDS = [
+    "date", "type", "amount", "description",
+    "nature", "taxCode", "regimeCode", "agentCuit", "intermediaryCuit", "voucherTypeCode", "voucherNumber", "certificateNumber", "customsDocument", "invoiceId",
+] as const;
 export type TaxFormField = (typeof TAX_FORM_FIELDS)[number];
 
 export interface TaxErrorFeedback {
@@ -99,24 +102,63 @@ export interface TaxFormValues {
     /** Importe decimal como texto, sin convertir a número. */
     amount: string;
     description: string;
+    /** Detalle del F.2051 (opcional; ausente = el formulario no lo ofrece). */
+    detail?: TaxDetailValues;
 }
 
-export interface TaxCreateBody extends TaxFormValues {
+/** Detalle del F.2051 como texto del formulario ("" = sin dato). */
+export interface TaxDetailValues {
+    nature: string;
+    taxCode: string;
+    regimeCode: string;
+    agentCuit: string;
+    intermediaryCuit: string;
+    voucherTypeCode: string;
+    voucherNumber: string;
+    certificateNumber: string;
+    customsDocument: string;
+    invoiceId: string;
+}
+
+export const EMPTY_TAX_DETAIL: TaxDetailValues = {
+    nature: "", taxCode: "", regimeCode: "", agentCuit: "", intermediaryCuit: "", voucherTypeCode: "", voucherNumber: "", certificateNumber: "", customsDocument: "", invoiceId: "",
+};
+
+/** Sólo los campos que aplican a la naturaleza elegida (los demás viajan vacíos). */
+export function detailBody(d: TaxDetailValues | undefined): Partial<TaxDetailValues> {
+    if (!d) return {};
+    const keep = (on: boolean, v: string) => (on ? v : "");
+    const r = d.nature === "RETENTION", p = d.nature === "PERCEPTION", c = d.nature === "CUSTOMS_PERCEPTION";
+    return {
+        nature: d.nature,
+        taxCode: keep(r, d.taxCode),
+        regimeCode: keep(r || p || c, d.regimeCode),
+        agentCuit: keep(r || p, d.agentCuit),
+        intermediaryCuit: keep(r || p, d.intermediaryCuit),
+        voucherTypeCode: keep(r || p, d.voucherTypeCode),
+        voucherNumber: keep(r || p, d.voucherNumber),
+        certificateNumber: keep(r, d.certificateNumber),
+        customsDocument: keep(c, d.customsDocument),
+        invoiceId: keep(p, d.invoiceId),
+    };
+}
+
+export interface TaxCreateBody extends Omit<TaxFormValues, "detail"> {
     periodId: string;
 }
 
-export interface TaxUpdateBody extends TaxFormValues {
+export interface TaxUpdateBody extends Omit<TaxFormValues, "detail"> {
     expectedUpdatedAt: string;
 }
 
 /** POST /api/taxes: los campos del formulario y el período; nada más. */
 export function taxCreateBody(values: TaxFormValues, periodId: string): TaxCreateBody {
-    return { date: values.date, type: values.type, amount: values.amount, description: values.description, periodId };
+    return { date: values.date, type: values.type, amount: values.amount, description: values.description, ...detailBody(values.detail), periodId };
 }
 
 /** PATCH /api/taxes/[id]: los campos completos y el token de concurrencia; sin organización, cliente ni autoría. */
 export function taxUpdateBody(values: TaxFormValues, expectedUpdatedAt: string): TaxUpdateBody {
-    return { date: values.date, type: values.type, amount: values.amount, description: values.description, expectedUpdatedAt };
+    return { date: values.date, type: values.type, amount: values.amount, description: values.description, ...detailBody(values.detail), expectedUpdatedAt };
 }
 
 /**

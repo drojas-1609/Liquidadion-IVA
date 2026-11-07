@@ -57,6 +57,8 @@ import {
   type InvoiceFormProps,
 } from "@/app/(app)/client/[id]/period/[periodId]/_components/invoice-form";
 import { InvoiceRowActions } from "@/app/(app)/client/[id]/period/[periodId]/_components/invoice-row-actions";
+import { Prisma } from "@prisma/client";
+import { ImportedInvoiceForm } from "@/app/(app)/client/[id]/period/[periodId]/_components/imported-invoice-form";
 import {
   DeletableInvoiceRow,
   DeletableInvoiceRows,
@@ -241,7 +243,6 @@ describe.each(EDIT_PAGES)("página de edición (%s)", (_name, Page, direction, o
   });
 
   it.each([
-    ["importado", { source: "IMPORT" }, "IMPORTED"],
     ["heredado sin cliente propio", { source: null, clientId: null }, "LEGACY"],
     ["datos insuficientes", { counterpartyName: null }, "INSUFFICIENT_DATA"],
   ] as const)("fila propia no editable (%s) -> aviso estable, sin formulario", async (_l, over, reason) => {
@@ -256,6 +257,28 @@ describe.each(EDIT_PAGES)("página de edición (%s)", (_name, Page, direction, o
       period: { month: 5, year: 2026 },
       message: INVOICE_NOT_EDITABLE_MESSAGES[reason],
     });
+  });
+
+  it("importado con varias alícuotas -> formulario DETALLADO con todas sus líneas e importes (sin simplificar) e identidad fija", async () => {
+    const s = stored(ownId, direction, { source: "IMPORT", exemptAmount: new Prisma.Decimal("45.00"), otherTaxesAmount: new Prisma.Decimal("30.00") });
+    setWorld([{ row: s.row, lines: [...s.lines, { ...s.lines[0], id: "vl_x", vatRateCode: 4, netAmount: new Prisma.Decimal("100.00"), vatAmount: new Prisma.Decimal("10.50") }] }]);
+    // Lectura completa del importado (include de las líneas con sus importes, ordenadas por alícuota).
+    const plain = db.invoice.findFirst.getMockImplementation()!;
+    db.invoice.findFirst.mockImplementation(async (args: any) => {
+      const r = await plain(args);
+      if (!r || !args.include?.vatLines) return r;
+      const lines = (world.invoiceVatLines ?? []).filter((l) => l.invoiceId === r.id).sort((a, b) => a.vatRateCode - b.vatRateCode);
+      return { ...r, vatLines: lines };
+    });
+    const el: any = await call();
+    expect(el.type).toBe(ImportedInvoiceForm);
+    const d = el.props.detail;
+    expect(d.category).toBe(direction);
+    expect(d.identity).toMatchObject({ voucherCode: 1, pointOfSale: 1, number: 1001, docType: 80, docNumber: "30999999995" });
+    expect(d.values.vatLines.map((l: { vatRateCode: number; netAmount: string; vatAmount: string }) => [l.vatRateCode, l.netAmount, l.vatAmount])).toEqual([[4, "100.00", "10.50"], [5, "1000.00", "210.00"]]);
+    expect(d.values.amounts.exemptAmount).toBe("45.00");
+    expect(d.values.amounts.otherTaxesAmount).toBe("30.00");
+    expect(d.updatedAt).toBe(T0);
   });
 
   it("varias alícuotas -> aviso MULTI_RATE", async () => {
@@ -417,17 +440,21 @@ describe.each(LISTS)("lista de %s — acciones por rol", (_name, Page, direction
         label: "FC A 0001-00001001",
         editHref: `/client/c_a/period/p_a/${segment}/${pfx}_ok/edit`,
         canDelete: true,
+        imported: false,
       },
-      { invoiceId: `${pfx}_nodata`, updatedAt: T0, label: "FC A 0001-00001001", editHref: null, canDelete: true },
+      { invoiceId: `${pfx}_nodata`, updatedAt: T0, label: "FC A 0001-00001001", editHref: null, canDelete: true, imported: false },
+      // Importada: editar (formulario detallado) y eliminar, como las manuales.
+      { invoiceId: `${pfx}_imp`, updatedAt: T0, label: "FC A 0001-00001001", editHref: `/client/c_a/period/p_a/${segment}/${pfx}_imp/edit`, canDelete: true, imported: true },
     ]);
     expect(await headers()).toContain("Acciones");
   });
 
-  it("ACCOUNTANT: sólo editar la editable; nada en las demás", async () => {
+  it("ACCOUNTANT: editar la manual y la importada; nunca eliminar", async () => {
     const pfx = rows();
     as(SUB_ACCOUNTANT_A);
     expect(await actionsOf()).toEqual([
-      { invoiceId: `${pfx}_ok`, updatedAt: T0, label: "FC A 0001-00001001", editHref: `/client/c_a/period/p_a/${segment}/${pfx}_ok/edit`, canDelete: false },
+      { invoiceId: `${pfx}_ok`, updatedAt: T0, label: "FC A 0001-00001001", editHref: `/client/c_a/period/p_a/${segment}/${pfx}_ok/edit`, canDelete: false, imported: false },
+      { invoiceId: `${pfx}_imp`, updatedAt: T0, label: "FC A 0001-00001001", editHref: `/client/c_a/period/p_a/${segment}/${pfx}_imp/edit`, canDelete: false, imported: true },
     ]);
   });
 
@@ -441,7 +468,7 @@ describe.each(LISTS)("lista de %s — acciones por rol", (_name, Page, direction
   it("las acciones reciben sólo id, token, etiqueta y permisos (sin importes ni contraparte)", async () => {
     rows();
     for (const p of await actionsOf()) {
-      expect(Object.keys(p).sort()).toEqual(["canDelete", "editHref", "invoiceId", "label", "updatedAt"]);
+      expect(Object.keys(p).sort()).toEqual(["canDelete", "editHref", "imported", "invoiceId", "label", "updatedAt"]);
       expect(JSON.stringify(p)).not.toMatch(/1000|1210|Contraparte|30999999995/);
     }
   });

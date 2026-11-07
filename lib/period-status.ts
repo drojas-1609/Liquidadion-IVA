@@ -4,8 +4,8 @@
  *
  * Un período CERRADO admite consulta y exportación; el servidor rechaza toda
  * modificación o eliminación del período y de su contenido (lib/period-lock).
- * El cierre NO congela la liquidación: se sigue calculando con la alícuota
- * IIBB vigente del cliente.
+ * El cierre guarda una versión de la liquidación de IVA (PeriodLiquidationVersion);
+ * el IIBB se sigue calculando con la alícuota vigente del cliente.
  */
 
 export type PeriodStatusValue = "OPEN" | "CLOSED";
@@ -33,9 +33,13 @@ export const PERIOD_CLOSE_SCOPE_NOTICE =
     "Un período cerrado se puede consultar y exportar, pero no se pueden cargar, editar ni eliminar sus comprobantes, " +
     "retenciones/percepciones ni su configuración, ni eliminar el período.";
 
-/** Limitación explícita: el cierre no es una liquidación fiscal inmutable. */
+/**
+ * Alcance del cierre: la liquidación de IVA queda guardada como versión
+ * cerrada (con su paquete de presentación si no hay bloqueos); el IIBB sigue
+ * siendo informativo y se calcula con la alícuota vigente del cliente.
+ */
 export const PERIOD_CLOSE_IIBB_NOTICE =
-    "El cierre no congela la liquidación: se sigue calculando con la alícuota IIBB vigente del cliente.";
+    "El cierre guarda una versión de la liquidación de IVA y, si no hay bloqueos de exportación, su paquete de presentación. El IIBB no se congela: se sigue calculando con la alícuota vigente del cliente.";
 
 /**
  * Nuevo `Period.updatedAt` de una transición de estado: el instante actual,

@@ -5,7 +5,10 @@ import { ROLES_CREATE, ROLES_UPDATE } from "./auth/roles";
 import { isPeriodClosed } from "./period-status";
 import { NotFoundError } from "./auth/errors";
 import { clientConditionCode } from "./client-condition";
-import { INVOICE_NOT_EDITABLE_MESSAGES, invoiceEditInitialState, invoiceEditability } from "./invoice-edit";
+import { INVOICE_NOT_EDITABLE_MESSAGES, detailedEditability, invoiceEditInitialState, invoiceEditability } from "./invoice-edit";
+import { DETAILED_AMOUNT_FIELDS } from "./invoice-detail-edit";
+import { voucherDisplayLabel } from "./invoice-model";
+import type { ImportedInvoiceEditData } from "./imported-invoice-form";
 import type { InvoiceEditFormProps } from "./invoice-form-client";
 
 /**
@@ -77,6 +80,7 @@ export async function loadInvoiceFormContext(clientId: string, periodId: string)
  */
 export type InvoiceEditState =
     | { status: "EDITABLE"; form: InvoiceEditFormProps }
+    | { status: "IMPORTED"; detail: ImportedInvoiceEditData }
     | { status: "NOT_EDITABLE"; message: string };
 
 export interface InvoiceEditPageData extends InvoiceFormPageData {
@@ -94,6 +98,7 @@ const EDIT_SELECT = {
     voucherDate: true,
     pointOfSale: true,
     number: true,
+    numberTo: true,
     counterpartyDocType: true,
     counterpartyDocNumber: true,
     counterpartyName: true,
@@ -131,6 +136,7 @@ export async function loadInvoiceEditContext(
     if (!invoice || (invoice.clientId !== null && invoice.clientId !== clientId)) throw new NotFoundError();
 
     const base = await loadFormBase(organizationId, clientId, periodId);
+    if (invoice.source === "IMPORT") return { ...base, periodClosed, edit: await importedEditState(organizationId, invoice.id, periodId) };
     const row = { ...invoice, vatRateCodes: invoice.vatLines.map((l) => l.vatRateCode) };
     const editability = invoiceEditability(row);
     if (!editability.ok) {
@@ -148,6 +154,67 @@ export async function loadInvoiceEditContext(
                 requiresCounterpartyCondition: editability.requiresCounterpartyCondition,
                 requiresVoucherVariant: editability.requiresVoucherVariant,
             },
+        },
+    };
+}
+
+// ── Edición detallada de importados ──────────────────────────────────────
+
+const money = (d: { toFixed(n: number): string } | null) => (d === null ? null : d.toFixed(2));
+
+/** Fila completa del importado en la forma del formulario detallado (todo como texto, sin pérdida). */
+async function importedEditState(organizationId: string, invoiceId: string, periodId: string): Promise<InvoiceEditState> {
+    const r = await prisma.invoice.findFirst({
+        where: { id: invoiceId, organizationId, periodId },
+        include: { vatLines: { select: { vatRateCode: true, netAmount: true, vatAmount: true, creditAllocation: true, computableVatAmount: true }, orderBy: { vatRateCode: "asc" } } },
+    });
+    if (!r) throw new NotFoundError();
+    const editable = detailedEditability(r);
+    if (!editable.ok) return { status: "NOT_EDITABLE", message: INVOICE_NOT_EDITABLE_MESSAGES[editable.reason] };
+    const settings = await prisma.periodVatSettings.findUnique({
+        where: { periodId_organizationId: { periodId, organizationId } },
+        select: { creditProrationMode: true },
+    });
+    return {
+        status: "IMPORTED",
+        detail: {
+            invoiceId: r.id,
+            updatedAt: r.updatedAt.toISOString(),
+            category: r.category as "SALES" | "PURCHASES",
+            prorationMode: settings?.creditProrationMode ?? "NONE",
+            identity: {
+                voucherLabel: voucherDisplayLabel(r.voucherCode as number),
+                voucherCode: r.voucherCode as number,
+                pointOfSale: r.pointOfSale,
+                number: r.number,
+                docType: r.counterpartyDocType as number,
+                docNumber: r.counterpartyDocNumber ?? "",
+                lidSection: r.lidSection,
+                currencyCode: r.currencyCode ?? "PES",
+            },
+            values: {
+                voucherDate: (r.voucherDate as Date).toISOString().slice(0, 10),
+                counterpartyName: r.counterpartyName ?? "",
+                counterpartyVatConditionCode: r.counterpartyVatConditionCode,
+                operationCode: r.operationCode,
+                amounts: Object.fromEntries(DETAILED_AMOUNT_FIELDS.map((f) => [f, money(r[f]) ?? "0.00"])) as ImportedInvoiceEditData["values"]["amounts"],
+                reportedComputableVatCreditAmount: money(r.reportedComputableVatCreditAmount),
+                vatLines: r.vatLines.map((l) => ({
+                    vatRateCode: l.vatRateCode,
+                    netAmount: l.netAmount.toFixed(2),
+                    vatAmount: l.vatAmount.toFixed(2),
+                    creditAllocation: l.creditAllocation,
+                    computableVatAmount: money(l.computableVatAmount),
+                })),
+            },
+            classifications: {
+                activityCode: r.activityCode,
+                saleOperationType: r.saleOperationType,
+                buyerType: r.buyerType,
+                purchaseCreditConcept: r.purchaseCreditConcept,
+                dationInPayment: r.dationInPayment,
+            },
+            totals: { taxedNet: r.taxedNetAmount?.toFixed(2) ?? "0.00", vat: r.totalVatAmount?.toFixed(2) ?? "0.00", total: r.voucherTotalAmount?.toFixed(2) ?? "0.00" },
         },
     };
 }

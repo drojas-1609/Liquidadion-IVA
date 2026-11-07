@@ -13,6 +13,7 @@ import {
     type InvoiceWarning,
 } from "./invoice-rules";
 import { ConflictError, NotFoundError, ValidationError } from "./auth/errors";
+import { findSalesRangeOverlap, salesRangeOverlapMessage } from "./invoice-range";
 
 /**
  * Escritura de comprobantes manuales (contrato v2) compartida por el alta y,
@@ -85,6 +86,16 @@ export async function prepareManualInvoice(args: {
         },
         args.excludeInvoiceId,
     );
+
+    // Ventas: superposición con rangos de venta global diaria (corte temprano;
+    // la ruta lo repite bajo el bloqueo del cliente: lib/invoice-range).
+    if (input.category === "SALES") {
+        const overlap = await findSalesRangeOverlap(prisma, {
+            organizationId, clientId, voucherCode: model.voucherCode, pointOfSale: input.pointOfSale,
+            from: input.number, to: resolved.data.numberTo, excludeInvoiceId: args.excludeInvoiceId,
+        });
+        if (overlap) throw new ConflictError(salesRangeOverlapMessage(overlap));
+    }
 
     return { warnings: dateCheck.warnings, resolved: resolved.data, duplicateWhere };
 }
@@ -164,6 +175,8 @@ export function manualInvoiceColumns(args: {
         clientId,
         source: "MANUAL" as const,
         voucherCode: model.voucherCode,
+        // Último número: el del comprobante salvo la venta global diaria (documento 99).
+        numberTo: resolved.numberTo,
         voucherDate: model.voucherDate,
         counterpartyDocType: model.counterpartyDocType,
         counterpartyDocNumber: model.counterpartyDocNumber,

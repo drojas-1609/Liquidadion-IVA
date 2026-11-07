@@ -7,6 +7,7 @@ import {
     DOC_TYPE_PASAPORTE,
     DOC_TYPE_DNI,
     SOURCE_LID_TABLAS,
+    SOURCE_LID_ESPECIFICACIONES,
     SOURCE_RG_1415,
     SOURCE_TURIVA_F8089,
     type OfficialSource,
@@ -36,9 +37,9 @@ import type { Direction } from "./voucher-matrix";
  *   - 87 "C D I": citada por el Anexo II A, II d) 2 y presente en la tabla de
  *     documentos, pero NO incorporada a DOCUMENT_TYPES; se agregará en un
  *     cambio separado.
- *   - 99 "Sin identificar / venta global diaria": sólo corresponde por debajo
- *     del umbral de identificación de consumidores finales; los umbrales
- *     históricos no constan en las fuentes locales.
+ *   - 99 "Sin identificar / venta global diaria" (DV7): habilitado desde el
+ *     29/05/2025 por debajo del umbral vigente; antes, el umbral histórico no
+ *     se verificó y se rechaza (lib/arca/unidentified-buyer).
  *   - Clave fiscal extranjera del importador (Anexo II A, II g) 1.3): no tiene
  *     código propio en la tabla de documentos.
  *
@@ -100,9 +101,9 @@ export const DOCUMENT_RULES: readonly DocumentRule[] = [
         docTypes: [DOC_TYPE_DNI, DOC_TYPE_CUIL, DOC_TYPE_CI_EXTRANJERA, DOC_TYPE_PASAPORTE, DOC_TYPE_CUIT], status: "ALLOWED",
         sources: [SOURCE_RG_1415, SOURCE_LID_TABLAS],
         basis: `${ANEXO_II}, II d) 2 (DNI, CUIL o documento o pasaporte del extranjero) y párrafo final de d) (CUIT si el comprador lo requiere)` }),
-    rule({ id: "DV7", direction: "SALES", issuers: [1, 4, 6], receivers: [5], letters: ["B", "C"], docTypes: [DOC_TYPE_SIN_IDENTIFICAR], status: "PENDING",
-        sources: [SOURCE_RG_1415, SOURCE_LID_TABLAS],
-        basis: `${ANEXO_II}, II d) 2: sólo por debajo del umbral de identificación; umbrales históricos no verificados` }),
+    rule({ id: "DV7", direction: "SALES", issuers: [1, 4, 6], receivers: [5], letters: ["B", "C"], docTypes: [DOC_TYPE_SIN_IDENTIFICAR], status: "ALLOWED",
+        sources: [SOURCE_RG_1415, SOURCE_LID_TABLAS, SOURCE_LID_ESPECIFICACIONES],
+        basis: `${ANEXO_II}, II d) 2 (RG 5700/2025 y RG 5866/2026): sin identificar por debajo de $ 10.000.000; LID Especificaciones, Ventas campos 4 a 8 (venta global diaria). Monto, fecha y modo: lib/arca/unidentified-buyer` }),
     rule({ id: "DV8", direction: "SALES", issuers: [1], receivers: [5], letters: ["T"],
         docTypes: [DOC_TYPE_CI_EXTRANJERA, DOC_TYPE_PASAPORTE, DOC_TYPE_DNI], status: "ALLOWED", partialValidation: true,
         sources: [SOURCE_TURIVA_F8089, SOURCE_LID_TABLAS], basis: "F.8089 4.2 campos 7, 9 y 10: turista no residente con 91, 94 o 96" }),
@@ -276,6 +277,10 @@ function normalizeDocNumber(
         const expected = cuitCheckDigit(digits.slice(0, 10));
         if (expected === null || expected !== Number(digits[10])) return { ok: false, error: "dígito verificador incorrecto" };
         return { ok: true, value: digits };
+    }
+    if (docType === DOC_TYPE_SIN_IDENTIFICAR) {
+        // Libro IVA Digital, Ventas campo 7: «podrá ser cero» con código 99.
+        return /^0+$/.test(v) ? { ok: true, value: "0" } : { ok: false, error: "con el documento 99 el número es 0" };
     }
     if (docType === DOC_TYPE_DNI) {
         const digits = v.replace(/\./g, "");

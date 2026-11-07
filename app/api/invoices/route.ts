@@ -11,6 +11,7 @@ import {
     prepareManualInvoice,
 } from "@/lib/invoice-write";
 import { lockPeriodForWrite } from "@/lib/period-lock";
+import { assertNoSalesRangeOverlapUnderLock } from "@/lib/invoice-range";
 import { duplicateVoucherMessage } from "@/lib/invoice-rules";
 import { serializeInvoice } from "@/lib/serializers";
 import {
@@ -62,6 +63,13 @@ export const POST = withApiAuthz(async (request: Request) => {
         await lockPeriodForWrite(tx, periodId, organizationId);
         if (resolved.requiresTurivaSection) {
             await assertTurivaIncludedUnderLock(tx, periodId, organizationId);
+        }
+        // Ventas: superposición con rangos de venta global diaria, releída bajo el
+        // bloqueo del cliente (serializa altas y ediciones de ventas de otros períodos).
+        if (input.category === "SALES") {
+            await assertNoSalesRangeOverlapUnderLock(tx, {
+                organizationId, clientId, voucherCode: resolved.model.voucherCode, pointOfSale: input.pointOfSale, from: input.number, to: resolved.numberTo,
+            });
         }
 
         const invoice = await tx.invoice.create({

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TAX_RECORD_TYPES } from "@/lib/tax-types";
 import {
+    EMPTY_TAX_DETAIL,
     TAX_DESCRIPTION_MAX_LENGTH,
     TAX_TYPE_REQUIRED_ERROR,
     nextTaxUpdateToken,
@@ -13,8 +14,25 @@ import {
     taxListHref,
     type TaxErrorFeedback,
     type TaxFormField,
+    type TaxDetailValues,
     type TaxFormValues,
 } from "@/lib/tax-form-client";
+
+/** Compra del período con percepción de IVA informada, para registrarla sin duplicar. */
+export interface PerceptionSource {
+    id: string;
+    label: string;
+    amount: string;
+    date: string;
+    agentCuit: string;
+    voucherTypeCode: string;
+    voucherNumber: string;
+}
+
+const NATURE_OPTIONS: Record<string, [string, string][]> = {
+    "RETENCION IVA": [["RETENTION", "Retención"]],
+    "PERCEPCION IVA": [["PERCEPTION", "Percepción"], ["CUSTOMS_PERCEPTION", "Percepción aduanera"]],
+};
 
 /**
  * Formulario compartido de alta y edición de retenciones/percepciones.
@@ -45,6 +63,8 @@ export interface TaxFormProps {
     initial: TaxFormValues;
     /** Ausente = alta. */
     edit?: TaxFormEdit;
+    /** Compras con percepción de IVA sin registrar (y la vinculada, en edición). */
+    perceptionSources?: PerceptionSource[];
 }
 
 export const TAX_FORM_TEXT = {
@@ -55,7 +75,7 @@ export const TAX_FORM_TEXT = {
 const LABEL_STYLE = { display: "block", marginBottom: "var(--spacing-xs)", fontWeight: 500 } as const;
 const FIELD_ERROR_STYLE = { color: "var(--error)", fontSize: "0.875rem", marginTop: "var(--spacing-xs)" } as const;
 
-export function TaxForm({ clientId, periodId, periodLabel, dateMin, dateMax, initial, edit }: TaxFormProps) {
+export function TaxForm({ clientId, periodId, periodLabel, dateMin, dateMax, initial, edit, perceptionSources = [] }: TaxFormProps) {
     const router = useRouter();
     const baseId = useId();
     const [values, setValues] = useState<TaxFormValues>(initial);
@@ -72,8 +92,33 @@ export function TaxForm({ clientId, periodId, periodLabel, dateMin, dateMax, ini
     const generalError = feedback && feedback.field === null ? feedback : null;
     const errorId = (field: TaxFormField) => `${baseId}-${field}-error`;
 
-    const set = (field: keyof TaxFormValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    const set = (field: Exclude<keyof TaxFormValues, "detail">) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
         setValues((v) => ({ ...v, [field]: e.target.value }));
+    const detail = values.detail ?? EMPTY_TAX_DETAIL;
+    const setDetail = (patch: Partial<TaxDetailValues>) => setValues((v) => ({ ...v, detail: { ...(v.detail ?? EMPTY_TAX_DETAIL), ...patch } }));
+    const setD = (field: keyof TaxDetailValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDetail({ [field]: e.target.value });
+    const ivaType = values.type === "RETENCION IVA" || values.type === "PERCEPCION IVA";
+    function pickSource(id: string) {
+        const src = perceptionSources.find((x) => x.id === id);
+        if (!src) {
+            setDetail({ invoiceId: "" });
+            return;
+        }
+        // Sugerencia editable con los datos del propio comprobante; el régimen lo completa el estudio.
+        setValues((v) => ({
+            ...v,
+            amount: src.amount,
+            date: src.date,
+            detail: { ...(v.detail ?? EMPTY_TAX_DETAIL), invoiceId: id, agentCuit: src.agentCuit, voucherTypeCode: src.voucherTypeCode, voucherNumber: src.voucherNumber },
+        }));
+    }
+    const detailInput = (field: keyof TaxDetailValues, label: string, extra: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+        <div>
+            <label htmlFor={`${baseId}-${field}`} style={LABEL_STYLE}>{label}</label>
+            <input id={`${baseId}-${field}`} className="input" value={detail[field]} onChange={setD(field)} aria-invalid={fieldError(field) ? true : undefined} aria-describedby={describedBy(field)} {...extra} />
+            {renderFieldError(field)}
+        </div>
+    );
 
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -205,6 +250,55 @@ export function TaxForm({ clientId, periodId, periodLabel, dateMin, dateMax, ini
                     />
                     {renderFieldError("description")}
                 </div>
+
+                {ivaType && (
+                    <fieldset style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "var(--spacing-md)", display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
+                        <legend style={{ fontWeight: 600 }}>Detalle para el F.2051 (necesario para exportar)</legend>
+                        <div>
+                            <label htmlFor={`${baseId}-nature`} style={LABEL_STYLE}>Naturaleza</label>
+                            <select id={`${baseId}-nature`} className="input" value={detail.nature} onChange={setD("nature")} aria-invalid={fieldError("nature") ? true : undefined} aria-describedby={describedBy("nature")}>
+                                <option value="">Sin detalle (pendiente)</option>
+                                {(NATURE_OPTIONS[values.type] ?? []).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                            </select>
+                            {renderFieldError("nature")}
+                        </div>
+                        {detail.nature === "PERCEPTION" && perceptionSources.length > 0 && (
+                            <div>
+                                <label htmlFor={`${baseId}-invoiceId`} style={LABEL_STYLE}>Tomada de un comprobante de compra (opcional)</label>
+                                <select id={`${baseId}-invoiceId`} className="input" value={detail.invoiceId} onChange={(e) => pickSource(e.target.value)} aria-describedby={describedBy("invoiceId")}>
+                                    <option value="">No: percepción registrada por separado</option>
+                                    {perceptionSources.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                                </select>
+                                <p style={{ color: "var(--secondary)", fontSize: "0.8125rem", marginTop: "var(--spacing-xs)" }}>
+                                    Vincularla evita contarla dos veces: el importe debe ser la percepción informada en el comprobante.
+                                </p>
+                                {renderFieldError("invoiceId")}
+                            </div>
+                        )}
+                        {detail.nature === "RETENTION" && (
+                            <div>
+                                <label htmlFor={`${baseId}-taxCode`} style={LABEL_STYLE}>Impuesto</label>
+                                <select id={`${baseId}-taxCode`} className="input" value={detail.taxCode} onChange={setD("taxCode")} aria-describedby={describedBy("taxCode")}>
+                                    <option value="">Elegir</option>
+                                    <option value="767">767</option>
+                                    <option value="216">216</option>
+                                </select>
+                                {renderFieldError("taxCode")}
+                            </div>
+                        )}
+                        {detail.nature !== "" && detailInput("regimeCode", "Código de régimen", { inputMode: "numeric", maxLength: 5 })}
+                        {(detail.nature === "RETENTION" || detail.nature === "PERCEPTION") && (
+                            <>
+                                {detailInput("agentCuit", "CUIT del agente", { inputMode: "numeric", maxLength: 13 })}
+                                {detailInput("intermediaryCuit", "CUIT intermediario (sólo cesionario)", { inputMode: "numeric", maxLength: 13 })}
+                                {detailInput("voucherTypeCode", "Tipo de comprobante (tabla del F.2051: 1 factura, 2 recibo, 3 nota de crédito, 4 nota de débito, 6 orden de pago…)", { inputMode: "numeric", maxLength: 3 })}
+                                {detailInput("voucherNumber", "Número de comprobante (p. ej. 00003-00000007)", { maxLength: 20 })}
+                            </>
+                        )}
+                        {detail.nature === "RETENTION" && detailInput("certificateNumber", "Número de certificado", { maxLength: 40 })}
+                        {detail.nature === "CUSTOMS_PERCEPTION" && detailInput("customsDocument", "Liquidación o despacho (99-999-XXXX-999999-X)", { maxLength: 24 })}
+                    </fieldset>
+                )}
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--spacing-sm)", marginTop: "var(--spacing-md)" }}>
                     {edit ? (

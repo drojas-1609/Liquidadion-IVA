@@ -14,6 +14,8 @@ import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_CREATE } from "@/lib/auth/roles";
 import { NotFoundError, ValidationError } from "@/lib/auth/errors";
 import { lockPeriodForWrite } from "@/lib/period-lock";
+import { assertTaxIdentityFree } from "@/lib/tax-identity";
+import { assertPerceptionLink } from "@/lib/tax-record-link";
 import { formatPeriodLabel } from "@/lib/period";
 
 // POST /api/taxes — alta de retención/percepción en un período de la
@@ -25,7 +27,10 @@ import { formatPeriodLabel } from "@/lib/period";
 // sin bloquear nada) -> transacción: bloqueo de la fila Period
 // (lockPeriodForWrite, primera operación; período desaparecido -> 404) ->
 // relectura del Period bajo el bloqueo -> fecha dentro del mes/año del período
-// (422 date) -> TaxRecord + AuditLog.
+// (422 date) -> percepción vinculada a una compra del período con el mismo
+// importe (422; vínculo repetido: 409 por el índice único) -> identidad del
+// F.2051 libre en TODOS los períodos del cliente, bajo el bloqueo por cliente
+// (409) -> TaxRecord + AuditLog.
 export const POST = withApiAuthz(async (request: Request) => {
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
@@ -44,12 +49,14 @@ export const POST = withApiAuthz(async (request: Request) => {
         await lockPeriodForWrite(tx, parsed.data.periodId, organizationId);
         const period = await tx.period.findFirst({
             where: { id: parsed.data.periodId, organizationId },
-            select: { month: true, year: true },
+            select: { month: true, year: true, clientId: true },
         });
         if (!period) throw new NotFoundError();
         if (!isDateInPeriod(parsed.data.date, period)) {
             throw new ValidationError(`la fecha debe pertenecer al período ${formatPeriodLabel(period)}`, "date");
         }
+        await assertPerceptionLink(tx, { periodId: parsed.data.periodId, organizationId }, parsed.data, parsed.data.amount);
+        await assertTaxIdentityFree(tx, { organizationId, clientId: period.clientId }, parsed.data);
         const taxRecord = await tx.taxRecord.create({
             data: {
                 ...parsed.data,

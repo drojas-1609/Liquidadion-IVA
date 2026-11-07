@@ -3,6 +3,7 @@ import { loadInvoiceEditContext } from "@/lib/invoice-form-context";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { InvoiceEditUnavailable, InvoiceForm } from "../../../_components/invoice-form";
 import { PeriodClosedNotice } from "../../../_components/period-closed-notice";
+import { ImportedInvoiceForm } from "../../../_components/imported-invoice-form";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,10 @@ export default async function EditSalePage({
     // Período cerrado: aviso en lugar del formulario (la API rechaza igual).
     if (periodClosed) return <PeriodClosedNotice clientId={id} periodId={periodId} />;
 
+    if (edit.status === "IMPORTED") {
+        // Importado: formulario detallado (todas las alícuotas e importes); key con el token para remontar tras recargar.
+        return <ImportedInvoiceForm key={edit.detail.updatedAt} clientId={id} periodId={periodId} clientName={form.clientName} period={form.period} detail={edit.detail} />;
+    }
     if (edit.status === "NOT_EDITABLE") {
         return <InvoiceEditUnavailable direction="SALES" clientId={id} periodId={periodId} clientName={form.clientName} period={form.period} message={edit.message} />;
     }

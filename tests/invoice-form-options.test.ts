@@ -92,8 +92,9 @@ describe("sin número documental: opciones y derivados no dependen de ningún n�
   });
 
   it("aviso de pendientes con los documentos de la fila o, sin código de documento, con su fundamento", () => {
+    // El 99 del consumidor final ya no está pendiente: sin aviso.
     const cf = resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 5, voucherCode: 6 }));
-    expect(cf.notices.find((n) => n.code === "DOCUMENT_PENDING")?.message).toMatch(/99 – SIN IDENTIFICAR/);
+    expect(codesOf(cf)).not.toContain("DOCUMENT_PENDING");
     const exp = resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 9, voucherCode: 19 }));
     expect(exp.notices.find((n) => n.code === "DOCUMENT_PENDING")?.message).toContain(pendingDocumentRules("SALES", 1, 9, 19)[0].basis);
     expect(codesOf(resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 1, voucherCode: 1 })))).not.toContain("DOCUMENT_PENDING");
@@ -180,12 +181,14 @@ describe("opciones por paso", () => {
     expect(notice?.message).toMatch(/006 – FACTURAS B/);
   });
 
-  it("documentos: consumidor final sin 99 (pendiente, con aviso); etiquetas del catálogo", () => {
+  it("documentos: consumidor final con 99 (sin identificar / venta global diaria); etiquetas del catálogo", () => {
     const o = resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 5, voucherCode: 6 }));
-    expect(values(o.docTypes)).toEqual([80, 86, 91, 94, 96]);
+    expect(values(o.docTypes)).toEqual([80, 86, 91, 94, 96, 99]);
     expect(o.docTypes[0].label).toBe(`80 – ${DOCUMENT_TYPES.find((d) => d.code === 80)?.label}`);
-    const notice = o.notices.find((n) => n.code === "DOCUMENT_PENDING");
-    expect(notice?.message).toMatch(/99 – SIN IDENTIFICAR/);
+    expect(o.docTypes.at(-1)?.label).toMatch(/99 – SIN IDENTIFICAR \/ VENTA GLOBAL DIARIA/);
+    expect(o.notices.find((n) => n.code === "DOCUMENT_PENDING")).toBeUndefined();
+    // A un responsable inscripto (clase A) nunca se ofrece.
+    expect(values(resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 1, voucherCode: 1 })).docTypes)).not.toContain(99);
   });
 
   it("documentos: 87 nunca se ofrece", () => {
@@ -301,12 +304,11 @@ describe("normalización", () => {
     expect(changed.derived).toBeNull();
   });
 
-  it("valores fuera de las opciones (063, 87, 99, condición 8, variante no válida) se descartan", () => {
+  it("valores fuera de las opciones (063, 87, 99 con receptor inscripto, condición 8, variante no válida) se descartan", () => {
     expect(resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 8 })).selection.counterpartyCondition).toBeNull();
     expect(resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 1, voucherCode: 63 })).selection.voucherCode).toBeNull();
-    for (const docType of [87, 99]) {
-      expect(resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 5, voucherCode: 6, docType })).selection.docType).toBeNull();
-    }
+    expect(resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 5, voucherCode: 6, docType: 87 })).selection.docType).toBeNull();
+    expect(resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 1, voucherCode: 1, docType: 99 })).selection.docType).toBeNull();
     expect(
       resolveInvoiceFormOptions(ctx(), sel({ counterpartyCondition: 1, voucherCode: 1, voucherVariant: "OPERACION_SUJETA_A_RETENCION" as VoucherVariant }))
         .selection.voucherVariant,

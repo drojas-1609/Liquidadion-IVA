@@ -14,12 +14,18 @@ export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 export interface ImportRequest {
     clientId: string;
     category: LidCategory;
-    /** LID_TXT (par de TXT) o PORTAL_CSV (descarga de Portal IVA: un CSV o ZIP en vouchersFile). */
+    /** LID_TXT (par de TXT), PORTAL_CSV (descarga de Portal IVA) o MIS_COMPROBANTES (consulta de Mis Comprobantes): las dos últimas, un CSV o ZIP en vouchersFile. */
     format: ImportSource;
     vouchers: Uint8Array;
     aliquots: Uint8Array;
     token: string | null;
     acceptPartial: boolean;
+    /**
+     * true: los comprobantes IMPORTADOS que se eliminaron de la app y vuelven a
+     * venir en el archivo se importan de nuevo (confirmación expresa). false
+     * (por defecto): quedan para revisar.
+     */
+    reimportDeleted: boolean;
     /** Sólo confirmación: identificador de la operación generado por el navegador (UUID). */
     operationId: string | null;
     /** Sólo confirmación, opcional: identificador de ESTE envío (UUID). Un reintento de la misma operación lleva otro. */
@@ -45,12 +51,12 @@ export function parseImportRequest(body: unknown, opts: { requireToken: boolean 
     if (typeof b.clientId !== "string" || b.clientId.trim() === "") return { ok: false, field: "clientId", error: "clientId requerido" };
     if (b.category !== "SALES" && b.category !== "PURCHASES") return { ok: false, field: "category", error: "category debe ser SALES o PURCHASES" };
     const format = b.format === undefined ? "LID_TXT" : b.format;
-    if (format !== "LID_TXT" && format !== "PORTAL_CSV") return { ok: false, field: "format", error: "format debe ser LID_TXT o PORTAL_CSV" };
-    const vouchers = decodeFile(b.vouchersFile, format === "PORTAL_CSV" ? "la descarga de Portal IVA" : "comprobantes");
+    if (format !== "LID_TXT" && format !== "PORTAL_CSV" && format !== "MIS_COMPROBANTES") return { ok: false, field: "format", error: "format debe ser LID_TXT, PORTAL_CSV o MIS_COMPROBANTES" };
+    const vouchers = decodeFile(b.vouchersFile, format === "PORTAL_CSV" ? "la descarga de Portal IVA" : format === "MIS_COMPROBANTES" ? "la consulta de Mis Comprobantes" : "comprobantes");
     if (!vouchers.ok) return { ok: false, field: "vouchersFile", error: vouchers.error };
     let aliquots: { ok: true; bytes: Uint8Array } | { ok: false; error: string } = { ok: true, bytes: new Uint8Array(0) };
     if (format === "LID_TXT") aliquots = decodeFile(b.aliquotsFile, "alícuotas");
-    else if (b.aliquotsFile !== undefined) return { ok: false, field: "aliquotsFile", error: "la descarga de Portal IVA es un único archivo: no se envía archivo de alícuotas" };
+    else if (b.aliquotsFile !== undefined) return { ok: false, field: "aliquotsFile", error: "la descarga es un único archivo: no se envía archivo de alícuotas" };
     if (!aliquots.ok) return { ok: false, field: "aliquotsFile", error: aliquots.error };
     let token: string | null = null;
     if (opts.requireToken) {
@@ -60,9 +66,10 @@ export function parseImportRequest(body: unknown, opts: { requireToken: boolean 
         if (b.attemptId !== undefined && !isOperationId(b.attemptId)) return { ok: false, field: "attemptId", error: "attemptId debe ser un UUID en minúsculas" };
     }
     if (b.acceptPartial !== undefined && typeof b.acceptPartial !== "boolean") return { ok: false, field: "acceptPartial", error: "acceptPartial debe ser booleano" };
+    if (b.reimportDeleted !== undefined && typeof b.reimportDeleted !== "boolean") return { ok: false, field: "reimportDeleted", error: "reimportDeleted debe ser booleano" };
     return {
         ok: true,
-        data: { clientId: b.clientId, category: b.category, format, vouchers: vouchers.bytes, aliquots: aliquots.bytes, token, acceptPartial: b.acceptPartial === true,
+        data: { clientId: b.clientId, category: b.category, format, vouchers: vouchers.bytes, aliquots: aliquots.bytes, token, acceptPartial: b.acceptPartial === true, reimportDeleted: b.reimportDeleted === true,
             operationId: opts.requireToken ? (b.operationId as string) : null,
             attemptId: opts.requireToken && typeof b.attemptId === "string" ? b.attemptId : null },
     };
