@@ -1,6 +1,6 @@
 # Pase a producción de #33, #32 y #34: revisión y procedimiento (07/11/2026)
 
-**Estado:** pasos 1 y 2 (respaldo y preflight) ejecutados el 07/11/2026; el resto preparado y **sin ejecutar**.
+**Estado:** pasos 1 a 3 (respaldo, preflight y merge de #33) ejecutados el 07/11/2026; el resto preparado y **sin ejecutar**.
 
 En esta etapa no se hace merge, no se escribe en PROD ni se carga nada en ARCA. Cada paso con escritura requiere la autorización del titular, en el orden de abajo.
 
@@ -50,6 +50,23 @@ En #33, la primera corrida de PostgreSQL agotó el tiempo del hook de `period-to
 **Pendiente del titular:** confirmar en el panel de Supabase de PROD que el respaldo diario o PITR está activo, y anotar la hora del último.
 
 **Siguen sin autorizar:** los merges, las migraciones en PROD y la carga en el Portal IVA.
+
+## 1c. Paso 3 ejecutado el 07/11/2026: merge de #33 y deploy de producción
+
+- **Verificación previa:**
+  - el titular confirmó el respaldo diario de PROD en Supabase;
+  - head de #33 `1989e6e`, checks de Netlify en verde, MERGEABLE/CLEAN;
+  - `main` y la producción publicada en `4ebf540`.
+- **Merge:** #33 pasó de borrador a listo y se unió con merge commit fijando el head (`--match-head-commit`). Merge `cc039dd` a las 19:36:08 UTC.
+- **Producción:** Netlify publicó `main@cc039dd` (deploy `6aef7daa`) a las 19:36:59 UTC.
+- **Smoke de solo lectura:**
+  - **Rutas públicas:** `/` redirige a `/login`; `/login` responde 200; `/clients` sin sesión redirige al login; `/api/clients` sin sesión responde 401. CSP y HSTS presentes.
+  - **Con la sesión del titular (Propietario):**
+    - la lista de clientes, el panel del cliente y el período 10/2026 (con ventas, compras y posición) cargan;
+    - el formulario de venta, sin guardar, no ofrece 081: es lo esperado, porque #33 lo agrega al catálogo y a la importación sin fila en la matriz de carga manual.
+  - **PROD:** sin cambios. La huella combinada de las 23 tablas (`0211480d…`) es igual a la del respaldo; 13 migraciones; ninguna entrada de auditoría nueva.
+
+**Siguen sin autorizar:** la migración 14, los merges de #32 y #34 y la carga en el Portal IVA. El commit local `2fadb1a` sigue afuera.
 
 ## 2. Compatibilidad con el deploy publicado
 
