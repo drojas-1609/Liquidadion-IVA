@@ -216,7 +216,7 @@ El Operador conserva su alcance por clientes asignados y no reabre.
 
 ## Límites y pendientes
 
-**Retenciones de IVA** (certificados de Mis Retenciones): no hubo muestra; se cargan a mano con el detalle del F.2051.
+**Retenciones de IVA:** se importan desde la descarga de ARCA o desde el archivo de importación del F.2051 (ver «Retenciones de IVA» más abajo). La escala de los importes sin decimales no está documentada: esas filas quedan para revisar salvo confirmación explícita.
 
 **Formatos no generados:**
 - importaciones (despacho), importación de servicios, bienes usados, liquidaciones de granos e intermediarios: no se modelan;
@@ -268,6 +268,34 @@ Archivo `Percepciones-impositivas-AAAAMM.csv`, en Retenciones y percepciones →
   - una fila repetida en el archivo es un error;
   - la confirmación vuelve a calcular todo bajo el bloqueo del período, con token y AuditLog `taxrecord.import` (sin importes ni CUIT).
 - **Resultado con la muestra de octubre:** 1 percepción importable. Si se usa en septiembre, queda para revisar por la fecha: octubre no se mezcla con la conciliación de septiembre.
+
+### Retenciones de IVA
+
+Archivo `Retenciones-AAAAMM.csv` o el archivo de importación del F.2051, en Retenciones y percepciones → Importar → «Retenciones con certificado». Lector: `lib/tax-import/retentions-csv.ts`. Muestras observadas: dos archivos del período 09/2026.
+
+- **Formas aceptadas** (sin encabezado, `;`, todas las filas con la misma cantidad de campos):
+  - **diseño de importación del F.2051, 9 campos:** impuesto · régimen · CUIT del agente · CUIT intermediario · fecha · tipo de comprobante · número · certificado · importe;
+  - **descarga de ARCA, 10 campos:** la misma secuencia con un campo sin documentar después del régimen (observado `0`, como en percepciones).
+- **Validaciones:**
+  - impuesto 767 o 216, y si no, error;
+  - CUIT del agente (y del intermediario, si viene) con dígito verificador;
+  - fecha ISO válida y dentro del período, y si no, revisar;
+  - tipo de comprobante de la tabla del F.2051 y número con el formato de ese tipo, y si no, revisar;
+  - certificado obligatorio;
+  - importe positivo.
+- **Importes sin decimales:** en las muestras no se puede saber si son pesos enteros o centavos. La fila queda **para revisar** salvo que el usuario marque «Confirmo que los importes sin decimales del archivo son pesos enteros»; la confirmación cambia el token de la vista previa.
+- **Duplicados:** la clave es agente + certificado.
+  - Una retención ya registrada para el cliente, en cualquier período, se omite. Eso vale entre las dos formas: el mismo certificado en el diseño y en la descarga es la misma retención. En la base, además, lo impide el índice único `TaxRecord_retention_certificate_key`.
+  - Una fila repetida dentro del archivo es un error.
+- **Confirmación:** reutiliza el circuito de percepciones:
+  - permisos de alta, `lockPeriodForWrite` (409 si el período está cerrado u ocupado);
+  - relectura bajo el bloqueo y comparación del token;
+  - `createMany` con el detalle completo del F.2051;
+  - AuditLog `taxrecord.import` con la forma, los conteos y la huella del archivo, sin importes, CUIT ni certificados.
+- **Filas no importadas:** se muestran aparte («Pendientes (no se importan)») con su estado y motivo, y su total queda fuera del total importado. Siguen visibles después de confirmar.
+- **Resultado con las muestras de septiembre** (sólo agregados):
+  - el primer archivo tiene 2 filas para revisar por importe sin decimales, que pasan a 2 importables con la confirmación;
+  - el segundo da duplicados después del primero, y para revisar si se usa en octubre.
 
 ## Evidencia y validación
 

@@ -33,10 +33,13 @@ export function TaxRecordsImport({ periodId }: { periodId: string }) {
     const [file, setFile] = useState<File | null>(null);
     const [integerPesos, setIntegerPesos] = useState(false);
     const [preview, setPreview] = useState<Preview | null>(null);
+    // Tras confirmar se conserva la respuesta (con las filas no importadas) sin
+    // ofrecer importar de nuevo: las pendientes nunca desaparecen en silencio.
+    const [done, setDone] = useState(false);
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState<{ tone: "status" | "alert"; text: string } | null>(null);
     const inFlight = useRef(false);
-    const reset = () => { setPreview(null); setMessage(null); };
+    const reset = () => { setPreview(null); setDone(false); setMessage(null); };
 
     async function send(confirm: boolean) {
         if (!file || inFlight.current) return;
@@ -55,11 +58,12 @@ export function TaxRecordsImport({ periodId }: { periodId: string }) {
                 return;
             }
             if (confirm) {
-                setMessage({ tone: "status", text: `Importadas ${json?.imported ?? 0} ${kind === "RETENTIONS" ? "retenciones" : "percepciones"}. Las filas no importadas quedaron listadas en la vista previa.` });
-                setPreview(null);
-                setFile(null);
+                const notImported = json ? json.rows.filter((r) => r.status !== "OK").length : 0;
+                setMessage({ tone: "status", text: `Importadas ${json?.imported ?? 0} ${kind === "RETENTIONS" ? "retenciones" : "percepciones"}.${notImported > 0 ? ` No se importaron ${notImported}: quedan listadas abajo como pendientes.` : ""}` });
+                setPreview(json);
+                setDone(true);
                 router.refresh();
-            } else setPreview(json);
+            } else { setPreview(json); setDone(false); }
         } catch {
             setMessage({ tone: "alert", text: "No se pudo procesar el archivo." });
         } finally {
@@ -69,7 +73,7 @@ export function TaxRecordsImport({ periodId }: { periodId: string }) {
     }
 
     const pending = preview?.rows.filter((r) => r.status !== "OK") ?? [];
-    const importable = preview?.rows.filter((r) => r.status === "OK") ?? [];
+    const importable = done ? [] : (preview?.rows.filter((r) => r.status === "OK") ?? []);
     const table = (rows: Row[], label: string) => (
         <table aria-label={label} style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem", marginBottom: "var(--spacing-md)" }}>
             <thead><tr><th style={{ textAlign: "left" }}>Línea</th><th style={{ textAlign: "left" }}>Estado</th><th style={{ textAlign: "left" }}>Fecha</th><th style={{ textAlign: "left" }}>Régimen</th><th style={{ textAlign: "left" }}>Comprobante</th>{kind === "RETENTIONS" && <th style={{ textAlign: "left" }}>Certificado</th>}<th style={{ textAlign: "right" }}>Importe</th><th style={{ textAlign: "left" }}>Detalle</th></tr></thead>
@@ -106,7 +110,7 @@ export function TaxRecordsImport({ periodId }: { periodId: string }) {
                     Confirmo que los importes sin decimales del archivo son pesos enteros
                 </label>
                 <button type="button" className="btn btn-secondary" disabled={!file || busy} onClick={() => send(false)}>Vista previa</button>
-                {preview && preview.fileErrors.length === 0 && preview.counts.OK > 0 && (
+                {preview && !done && preview.fileErrors.length === 0 && preview.counts.OK > 0 && (
                     <button type="button" className="btn btn-primary" disabled={busy} onClick={() => send(true)}>Importar {preview.counts.OK} (total ${preview.importableTotal})</button>
                 )}
             </div>
@@ -115,8 +119,8 @@ export function TaxRecordsImport({ periodId }: { periodId: string }) {
                 <div style={{ marginTop: "var(--spacing-md)" }}>
                     {preview.fileErrors.map((e) => <p key={e} role="alert" style={{ color: "var(--error)" }}>{e}</p>)}
                     {preview.layout && <p style={{ fontSize: "0.875rem" }}>Forma del archivo: {LAYOUT_LABEL[preview.layout] ?? preview.layout}.</p>}
-                    <p role="status" style={{ fontSize: "0.875rem", marginBottom: "var(--spacing-sm)" }}>
-                        Se importan {preview.counts.OK} (total ${preview.importableTotal}) · No se importan {pending.length} (total ${preview.excludedTotal}, fuera de los totales):
+                    <p style={{ fontSize: "0.875rem", marginBottom: "var(--spacing-sm)" }}>
+                        {done ? "Importación confirmada. " : ""}Se importan {preview.counts.OK} (total ${preview.importableTotal}) · No se importan {pending.length} (total ${preview.excludedTotal}, fuera de los totales):
                         {" "}ya registradas {preview.counts.DUPLICATE}, para revisar {preview.counts.REVIEW}, con error {preview.counts.ERROR}.
                     </p>
                     {importable.length > 0 && table(importable, "Filas que se importan")}

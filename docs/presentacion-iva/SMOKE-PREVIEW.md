@@ -80,3 +80,56 @@ Se consultó la API de Netlify, en modo lectura, con la sesión guardada del CLI
 **Conclusión:** producción usa la base de PROD y la Deploy Preview usa la de DEV.
 
 **Falta verificar:** una escritura hecha por el deploy publicado *actual*. La última escritura de producción, del 05/11 22:54, es anterior a ese deploy. Se cierra leyendo en PROD, en solo lectura, el próximo evento de uso real de producción.
+
+## Importadores de descargas de ARCA (06/11/2026, 21:30–22:00 UTC)
+
+| Dato | Valor |
+|---|---|
+| Preview | deploy `6aee4858…`, contexto `deploy-preview`, commit `34a3cb5` |
+| Sesión | OWNER de DEV (la del titular) |
+| Datos | Sólo sintéticos, con **otro** cliente: **CLIENTE SINTETICO IMPORT PR34** (CUIT 30-79999800-5, id `cmw5ht3b…`) y período **10/2027** (id `cmw5ht7p…`). No se modificaron el cliente SMOKE PR34 ni el período 09/2026 |
+| Verificación de DEV | Sólo `SELECT`. Desde las 21:00 UTC no hay escrituras en `Invoice`, `TaxRecord`, `Period` ni `AuditLog` fuera del período de prueba |
+
+### Por interfaz
+
+Archivos cargados con el selector de archivos de la pantalla.
+
+| Paso | Resultado |
+|---|---|
+| Mis Comprobantes **emitidos** (ZIP) | Vista previa: 5 comprobantes, se importan 2, revisar 1, error 2. FC A 4-101 se importa con **sus** alícuotas; su repetición en el archivo da error («comprobante repetido en el archivo»); la fila con fecha 28/09 da error de período; la FC B sin denominación queda para revisar; la NC A 4-5 resta **una vez** (−121). Confirmación parcial con la casilla: importados 2, no importados 3 |
+| Libro IVA Digital TXT (ventas) con la misma FC 4-101 | «Ya cargado para este cliente: se omite»: duplicado **entre formatos** |
+| Mis Comprobantes **recibidos** (ZIP) | Se importan 2, revisar 1 (tipo 63 no admitido), error 1 (el receptor no es el cliente). «Otros Tributos» 30,00 queda en **Otros tributos**, con «Percepciones IVA» en 0,00 y una nota. La NC resta una vez (−48,40). Confirmados 2 |
+| Percepciones (8 campos) | Se importa 1 (30,00); la fila del 30/09 queda en «Pendientes (no se importan)» con su total (12,00) **fuera** del total importado. Al reimportar: 1 «Ya registrada» y 1 para revisar |
+| Retenciones, diseño F.2051 (9 campos) | Sin confirmar la escala: se importa 1 (3.101,70) y la de importe sin decimales queda para revisar (354.480,00, excluida). Con la casilla de pesos enteros: esa se importa y la primera aparece «Ya registrada» |
+| Retenciones, descarga de ARCA (10 campos) con los mismos certificados | 2 «Ya registrada»: duplicado **entre formas** |
+| Liquidación | Débito 294,00 (315 − 21 de la NC); crédito 201,60 (210 − 8,40); saldo técnico 92,40. Retenciones 357.581,70 y percepciones 30,00. Si «Otros Tributos» se computara como percepción serían 60,00. Libre disponibilidad 357.519,30 = 357.611,70 − 92,40 |
+| Presentación ARCA | La determinación coincide con la liquidación. Ningún control por detalle faltante del F.2051 en las retenciones y percepciones importadas. Sólo quedan los controles de clasificación de los 4 comprobantes, que impiden exportar |
+| Borrador del paquete | Se leyó dentro de la página, sin guardarlo. Contiene `F2051_RETENCIONES.csv` (138 bytes) y `F2051_PERCEPCIONES.csv` (52 bytes) |
+
+### Por SQL en DEV (sólo lectura)
+
+- `TaxRecord` del período:
+  - 2 `RETENCION IVA` / `RETENTION`, por 357.581,70, con 2 certificados;
+  - 1 `PERCEPCION IVA` / `PERCEPTION`, por 30,00;
+  - todas con régimen, agente y número.
+- `Invoice`: compra 001 con `otherTaxesAmount` 30,00 y `vatPerceptionAmount` 0,00; las NC guardadas con total negativo.
+- `AuditLog` del período: `invoice.import` 2, `taxrecord.import` 3 y `vat.package.export` 2 (descargas del borrador).
+
+### Sólo en pruebas locales (PostgreSQL 17, `scripts/pg-local-regression.sh`)
+
+- **Permisos:** roles sin alta de impuestos, otro estudio y cliente fuera del alcance. En el navegador sólo hay sesión OWNER.
+- **Período cerrado:** `PERIOD_CLOSED` al confirmar.
+- Token desactualizado y las dos formas de retenciones (`tests/integration/arca-downloads-import-pg.test.ts`).
+
+### Hallazgos de esta prueba
+
+1. **Corregido en `34a3cb5`:** un comprobante repetido dentro de una descarga de un solo archivo sumaba sus alícuotas a la primera aparición y dejaba ambas con error. Ahora las alícuotas se vinculan por línea. Tiene prueba de regresión.
+2. **Corregido en el commit siguiente:** al confirmar retenciones o percepciones, la pantalla borraba la vista previa. Ahora conserva las filas pendientes con su motivo y deja de ofrecer «Importar».
+3. **Observado, sin confirmar:** en la Preview, el primer clic en «Confirmar importación» después de marcar la casilla no siempre se registró y hubo que repetirlo. El botón queda bajo la barra flotante de Netlify, que sólo existe en las Previews.
+
+### Pendiente por interfaz
+
+- Cerrar el período 10/2027 e intentar una importación (se espera `PERIOD_CLOSED`).
+- Comprobar en la Preview el hallazgo 2.
+
+La nueva pestaña del navegador quedó en la protección de equipo de Netlify («Este sitio es privado»). Esto queda pendiente hasta que el titular vuelva a abrir la Preview con su sesión.
