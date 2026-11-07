@@ -9,6 +9,7 @@ import { AccessNotice } from "@/app/_components/access-notice";
 import { formatMoney, formatIsoDate } from "@/lib/format";
 import { normalizeInvoiceRow } from "@/lib/invoice-model";
 import { invoiceRowActions } from "@/lib/invoice-edit";
+import { otherConceptsOf } from "@/lib/invoice-list-view";
 import { invoiceEditHref } from "@/lib/invoice-form-client";
 import { InvoiceRowActions } from "../_components/invoice-row-actions";
 import { DeletableInvoiceRow, DeletableInvoiceRows } from "../_components/invoice-deletable-row";
@@ -57,6 +58,9 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
 
             {pager}
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+                <p style={{ fontSize: "0.85rem", color: "var(--secondary)", marginBottom: "var(--spacing-sm)" }}>
+                    El total incluye el exento, el no gravado, las percepciones y los otros tributos, que no forman parte del neto ni del IVA. Las notas de crédito restan.
+                </p>
                 {/* Retira localmente las filas cuya baja ya confirmó el servidor (204). */}
                 <DeletableInvoiceRows label="Lista de ventas">
                 <table className="table">
@@ -68,6 +72,7 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
                             <th>Cliente</th>
                             <th>Neto</th>
                             <th>IVA</th>
+                            <th>Exento, no gravado y otros</th>
                             <th>Total</th>
                             {showActions && <th>Acciones</th>}
                         </tr>
@@ -75,7 +80,7 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
                     <tbody>
                         {invoices.length === 0 ? (
                             <tr>
-                                <td colSpan={showActions ? 8 : 7} style={{ textAlign: "center", color: "var(--secondary)" }}>
+                                <td colSpan={showActions ? 9 : 8} style={{ textAlign: "center", color: "var(--secondary)" }}>
                                     No hay ventas registradas.
                                 </td>
                             </tr>
@@ -98,6 +103,11 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
                                         <td>{view.counterpartyName}</td>
                                         <td>${formatMoney(view.signedNet.toFixed(2))}</td>
                                         <td>${formatMoney(view.signedVat.toFixed(2))}</td>
+                                        <td>
+                                            {otherConceptsOf(columns).map((c) => (
+                                                <div key={c.label}>{c.label} ${formatMoney(c.signed.toFixed(2))}</div>
+                                            ))}
+                                        </td>
                                         <td>${formatMoney(view.signedTotal.toFixed(2))}</td>
                                         {actions && (
                                             <td>
