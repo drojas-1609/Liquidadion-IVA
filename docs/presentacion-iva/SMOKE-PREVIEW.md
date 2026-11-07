@@ -192,14 +192,24 @@ Además, las respuestas de la Preview tardan entre 10 y 15 s (confirmación 201 
 | Cierre del período | Navegador | DEV: CLOSED, versión 1. La lista muestra «Período cerrado: sólo consulta» y no ofrece acciones; la edición muestra el aviso de período cerrado. Tras «Sí, cerrar», el encabezado siguió en «Abierto» hasta recargar (comportamiento existente, con su botón «Recargar») |
 | Rechazos con el período cerrado | API desde la sesión | Corrección detallada, baja, confirmación de percepciones y confirmación de Mis Comprobantes: los cuatro `409 PERIOD_CLOSED`. La vista previa de Mis Comprobantes informa `periodOpen: false`. En DEV no cambió nada |
 
-### Operador
+### Operador (navegador, 07/11/2026, SHA `fef7487`, deploy `6aef4cd9`)
 
-No hubo una sesión de Operador en el navegador: la única cuenta Operador activa en DEV es de una persona real y no se inicia sesión con credenciales ajenas. Evidencia sólo en PostgreSQL local (`tests/integration/imported-invoice-edit-pg.test.ts`):
-- el Operador corrige un importado (200);
-- `DELETE` responde 403 al Operador y al Contable;
-- la lista no ofrece «Eliminar» al Operador (`tests/invoice-edit.test.ts`, `invoiceRowActions`).
+**SHA.** Netlify sirve `fef7487`. Entre `7fa2953` y `fef7487` sólo cambia este archivo, así que el código es el mismo que el del smoke de Propietario.
+
+**Sesión.** La abrió el titular con la cuenta A (Operador, módulos CLIENTS, IVA y ARCA_PADRON, cuatro clientes asignados) en el otro navegador. Los permisos de A no se modificaron: el acceso es intencional.
+
+| Paso | Resultado |
+|---|---|
+| Alcance | La lista de clientes muestra sólo los cuatro asignados y no ofrece «Nuevo Cliente» |
+| Lista de ventas, CLIENTE SINTETICO IMPORT PR34 10/2027 | Los importados ofrecen sólo «Editar»: ningún «Eliminar» en la página |
+| Corrección detallada de la FC A 4-101 (dos alícuotas) | Se guardó. En DEV: `source` IMPORT, `updatedById` de la cuenta Operador, AuditLog `invoice.update` con `changedFields` counterpartyName y `source` IMPORT |
+| `DELETE /api/invoices/[id]` desde la sesión del Operador | **403 FORBIDDEN**, sin baja (0 `invoice.delete`) |
+| Restauración | Razón social original de nuevo, por el mismo formulario |
+| Integridad del período | Las otras tres facturas conservan su `updatedAt` original y sus valores; retenciones y percepciones idénticas (misma huella); la 4-101 conserva total, condición y sus dos alícuotas con los mismos valores. Sólo cambian su `updatedAt`, los ids de sus líneas (la corrección las reescribe) y dos entradas de auditoría (edición y restauración) |
+
+La evidencia de PostgreSQL local se conserva aparte (`tests/integration/imported-invoice-edit-pg.test.ts` y `tests/invoice-edit.test.ts`): el Operador y el Contable corrigen, `DELETE` les responde 403 y la lista no les ofrece «Eliminar».
 
 ### Fuera del alcance de #34 (observado)
 
 - Formulario de clientes: al escribir sobre un campo con error, los caracteres siguientes cayeron en otros campos (CUIT «3», teléfono «0+54…», email «-…»). Con valores asignados directamente se guardó bien.
-- En DEV, a las 12:49–12:50Z, el Propietario pasó la cuenta A a Operador, con cuatro clientes, desde la Preview. No lo hizo esta sesión. Afecta la limpieza de #25 y la página Usuarios de las Previews de #25 y #29, que no conocen el rol Operador. Lo decide el titular.
+- En DEV, a las 12:49–12:50Z, el Propietario pasó la cuenta A a Operador, con cuatro clientes. El titular confirmó que el acceso es intencional y se mantiene. Afecta la limpieza de #25 y la página Usuarios de las Previews de #25 y #29, que no conocen el rol Operador: coordinar con esas sesiones.
