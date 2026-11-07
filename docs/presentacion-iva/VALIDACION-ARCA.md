@@ -1,4 +1,4 @@
-# Validación de aceptación en ARCA (procedimiento propuesto, NO ejecutado: pendiente)
+# Validación de aceptación en ARCA (procedimiento listo para revisión, NO ejecutado: pendiente de la elección del período y la autorización del titular)
 
 **Objetivo:** confirmar que el Portal IVA **acepta importar** los archivos del paquete, sin presentar el Libro IVA Digital (F.2083) ni la declaración F.2051, y sin pagar.
 
@@ -24,6 +24,46 @@ Lo ejecuta una persona del estudio con clave fiscal y con autorización explíci
 | 6 | Retenciones y percepciones: importar `F2051_*.csv` **sólo si** no hay precargadas que se dupliquen | Aceptado o rechazado; duplicados detectados. La descarga de percepciones observada (8 campos, punto decimal) difiere del diseño publicado (7 campos, coma): registrar cuál acepta el Portal |
 | 7 | Ver la determinación del Portal (sin presentar) y compararla con `RESUMEN.txt` y `CONCEPTOS_A_CARGAR_EN_ARCA.txt` | Saldo del Portal frente al de la app |
 | 8 | Cerrar la sesión **sin presentar** | — |
+
+## Prueba de aceptación: archivo, pantalla y totales (preparada el 07/11/2026)
+
+**Antes de empezar, el titular:**
+1. **Elige el período:** un cliente real y un período no presentado ni vencido, ya cerrado en la app y con el **paquete final** (`IVA_<CUIT>_<AAAAMM>_v<n>.zip`).
+   - El paquete final sólo se genera sin bloqueos de exportación.
+   - El período real de 10/2026 con el par sólo exento **no sirve** mientras su código de operación siga pendiente.
+2. **Autoriza por escrito** la carga en el borrador de ARCA de ese período, con la lista de archivos de abajo.
+3. **Anota** de `RESUMEN.txt`:
+   - la huella sha256 de cada archivo;
+   - la determinación;
+   - las líneas `[OK]` de la conciliación.
+
+   Si alguna línea dice `[REVISAR]`, **no se carga**.
+
+| Orden | Archivo del paquete | Pantalla del Portal IVA (borrador del período) | Comparar antes de seguir (fuente) |
+|---|---|---|---|
+| 1 | `LIBRO_IVA_DIGITAL_VENTAS_CBTE.txt` + `LIBRO_IVA_DIGITAL_VENTAS_ALICUOTAS.txt` | Libro IVA → Ventas → Importar (los dos juntos, «importes en Pesos Argentinos») | Cantidad de comprobantes = registros del CBTE (`RESUMEN.txt`, archivos incluidos) · débito fiscal del Portal = «Total del débito fiscal» · neto e IVA por alícuota |
+| 1b | `*_VENTAS_TURIVA_*` (sólo si existen) | Libro IVA → Ventas TURIVA | Ídem, en la pestaña TURIVA |
+| 2 | `LIBRO_IVA_DIGITAL_COMPRAS_CBTE.txt` + `LIBRO_IVA_DIGITAL_COMPRAS_ALICUOTAS.txt` | Libro IVA → Compras → Importar | Cantidad de comprobantes · crédito fiscal computable del Portal = «Crédito fiscal por compras» |
+| 2b | `*_COMPRAS_TURIVA_*` (sólo si existen) | Libro IVA → Compras TURIVA | Ídem |
+| 3 | `IVA_SIMPLE_DEBITO_FISCAL.csv` | Ajustes y otros conceptos → Apertura de otros conceptos → Débito fiscal | Débito de la apertura − restitución = débito del motor (línea de conciliación) |
+| 4 | `IVA_SIMPLE_RESTITUCION_DEBITO_FISCAL.csv` | Ídem → Restitución de débito fiscal | Ídem |
+| 5 | `IVA_SIMPLE_CREDITO_FISCAL.csv` | Ídem → Crédito fiscal | Computable − restitución = crédito por compras (línea de conciliación) |
+| 6 | `IVA_SIMPLE_RESTITUCION_CREDITO_FISCAL.csv` | Ídem → Restitución de crédito fiscal | Ídem |
+| 7 | — (carga manual) | Ajustes al crédito fiscal · saldos del período anterior | Valores de `CONCEPTOS_A_CARGAR_EN_ARCA.txt` (Anexo I / Art. 91, saldo técnico y libre disponibilidad anteriores) |
+| 8 | `F2051_RETENCIONES.csv` · `F2051_PERCEPCIONES.csv` · `F2051_PERCEPCIONES_ADUANERAS.csv` | Retenciones y percepciones → Importar, **sólo si no están precargadas** (si lo están, validar las precargadas sin duplicar) | Suma = «Retenciones · Percepciones · Percepciones aduaneras» de la determinación |
+| 9 | — | Determinación (vista previa, **sin presentar**) | Saldo técnico, saldo a favor de ARCA o de libre disponibilidad = `RESUMEN.txt` |
+
+**Si una importación se rechaza:**
+- se copia el mensaje textual y una captura, y se **detiene** ese bloque;
+- **no** se reintenta quitando el encabezado ni cambiando el formato sin evidencia del formato exigido.
+
+**Diferencias.** Una diferencia de totales se registra con el valor del Portal y el de `RESUMEN.txt`. No se ajusta nada en ARCA para «hacerla cerrar».
+
+**Al terminar:**
+- el período sigue «no presentado»;
+- no se generaron F.2083, F.2051 ni VEP.
+
+El resultado de cada archivo (aceptado o rechazado, con el mensaje) vuelve a #34 o a un PR nuevo como evidencia.
 
 ## Qué queda guardado en ARCA
 
