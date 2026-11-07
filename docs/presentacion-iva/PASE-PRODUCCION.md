@@ -172,6 +172,41 @@ En #33, la primera corrida de PostgreSQL agotó el tiempo del hook de `period-to
 
 **Siguen sin autorizar:** aplicar la 15 y la 16, el merge de #34 y la carga en el Portal IVA.
 
+## 1g. Paso 6 ejecutado el 07/11/2026: respaldo con 14 migraciones y migración 15 en PROD
+
+**Respaldo previo a la 15:** `prod-public-20261107T203316Z.dump`, generado por el titular por el Session pooler, con la contraseña en un prompt oculto. Está fuera del repositorio y de las carpetas sincronizadas; sha256 `0fcb481bf5c8707e0bf1edf09e825e2afa77fdece7e17432a9792c96c317b047`, verificado.
+- **Restauración en PostgreSQL 17.11 local:** sólo el aviso esperado («schema public already exists»).
+- **Comparación con PROD, en sólo lectura:**
+  - 14 migraciones, `91722b11…`;
+  - 24 tablas, 77 índices, 96 restricciones, 17 enums y RLS en 24;
+  - las 24 tablas y `_prisma_migrations` coinciden en conteo y huella;
+  - huella invariante `3c589a4e…`;
+  - columnas, índices, enums, RLS y políticas iguales.
+- **Única diferencia, de forma:** al restaurar, PostgreSQL reescribe el texto de `Invoice_turiva_relation_code_check` e `Invoice_voucher_variant_check` (de `(ARRAY[…varchar])::text[]` a `ARRAY[(…varchar)::text]`).
+  - El dump trae el texto de PROD.
+  - Ambas formas admiten los mismos valores y están validadas.
+  - La 15 no las toca.
+- **Último ensayo:** el kit 15 sobre esta copia reproduce el postcheck esperado línea por línea.
+
+**Aplicación:** el titular verificó el sha256 del kit (`8304f125…`, OK) y lo ejecutó una vez por el Session pooler.
+- Salida idéntica a la esperada: `BEGIN`, 2 `SET`, `DO`, 4 `CREATE TYPE`, 10 `ALTER TABLE`, 4 `CREATE INDEX`, `CREATE TABLE`, 4 `CREATE INDEX`, 5 `ALTER TABLE`, `DO`, `INSERT 0 1` y `COMMIT`.
+- La fila de la 15 quedó terminada a las 20:45:15 UTC.
+
+**Postcheck (sólo lectura):** los 19 valores coinciden con los esperados de la sección 1f.
+- 15 migraciones, 0 sin terminar; checksum `e2f768ad…`; huella `41ba625ddb92b180f61fe6a7529cc44b9e8cc661f4c07b6d8141809e3651732b`.
+- Tipos, columnas nuevas y defaults como se esperaba; las 5 restricciones nuevas validadas; los 4 índices de `TaxRecord`.
+- 0 comprobantes clasificados, 0 retenciones con detalle y 0 saldos de libre disponibilidad.
+- `PeriodLiquidationVersion`: 15 columnas, 5 índices, restricciones como se esperaba, RLS activa, 0 políticas, 0 privilegios de API y 0 filas.
+- Datos invariantes `3c589a4e…`, iguales al respaldo.
+
+**Producción (`bb868b1`) con la 15 aplicada:**
+- `/` responde 303, `/login` 200 y `/api/clients` sin sesión 401.
+- Con la sesión del titular, en sólo lectura: ventas del período 10/2026 (21 comprobantes), retenciones y percepciones (sin registros) y la liquidación cargan, con los mismos totales que antes de la 15.
+- Sin errores ni bloqueos en los registros de PostgreSQL desde las 20:40 UTC.
+- Después de la navegación, PROD sigue con 15 migraciones, `41ba625d…` y datos `3c589a4e…`.
+
+**Siguen sin autorizar:** la migración 16 (kit `66d43b6f…`, cuya guarda exige 15 migraciones y la huella `41ba625d…`), el merge de #34 y la carga en el Portal IVA.
+
 ## 2. Compatibilidad con el deploy publicado
 
 Las tres migraciones son **aditivas**:
