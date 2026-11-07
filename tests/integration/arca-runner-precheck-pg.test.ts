@@ -4,8 +4,8 @@ import { precheck, FP, EXPECTED_MIGRATIONS, EXPECTED_RELATIONS } from "../../scr
 
 /**
  * Precheck del runner de homologación contra PostgreSQL LOCAL y descartable
- * (scripts/pg-local-regression.sh): runner_prev tiene las 14 migraciones previas y
- * runner_cur las 14, ambas aplicadas con Prisma. Datos sintéticos. Cada alteración
+ * (scripts/pg-local-regression.sh): runner_prev tiene las 15 migraciones previas y
+ * runner_cur las 16, ambas aplicadas con Prisma. Datos sintéticos. Cada alteración
  * se deshace y se comprueba que el precheck vuelve a pasar, para atribuir el rechazo
  * exactamente a esa alteración. La huella local difiere de la de DEV (otros UUID).
  */
@@ -49,17 +49,18 @@ describe.skipIf(!prevUrl || !curUrl)("runner de homologación: precheck de DEV",
     });
     afterAll(async () => { await prev?.$disconnect(); await cur?.$disconnect(); });
 
-    it("fija 15 migraciones y la huella verificada en DEV", () => {
-        expect(EXPECTED_MIGRATIONS).toHaveLength(15);
+    it("fija 16 migraciones y la huella verificada en DEV", () => {
+        expect(EXPECTED_MIGRATIONS).toHaveLength(16);
         expect(EXPECTED_MIGRATIONS[10]).toEqual(["20261102120000_arca_production_controls", "1546bb960aee01bb4ad26871a3a22d4ba7f844b0215f64b293e5ef7f8ea2ca36"]);
         expect(EXPECTED_MIGRATIONS[11]).toEqual(["20261104120000_studio_users_permissions", "cc70bc0be6b90df80151da841aa58f64b3e275ce72c96373d977f40492c3a512"]);
         expect(EXPECTED_MIGRATIONS[12]).toEqual(["20261104230000_add_operator_role", "1bd8d2ce8a29934399a36871687e5946d7e776c8fb252d9dc2e4de96a438416f"]);
         expect(EXPECTED_MIGRATIONS[13]).toEqual(["20261106120000_vat_credit_adjustments", "5093b64d9a968a736455a3e03c79ebae1c3e075c3da00c9ebd685e5ade156151"]);
         expect(EXPECTED_MIGRATIONS[14]).toEqual(["20261107120000_vat_export_close_versions", "e2f768ad2b81ba05e856fed098e48ae5201dee187875d36188875b8692fc5f73"]);
-        expect(FP).toBe("3e9cd2c0ad3aad3a0cfb8ee2ca7f1612ebe08eea1ba4ed267acb358d184885fd");
+        expect(EXPECTED_MIGRATIONS[15]).toEqual(["20261108120000_invoice_import_deletions", "c48dc828bf60a00e23a4849dd9828682299ce79d17da0494c15777878cdd2a63"]);
+        expect(FP).toBe("a50d425bcd80fd8a7ac7fd90e14357b896da151d86bf150fc8b4ecb708467a5e");
     });
 
-    it("rechaza el esquema anterior (14 migraciones), con cualquier huella", async () => {
+    it("rechaza el esquema anterior (15 migraciones), con cualquier huella", async () => {
         expect(await outcome(prev)).toBe("MIGRACIONES_DEV");
         const prevFp = (await prev.$queryRaw<Array<{ fp: string }>>`SELECT encode(sha256(convert_to(string_agg(id||':'||migration_name||':'||checksum,'|' ORDER BY migration_name),'UTF8')),'hex') AS fp FROM "_prisma_migrations"`)[0].fp;
         expect(await outcome(prev, prevFp)).toBe("MIGRACIONES_DEV");

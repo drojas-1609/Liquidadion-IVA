@@ -56,10 +56,10 @@ CLEAN_ENV=(env -i PATH="$PATH" HOME="$HOME" CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPD
 # Migraciones posteriores al DEV actual (todavía no aplicadas en DEV): quedan fuera
 # de las bases "tipo DEV" y del precheck del runner, que verifica la lista exacta
 # de DEV (scripts/arca/homologation-runner.ts EXPECTED_MIGRATIONS).
-# Hoy: la de importados eliminados (PR #34), hasta aplicarla en DEV.
-NOT_IN_DEV='^20261108120000_invoice_import_deletions$'
+# Hoy ninguna.
+NOT_IN_DEV='^$'
 # Última migración aplicada en DEV: runner_prev representa el DEV anterior a ella.
-LAST_IN_DEV='^20261107120000_vat_export_close_versions$'
+LAST_IN_DEV='^20261108120000_invoice_import_deletions$'
 
 # Base con el esquema del DEV actual: todas las migraciones salvo la de controles de producción.
 "${PG_BIN}/psql" "$URL" -X -qAt -c "CREATE DATABASE devlike" >/dev/null
@@ -69,12 +69,12 @@ for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v '^202611
 done
 
 # Bases propias del precheck del runner, aplicadas con Prisma (con _prisma_migrations):
-# runner_prev = las 14 previas (esquema anterior) y runner_cur = las 15. Privilegios por
+# runner_prev = las 15 previas (esquema anterior) y runner_cur = las 16. Privilegios por
 # defecto sobre tablas y secuencias como los que puede heredar un objeto en Supabase.
 RUNNER_PRISMA="$TMP/runner-prisma"
 mkdir -p "$RUNNER_PRISMA/migrations"; cp "$REPO/prisma/schema.prisma" "$RUNNER_PRISMA/"; cp "$REPO/prisma/migrations/migration_lock.toml" "$RUNNER_PRISMA/migrations/"
 for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v "$LAST_IN_DEV" | grep -v "$NOT_IN_DEV"); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_PRISMA/migrations/"; done
-# runner_cur = el DEV actual (las 15), también sin las migraciones posteriores.
+# runner_cur = el DEV actual (las 16), también sin las migraciones posteriores.
 RUNNER_CUR_PRISMA="$TMP/runner-cur-prisma"
 mkdir -p "$RUNNER_CUR_PRISMA/migrations"; cp "$REPO/prisma/schema.prisma" "$RUNNER_CUR_PRISMA/"; cp "$REPO/prisma/migrations/migration_lock.toml" "$RUNNER_CUR_PRISMA/migrations/"
 for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v "$NOT_IN_DEV"); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_CUR_PRISMA/migrations/"; done

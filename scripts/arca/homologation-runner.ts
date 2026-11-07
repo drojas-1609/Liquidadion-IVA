@@ -23,7 +23,9 @@ const VAT_MIGRATION='20261106120000_vat_credit_adjustments';
 const VAT_SHA='5093b64d9a968a736455a3e03c79ebae1c3e075c3da00c9ebd685e5ade156151';
 const EXPORT_MIGRATION='20261107120000_vat_export_close_versions';
 const EXPORT_SHA='e2f768ad2b81ba05e856fed098e48ae5201dee187875d36188875b8692fc5f73';
-// Exactamente estas 15 migraciones (nombre y checksum completo), en orden.
+const DELETIONS_MIGRATION='20261108120000_invoice_import_deletions';
+const DELETIONS_SHA='c48dc828bf60a00e23a4849dd9828682299ce79d17da0494c15777878cdd2a63';
+// Exactamente estas 16 migraciones (nombre y checksum completo), en orden.
 export const EXPECTED_MIGRATIONS:ReadonlyArray<readonly [string,string]>=[
  ['0_init','563767d5f4bcb541b98b2a58b478f68f02d77d38877b8d4f61ffe94450cab80e'],
  ['20260907213357_float_to_decimal','7185f475c21798ea25e2b41d379c8e4c333409efce3d8e87c4caa3e0695d60c9'],
@@ -40,12 +42,13 @@ export const EXPECTED_MIGRATIONS:ReadonlyArray<readonly [string,string]>=[
  [OPERATOR_MIGRATION,OPERATOR_SHA],
  [VAT_MIGRATION,VAT_SHA],
  [EXPORT_MIGRATION,EXPORT_SHA],
+ [DELETIONS_MIGRATION,DELETIONS_SHA],
 ];
 // Huella DEV leída y verificada (no calculada) en el postcheck de solo lectura
-// del 06/11/2026 tras aplicar 20261107120000_vat_export_close_versions
-// (docs/presentacion-iva/DEV-MIGRACION.md). Sus 14 filas previas reproducen la
-// huella anterior 5d50c0ed…31739b77.
-export const FP='3e9cd2c0ad3aad3a0cfb8ee2ca7f1612ebe08eea1ba4ed267acb358d184885fd';
+// del 06/11/2026 tras aplicar 20261108120000_invoice_import_deletions
+// (docs/presentacion-iva/DEV-MIGRACION.md). Sus 15 filas previas reproducen la
+// huella anterior 3e9cd2c0…d184885fd (y las 14 primeras, 5d50c0ed…31739b77).
+export const FP='a50d425bcd80fd8a7ac7fd90e14357b896da151d86bf150fc8b4ecb708467a5e';
 // RLS sin políticas y sin privilegios fuera del propietario: ACL exacta verificada en DEV por el postcheck.
 const TABLE_ACL='{postgres=arwdDxtm/postgres}',SEQUENCE_ACL='{postgres=rwU/postgres}';
 export const EXPECTED_RELATIONS:ReadonlyArray<{name:string;kind:'r'|'S';checks:Readonly<Record<string,string>>}>=[

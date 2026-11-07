@@ -58,6 +58,42 @@ COMMIT;
 
 Si ya hay datos en las columnas o en la tabla nuevas, la vuelta atrás los borra: exige autorización explícita.
 
+## Migración 16: `20261108120000_invoice_import_deletions` (DEV, 06/11/2026)
+
+**Qué hace.** Es aditiva: crea una tabla nueva y vacía, `InvoiceImportDeletion`. Al eliminar de la app un comprobante importado, ahí queda la huella SHA-256 de su clave de duplicidad, junto con el tipo, el punto de venta y el número. No guarda datos de la contraparte. No modifica filas ni tablas existentes.
+
+**Claves foráneas:**
+- `InvoiceImportDeletion_clientId_organizationId_fkey` hacia `Client`, con ON DELETE CASCADE;
+- `InvoiceImportDeletion_deletedById_fkey` hacia `Profile`, con ON DELETE SET NULL.
+
+No tiene clave foránea a `Period`, `Invoice` ni `InvoiceVatLine`.
+
+**Coordinación.** Antes de aplicarla avisé a las sesiones de #25 y #32. Las dos confirmaron que no tenían escrituras ni migraciones en curso en DEV, y a #25 le informé las claves foráneas para su bloque de limpieza.
+
+**Aplicación.** Por el conector de Supabase, en una sola transacción con su fila de `_prisma_migrations`:
+- id `75c8dbbc-…`;
+- checksum `c48dc828bf60a00e…7878cdd2a63`, el sha256 del archivo.
+
+**Postcheck, sólo lectura:**
+- 16 migraciones terminadas;
+- RLS activa, sin políticas;
+- 0 privilegios para `anon`, `authenticated` y `service_role`;
+- 0 filas;
+- las dos claves foráneas con CASCADE y SET NULL.
+
+**Huella nueva de DEV:** `a50d425bcd80fd8a…ecb708467a5e`. Está fijada en `scripts/arca/homologation-runner.ts`, con las 16 migraciones, y la prueba `arca-runner-precheck-pg` rechaza el esquema anterior de 15.
+
+**Vuelta atrás.** Sólo si la tabla sigue vacía:
+
+```sql
+BEGIN;
+DROP TABLE "InvoiceImportDeletion";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261108120000_invoice_import_deletions';
+COMMIT;
+```
+
+Si la tabla ya tiene filas, la vuelta atrás borra esos registros y una nueva importación volvería a cargar en silencio los comprobantes eliminados. Exige autorización explícita.
+
 ## Secuencia propuesta para producción (no ejecutada)
 
 1. Merge a main en orden: #33, #32 y esta rama, cada una con su revisión.
@@ -66,7 +102,7 @@ Si ya hay datos en las columnas o en la tabla nuevas, la vuelta atrás los borra
    - lista exacta de migraciones y huella;
    - sesiones activas;
    - hashes de Invoice, TaxRecord y PeriodVatSettings.
-4. Ventana sin actividad. Aplicar `20261107120000` igual que en DEV: una transacción con su fila de Prisma, o `prisma migrate deploy` con un kit propio.
+4. Ventana sin actividad. Aplicar `20261107120000` y `20261108120000` igual que en DEV: cada una en una transacción con su fila de Prisma, o `prisma migrate deploy` con un kit propio.
 5. Postcheck: objetos, RLS y privilegios, hashes de datos sin cambios. Actualizar las constantes del runner de PROD si corresponde.
 6. Deploy de producción desde main. Smoke con una organización sintética:
    - clasificar;
