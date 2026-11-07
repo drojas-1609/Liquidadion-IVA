@@ -134,7 +134,10 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
     const totalSalesVAT = r.sales.vat;
     const totalPurchases = r.purchases.total;
     const totalPurchasesVAT = r.purchases.vat;
-    const vatPosition = r.iva.balance;
+    // Mismo motor que la liquidación: a pagar, o el saldo a favor que corresponda.
+    const toPay = r.iva.balanceToPay;
+    const vatPosition = toPay.greaterThan(0) ? toPay : (r.iva.technicalBalanceInFavor.isZero() ? r.iva.freeBalanceInFavor : r.iva.technicalBalanceInFavor).negated();
+    const vatPositionLabel = toPay.greaterThan(0) ? "A pagar" : !r.iva.technicalBalanceInFavor.isZero() ? (r.iva.freeBalanceInFavor.isZero() ? "Saldo técnico a favor" : `Saldo técnico a favor (más $${formatMoney(r.iva.freeBalanceInFavor.toFixed(2))} de libre disponibilidad)`) : r.iva.freeBalanceInFavor.isZero() ? "Sin saldo" : "Libre disponibilidad a favor";
 
     return (
         <div className="container">
@@ -189,10 +192,13 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
                         ${formatMoney(vatPosition.abs().toFixed(2))}
                     </div>
                     <div style={{ color: "var(--secondary)", marginBottom: "var(--spacing-lg)" }}>
-                        {vatPosition.greaterThan(0) ? "A Pagar" : "A Favor"}
+                        {vatPositionLabel}
                     </div>
                     <Link href={`/client/${id}/period/${periodId}/liquidation`} className="btn btn-primary" style={{ width: "100%" }}>
                         Ver Liquidación Completa
+                    </Link>
+                    <Link href={`/client/${id}/period/${periodId}/presentation`} className="btn btn-secondary" style={{ width: "100%", marginTop: "var(--spacing-sm)" }}>
+                        Presentación ARCA (archivos y controles)
                     </Link>
                 </div>
             </div>

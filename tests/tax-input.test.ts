@@ -221,7 +221,9 @@ describe("buildTaxInput — alta", () => {
     });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(Object.keys(r.data).sort()).toEqual(["amount", "date", "description", "periodId", "type"]);
+      expect(Object.keys(r.data).sort()).toEqual(["agentCuit", "amount", "certificateNumber", "customsDocument", "date", "description", "intermediaryCuit", "invoiceId", "nature", "periodId", "regimeCode", "taxCode", "type", "voucherNumber", "voucherTypeCode"]);
+      // Sin detalle del F.2051 en el cuerpo: todo null (nada se completa por defecto).
+      expect([r.data.nature, r.data.regimeCode, r.data.agentCuit, r.data.invoiceId]).toEqual([null, null, null, null]);
       expect(r.data).toMatchObject({ type: "RETENCION IVA", description: "Banco X", periodId: "p1" });
       expect(r.data.date.toISOString()).toBe("2026-05-10T00:00:00.000Z");
       expect(r.data.amount.toFixed(2)).toBe("2500.00");
@@ -247,7 +249,7 @@ describe("buildTaxUpdateInput — edición", () => {
     });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(Object.keys(r.data).sort()).toEqual(["amount", "date", "description", "expectedUpdatedAt", "type"]);
+      expect(Object.keys(r.data).sort()).toEqual(["agentCuit", "amount", "certificateNumber", "customsDocument", "date", "description", "expectedUpdatedAt", "intermediaryCuit", "invoiceId", "nature", "regimeCode", "taxCode", "type", "voucherNumber", "voucherTypeCode"]);
       expect(r.data.type).toBe("SIRTAC");
       expect(r.data.description).toBeNull();
       expect(r.data.expectedUpdatedAt.toISOString()).toBe(TOKEN);

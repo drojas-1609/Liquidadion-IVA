@@ -12,7 +12,16 @@ Migración `20261009120000_period_close_reopen` + control en el servidor, API y 
   retenciones/percepciones; configuración TurIVA; baja del período.
 - **No cambian las reglas de cálculo.**
 
-## Limitación explícita: NO es una liquidación fiscal inmutable
+## Versión cerrada de la liquidación de IVA (etapa 3)
+
+Desde la migración `20261107120000_vat_export_close_versions`, cada cierre guarda una `PeriodLiquidationVersion`:
+- la liquidación de IVA;
+- la huella del contenido;
+- el paquete de presentación, si no hay bloqueos.
+
+La reapertura exige un motivo y deja esa versión reemplazada y auditada. Detalle en [docs/presentacion-iva/README.md](../presentacion-iva/README.md).
+
+## Limitación (vigente para IIBB)
 
 El cierre bloquea la edición del **contenido del período**, pero **no congela la
 liquidación**: `computeLiquidation` sigue usando la alícuota IIBB **vigente** del

@@ -8,6 +8,7 @@ Importa comprobantes de **ventas o compras** desde el par de archivos TXT del Li
 |---|---|---|
 | **Libro IVA Digital (par de TXT)** | Comprobantes + alícuotas, ventas o compras, general o TurIVA | Diseño oficial (ver abajo) |
 | **Descarga de Portal IVA** | `comprobantes_periodo_AAAAMM_{ventas\|compras}_….zip` tal como se descarga, o el CSV que contiene («montos expresados en pesos») | Ver detalle debajo |
+| **Mis Comprobantes** | `comprobantes_consulta_csv_{emitidos\|recibidos}_….zip` o el CSV que contiene | Ver [docs/presentacion-iva/README.md](../presentacion-iva/README.md#descargas-de-arca-muestras-observadas-el-06112026-período-102026) |
 
 Detalle de la descarga de Portal IVA:
 - **Formato:** ARCA no publica un diseño de esta descarga. Las [novedades del 19/11/2020](https://arca.gob.ar/iva/sujetos-exentos/novedades.asp) fijan `;` como separador, `,` como decimal, importes en pesos y notas de crédito en negativo. El encabezado se valida exacto: si cambia, el archivo se rechaza.

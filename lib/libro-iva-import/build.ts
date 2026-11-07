@@ -18,6 +18,7 @@ import {
 import { checkVoucherDate, type InvoiceWarning } from "../invoice-rules";
 import { DOCUMENT_TYPES, VAT_RATES, VOUCHER_TYPES, CURRENCY_PESOS } from "../arca/catalogs";
 import { normalizeImportedDocNumber } from "../arca/document-rules";
+import { UNIDENTIFIED_DOC_TYPE, unidentifiedExportProblem } from "../arca/unidentified-buyer";
 import { VOUCHER_INT_MAX } from "../api-input";
 import type { LidCategory, ParsedFile, ParsedRecord } from "./format";
 
@@ -57,6 +58,8 @@ export interface ImportRow {
     section: LidSection | null;
     /** Clave de duplicidad (sin datos personales en el texto expuesto: sólo para comparar). */
     key: string | null;
+    /** AAAA-MM-DD en que se eliminó de la app un importado con esta clave (null si no). */
+    deletedOn: string | null;
     /** Modelo listo para escribir; sólo filas sin ERROR. */
     model: InvoiceModelData | null;
     /** Total informado en el archivo (campo "Importe total de la operación"). */
@@ -142,6 +145,14 @@ export interface PreviewContext {
     settings: PeriodVatSettingsLike;
     /** Claves de comprobantes ya cargados para el cliente (todas sus categorías/períodos). */
     existingKeys: ReadonlySet<string>;
+    /** Claves ya cargadas que se modificaron en la app después de importarlas (sólo para el mensaje). */
+    editedKeys?: ReadonlySet<string>;
+    /** Importados eliminados de la app: fecha de eliminación por clave (lib/invoice-import-deletion). */
+    deletedLookup?: (key: string) => { deletedOn: string } | undefined;
+    /** Confirmación expresa de volver a importar los eliminados (si no, quedan para revisar). */
+    reimportDeleted?: boolean;
+    /** Ventas: rango de venta global diaria ya cargado que contiene ese comprobante (lib/invoice-range). */
+    rangeOf?: (voucherCode: number, pointOfSale: number, number: number) => { from: number; to: number } | undefined;
     /**
      * Origen de los registros: el par TXT del Libro IVA Digital (por defecto) o
      * la descarga de comprobantes del período de Portal IVA (portal-csv.ts), que
@@ -151,7 +162,12 @@ export interface PreviewContext {
     source?: ImportSource;
 }
 
-export type ImportSource = "LID_TXT" | "PORTAL_CSV";
+export type ImportSource = "LID_TXT" | "PORTAL_CSV" | "MIS_COMPROBANTES";
+
+/** Descargas de ARCA sin código de operación ni reintegro TurIVA (no son el TXT del Libro IVA Digital). */
+function downloadLabel(source: ImportSource | undefined): string | null {
+    return source === "PORTAL_CSV" ? "la descarga de Portal IVA" : source === "MIS_COMPROBANTES" ? "la consulta de Mis Comprobantes" : null;
+}
 
 export interface PreviewExtras {
     /** Errores de archivo detectados por el lector (encabezado, ZIP). */
@@ -160,7 +176,8 @@ export interface PreviewExtras {
     rowNotes?: ReadonlyMap<number, string[]>;
 }
 
-const OPERATION_CODES = new Set(["A", "C", "D", "E", "N", "T", "X", "Z"]);
+/** Códigos de operación (Libro IVA Digital, Tablas del Sistema). */
+export const OPERATION_CODES: ReadonlySet<string> = new Set(["A", "C", "D", "E", "N", "T", "X", "Z"]);
 const VAT_TOLERANCE = D("0.01");
 
 /** Clave de duplicidad: misma composición que duplicateVoucherWhere (lib/invoice-rules). */
@@ -236,7 +253,7 @@ interface RowDraft {
 function draft(line: number): RowDraft {
     const row: ImportRow = {
         line, aliquotLines: [], status: "OK", messages: [], warnings: [], notes: [], voucherCode: null, pointOfSale: null, number: null,
-        date: null, docType: null, docNumber: null, name: null, section: null, key: null, model: null, informedTotal: null,
+        date: null, docType: null, docNumber: null, name: null, section: null, key: null, deletedOn: null, model: null, informedTotal: null,
     };
     return {
         row,
@@ -281,7 +298,7 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     if (row.name === "") {
         // La descarga de Portal IVA deja vacía la denominación de algunos consumidores
         // identificados (p. ej. con DNI): falta un dato, no es un registro inválido.
-        if (ctx.source === "PORTAL_CSV") d.raise("REVIEW", "la descarga de Portal IVA no informa la denominación de la contraparte: completarla antes de importar");
+        if (downloadLabel(ctx.source)) d.raise("REVIEW", `${downloadLabel(ctx.source)} no informa la denominación de la contraparte: completarla antes de importar`);
         else d.raise("ERROR", "apellido y nombre o denominación vacío");
     }
 
@@ -305,9 +322,11 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     // Pestaña: TurIVA sólo 195–197 y sólo en el archivo de TurIVA.
     const section: LidSection = turivaFile ? "TURIVA" : "GENERAL";
     row.section = section;
+    // portal: importes CON signo (notas de crédito en negativo). download: descargas sin código de operación ni TurIVA.
     const portal = ctx.source === "PORTAL_CSV";
-    if (vt && portal) {
-        if (vt.letter === "T") d.raise("REVIEW", "la descarga de Portal IVA no informa el reintegro TurIVA: importar este comprobante con el TXT de TurIVA");
+    const download = downloadLabel(ctx.source);
+    if (vt && download) {
+        if (vt.letter === "T") d.raise("REVIEW", `${download} no informa el reintegro TurIVA: importar este comprobante con el TXT de TurIVA`);
     } else if (vt) {
         if (vt.letter === "T" && !turivaFile) d.raise("ERROR", "los comprobantes clase T (195–197) van en el archivo de TurIVA");
         if (vt.letter !== "T" && turivaFile) d.raise("ERROR", "el archivo de TurIVA sólo admite comprobantes clase T (195–197)");
@@ -362,9 +381,9 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
             // Venta C sin IVA: el neto va sin discriminación.
         } else if (category === "SALES" && vt.letter === "B") {
             d.raise("REVIEW", "venta B sin detalle de alícuotas: no se puede determinar el débito fiscal");
-        } else if (portal && (!header.exempt.isZero() || !header.nonTaxed.isZero())) {
+        } else if (download && (!header.exempt.isZero() || !header.nonTaxed.isZero())) {
             // Comprobante sólo exento / no gravado: la descarga no trae línea de alícuota 0 % ni código de operación.
-            d.row.notes.push("operación exenta o no gravada: la descarga de Portal IVA no informa el código de operación");
+            d.row.notes.push(`operación exenta o no gravada: ${download} no informa el código de operación`);
         } else {
             d.raise("ERROR", "el comprobante discrimina IVA y no tiene alícuotas");
         }
@@ -389,7 +408,7 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
             d.raise("REVIEW", `IVA informado ${vat.abs().toFixed(2)} y calculado ${computed.toFixed(2)} difieren en más de 0,01 (línea ${a.line} de alícuotas)`);
         }
         if (code === 3 && operationCode === null) {
-            d.raise("REVIEW", portal ? "neto gravado al 0 %: la descarga de Portal IVA no informa el código de operación" : `alícuota 0% sin código de operación (línea ${a.line} de alícuotas)`);
+            d.raise("REVIEW", download ? `neto gravado al 0 %: ${download} no informa el código de operación` : `alícuota 0% sin código de operación (línea ${a.line} de alícuotas)`);
         }
         lines.push({
             vatRateCode: code,
@@ -416,7 +435,10 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     if (category === "PURCHASES") {
         reportedCredit = header.computableCredit.abs();
         const mode = ctx.settings.creditProrationMode;
-        if (mode === "GLOBAL" || mode === "DIRECT_AND_GLOBAL") {
+        if (ctx.source === "MIS_COMPROBANTES" && mode !== "NONE") {
+            // La consulta no informa el crédito computable: sólo sin prorrateo es igual al IVA (Especificaciones, campo 21).
+            d.raise("REVIEW", "la consulta de Mis Comprobantes no informa el crédito fiscal computable y el período tiene prorrateo: cargarlo por otra vía");
+        } else if (mode === "GLOBAL" || mode === "DIRECT_AND_GLOBAL") {
             d.raise("REVIEW", "período con prorrateo global: la asignación del crédito por línea no se puede determinar desde el archivo");
         } else if (reportedCredit.greaterThan(totalVat)) {
             d.raise("ERROR", "el crédito fiscal computable informado supera al IVA liquidado");
@@ -447,6 +469,18 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     const computedTotal = computeVoucherTotal(amounts);
     if (!computedTotal.equals(header.total.abs())) {
         d.raise("REVIEW", `el total informado ${header.total.abs().toFixed(2)} no coincide con la suma de sus componentes ${computedTotal.toFixed(2)} (diferencia ${header.total.abs().minus(computedTotal).toFixed(2)})`);
+    }
+
+    // Documento 99 (sin identificar / venta global diaria): mismas reglas que la
+    // carga manual y la exportación (lib/arca/unidentified-buyer). Si no se
+    // cumplen, queda para revisar (no se corrige ni se identifica nada).
+    if (vt && docType === UNIDENTIFIED_DOC_TYPE && number !== null) {
+        const numberTo = category === "SALES" ? Number(str(v.numberTo) || number) : number;
+        const problem = unidentifiedExportProblem({
+            category, voucherCode, number, numberTo, voucherDate: dateIso, counterpartyDocType: docType,
+            counterpartyDocNumber: row.docNumber, counterpartyName: row.name, totalCents: BigInt(header.total.abs().times(100).toFixed(0)),
+        });
+        if (problem) d.raise("REVIEW", problem);
     }
 
     if (vt && number !== null && row.docNumber !== null) {
@@ -485,10 +519,16 @@ export function buildImportPreview(ctx: PreviewContext, vouchers: ParsedFile, al
     for (const i of aliquots.issues) fileErrors.push(`alícuotas, línea ${i.line}: ${i.message}`);
     if (vouchers.records.length === 0 && vouchers.issues.length === 0) fileErrors.push("el archivo de comprobantes está vacío");
 
-    // Alícuotas agrupadas por comprobante, en el orden del archivo.
+    // Alícuotas agrupadas por comprobante, en el orden del archivo. En el par de
+    // TXT se vinculan por la clave del comprobante; en las descargas de un solo
+    // archivo (Portal IVA, Mis Comprobantes) cada alícuota sale de SU línea, así
+    // que se vinculan por línea: un comprobante repetido en el archivo no le
+    // suma sus alícuotas a la primera aparición.
+    const byLine = downloadLabel(ctx.source) !== null;
+    const linkKey = (r: ParsedRecord) => (byLine ? `L${r.line}` : aliquotKey(ctx.category, r));
     const byKey = new Map<string, ParsedRecord[]>();
     for (const a of aliquots.records) {
-        const k = aliquotKey(ctx.category, a);
+        const k = linkKey(a);
         byKey.set(k, [...(byKey.get(k) ?? []), a]);
     }
 
@@ -503,10 +543,12 @@ export function buildImportPreview(ctx: PreviewContext, vouchers: ParsedFile, al
     for (const rec of vouchers.records) {
         const d = draft(rec.line);
         const k = aliquotKey(ctx.category, rec);
-        const mine = byKey.get(k) ?? [];
-        // La primera aparición de la clave toma sus alícuotas; una repetición no.
-        const taken = seen.has(k) ? [] : mine;
-        if (!seen.has(k)) byKey.delete(k);
+        const lk = linkKey(rec);
+        const mine = byKey.get(lk) ?? [];
+        // TXT: la primera aparición de la clave toma sus alícuotas; una repetición
+        // no. Descargas: cada fila toma las de su línea.
+        const taken = !byLine && seen.has(k) ? [] : mine;
+        if (byLine || !seen.has(k)) byKey.delete(lk);
         buildRow(ctx, vouchers.turiva, rec, taken, d);
         d.row.notes.push(...(extras.rowNotes?.get(rec.line) ?? []));
         if (seen.has(k)) d.raise("ERROR", "comprobante repetido en el archivo");
@@ -526,8 +568,29 @@ export function buildImportPreview(ctx: PreviewContext, vouchers: ParsedFile, al
     // Los motivos de revisión se conservan como detalle. Un ERROR sigue siendo ERROR.
     for (const r of rows) {
         if (r.status !== "ERROR" && r.key !== null && ctx.existingKeys.has(r.key)) {
-            r.messages.unshift("ya cargado para este cliente: se omite");
+            // Nunca se sobrescribe lo cargado: tampoco las correcciones hechas en la app.
+            r.messages.unshift(ctx.editedKeys?.has(r.key)
+                ? "ya cargado para este cliente y modificado en la app después de importarlo: se omite (la importación no sobrescribe los cambios)"
+                : "ya cargado para este cliente: se omite");
             r.status = "DUPLICATE";
+            continue;
+        }
+        // Ventas: dentro de un rango de venta global diaria ya cargado (superposición).
+        const range = r.status !== "ERROR" && r.voucherCode !== null && r.pointOfSale !== null && r.number !== null ? ctx.rangeOf?.(r.voucherCode, r.pointOfSale, r.number) : undefined;
+        if (range) {
+            r.messages.push(`está dentro del rango de venta global diaria ${range.from}–${range.to} ya cargado (mismo tipo y punto de venta): revisar`);
+            if (RANK.REVIEW > RANK[r.status]) r.status = "REVIEW";
+        }
+        // Importado y después eliminado de la app: no se vuelve a cargar en silencio.
+        const deleted = r.status !== "ERROR" && r.key !== null ? ctx.deletedLookup?.(r.key) : undefined;
+        if (deleted) {
+            r.deletedOn = deleted.deletedOn;
+            if (ctx.reimportDeleted) {
+                r.notes.push(`se había eliminado de la app el ${deleted.deletedOn}: se vuelve a importar por confirmación expresa`);
+            } else {
+                r.messages.push(`se eliminó de la app el ${deleted.deletedOn}: no se vuelve a importar salvo que marques «Volver a importar los comprobantes eliminados»`);
+                if (RANK.REVIEW > RANK[r.status]) r.status = "REVIEW";
+            }
         }
     }
     rows.sort((a, b) => a.line - b.line);

@@ -32,8 +32,8 @@ describe("lib/period-status", () => {
 
   it("los avisos describen el alcance y NO presentan el cierre como liquidación inmutable", () => {
     expect(PERIOD_CLOSE_SCOPE_NOTICE).toMatch(/consultar y exportar/);
-    expect(PERIOD_CLOSE_IIBB_NOTICE).toMatch(/no congela la liquidación/);
-    expect(PERIOD_CLOSE_IIBB_NOTICE).toMatch(/alícuota IIBB vigente del cliente/);
+    expect(PERIOD_CLOSE_IIBB_NOTICE).toMatch(/guarda una versión de la liquidación de IVA/);
+    expect(PERIOD_CLOSE_IIBB_NOTICE).toMatch(/El IIBB no se congela: se sigue calculando con la alícuota vigente del cliente/);
     expect(`${PERIOD_CLOSE_SCOPE_NOTICE} ${PERIOD_CLOSE_IIBB_NOTICE}`).not.toMatch(/inmutable|definitiv/i);
   });
 

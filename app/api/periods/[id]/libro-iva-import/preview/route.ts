@@ -34,7 +34,7 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
 
     const result = await previewImport(
         { organizationId, periodId: access.period.id, clientId: access.period.clientId },
-        { category: input.category, format: input.format, vouchers: input.vouchers, aliquots: input.aliquots },
+        { category: input.category, format: input.format, vouchers: input.vouchers, aliquots: input.aliquots, reimportDeleted: input.reimportDeleted },
     );
     return NextResponse.json(serializePreview(result));
 });

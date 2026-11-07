@@ -9,7 +9,7 @@ import type { ManualInvoiceData } from "./manual-invoice";
 import type { InvoiceFormState } from "./invoice-form-client";
 
 /**
- * Corrección de comprobantes manuales: alcance, editabilidad, eliminabilidad y
+ * Corrección de comprobantes (manuales e importados): alcance, editabilidad, eliminabilidad y
  * `changedFields`. Lógica pura (sin base de datos); la usan PATCH / DELETE
  * /api/invoices/[id] antes de la transacción y, de nuevo, sobre la fila
  * BLOQUEADA.
@@ -24,6 +24,8 @@ export interface EditableInvoiceRow {
     voucherDate: Date | null;
     pointOfSale: number;
     number: number;
+    /** Último número (venta global diaria); null/igual al número = comprobante único. */
+    numberTo?: number | null;
     counterpartyDocType: number | null;
     counterpartyDocNumber: string | null;
     counterpartyName: string | null;
@@ -41,7 +43,7 @@ export type InvoiceEditReason = InvoiceScopeReason | "INSUFFICIENT_DATA";
 
 /** Mensajes estables por razón (422 field "invoice"). */
 export const INVOICE_NOT_EDITABLE_MESSAGES: Readonly<Record<InvoiceEditReason, string>> = {
-    IMPORTED: "El comprobante fue importado: no se puede corregir ni eliminar manualmente.",
+    IMPORTED: "El comprobante fue importado: se corrige con el formulario detallado de comprobantes importados.",
     LEGACY: "El comprobante fue cargado con el formato anterior: no se puede corregir ni eliminar desde esta pantalla.",
     MULTI_RATE: "El comprobante tiene más de una alícuota de IVA: no se puede corregir ni eliminar desde esta pantalla.",
     INSUFFICIENT_DATA: "Al comprobante le faltan datos para reconstruir el formulario: no se puede corregir desde esta pantalla.",
@@ -60,9 +62,48 @@ export function invoiceScope(row: Pick<EditableInvoiceRow, "source" | "voucherCo
     return { ok: true };
 }
 
-/** La baja no reconstruye el formulario: sólo aplica el alcance común. */
+/**
+ * La baja no reconstruye ningún formulario: se admiten los comprobantes
+ * MANUALES y los IMPORTADOS (con cualquier cantidad de alícuotas). Las filas
+ * heredadas (sin origen o sin código oficial) siguen fuera.
+ */
 export function invoiceDeletability(row: Pick<EditableInvoiceRow, "source" | "voucherCode" | "vatRateCodes">): InvoiceScope {
-    return invoiceScope(row);
+    if ((row.source !== "MANUAL" && row.source !== "IMPORT") || row.voucherCode === null) return { ok: false, reason: "LEGACY" };
+    return { ok: true };
+}
+
+/** Forma mínima para decidir si un comprobante IMPORTADO admite la corrección detallada. */
+export interface DetailedEditableRow {
+    category: string;
+    source: string | null;
+    voucherCode: number | null;
+    voucherDate: Date | null;
+    counterpartyDocType: number | null;
+    counterpartyDocNumber: string | null;
+    taxedNetAmount: Prisma.Decimal | null;
+    totalVatAmount?: Prisma.Decimal | null;
+    netWithoutVatBreakdownAmount: Prisma.Decimal | null;
+    voucherTotalAmount?: Prisma.Decimal | null;
+}
+
+/**
+ * Corrección detallada (lib/invoice-detail-edit): sólo comprobantes IMPORTADOS
+ * con el modelo contable completo (código del catálogo, fecha, documento e
+ * importes del modelo). Cualquier cantidad de alícuotas.
+ */
+export function detailedEditability(row: DetailedEditableRow): InvoiceEditability {
+    if (row.source !== "IMPORT") return { ok: false, reason: row.source === "MANUAL" ? "MULTI_RATE" : "LEGACY" };
+    const code = row.voucherCode;
+    if (code === null || !VOUCHER_TYPES.some((v) => v.code === code) || !isCategory(row.category)) return { ok: false, reason: "INSUFFICIENT_DATA" };
+    const complete =
+        row.voucherDate !== null &&
+        row.counterpartyDocType !== null &&
+        nonEmpty(row.counterpartyDocNumber) &&
+        row.taxedNetAmount !== null &&
+        row.netWithoutVatBreakdownAmount !== null &&
+        (row.totalVatAmount === undefined || row.totalVatAmount !== null) &&
+        (row.voucherTotalAmount === undefined || row.voucherTotalAmount !== null);
+    return complete ? { ok: true, requiresCounterpartyCondition: false, requiresVoucherVariant: false } : { ok: false, reason: "INSUFFICIENT_DATA" };
 }
 
 export type InvoiceEditability =
@@ -122,12 +163,14 @@ export function invoiceEditability(row: EditableInvoiceRow): InvoiceEditability 
 
 /**
  * Acciones visibles en una fila de la lista: editar (ROLES_UPDATE + fila
- * editable) y eliminar (ROLES_DELETE + fila eliminable, aunque no sea
+ * editable: manual con el formulario de alta, importada con el formulario
+ * detallado) y eliminar (ROLES_DELETE + fila eliminable, aunque no sea
  * editable). VIEWER: ninguna. La autoridad sigue siendo la API.
  */
-export function invoiceRowActions(role: Role, row: EditableInvoiceRow): { canEdit: boolean; canDelete: boolean } {
+export function invoiceRowActions(role: Role, row: EditableInvoiceRow & Partial<DetailedEditableRow>): { canEdit: boolean; canDelete: boolean } {
+    const editable = row.source === "IMPORT" ? detailedEditability(row).ok : invoiceEditability(row).ok;
     return {
-        canEdit: ROLES_UPDATE.includes(role) && invoiceEditability(row).ok,
+        canEdit: ROLES_UPDATE.includes(role) && editable,
         canDelete: ROLES_DELETE.includes(role) && invoiceDeletability(row).ok,
     };
 }
@@ -165,6 +208,17 @@ export function invoiceEditInitialState(row: EditableInvoiceRow): InvoiceFormSta
             number: String(row.number),
             netAmount: net.toFixed(2),
         },
+        // Documento 99: el modo guardado se deduce del rango (no se infiere nada más).
+        ...(row.counterpartyDocType === 99
+            ? {
+                  unidentified: {
+                      mode: row.numberTo !== null && row.numberTo !== undefined && row.numberTo !== row.number ? ("GLOBAL_DAILY" as const) : ("INDIVIDUAL" as const),
+                      numberTo: row.numberTo !== null && row.numberTo !== undefined && row.numberTo !== row.number ? String(row.numberTo) : "",
+                      // Al editar se vuelve a confirmar el umbral.
+                      belowThresholdConfirmed: false,
+                  },
+              }
+            : {}),
     };
 }
 
@@ -177,6 +231,7 @@ export const CHANGED_FIELDS_ORDER = [
     "voucherVariant",
     "pointOfSale",
     "number",
+    "numberTo",
     "counterpartyVatConditionCode",
     "counterpartyDocType",
     "counterpartyDocNumber",
@@ -229,6 +284,8 @@ export function changedFieldsOf(
         voucherVariant: before.voucherVariant !== after.resolved.voucherVariant,
         pointOfSale: before.pointOfSale !== after.input.pointOfSale,
         number: before.number !== after.input.number,
+        // Sólo cuenta si antes o después hay un rango (venta global diaria); si no, ya lo cubre `number`.
+        numberTo: ((before.numberTo ?? before.number) !== before.number || after.resolved.numberTo !== after.input.number) && (before.numberTo ?? before.number) !== after.resolved.numberTo,
         counterpartyVatConditionCode: before.counterpartyVatConditionCode !== after.resolved.counterpartyVatConditionCode,
         counterpartyDocType: before.counterpartyDocType !== model.counterpartyDocType,
         counterpartyDocNumber: before.counterpartyDocNumber !== model.counterpartyDocNumber,

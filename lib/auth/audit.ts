@@ -47,6 +47,12 @@ export const AUDIT_ACTIONS = [
   // Confirmación que terminó con error DESPUÉS de revertirse: no escribió nada.
   // Permite consultar el resultado si la respuesta no llegó al navegador.
   "invoice.import.failed",
+  // Importación de retenciones o percepciones de IVA (descargas de ARCA): una fila por confirmación.
+  "taxrecord.import",
+  // Clasificaciones para la presentación, por lote (PATCH /api/periods/[id]/invoice-classification).
+  "invoice.classification_change",
+  // Descarga del paquete de presentación de IVA (borrador o versión cerrada).
+  "vat.package.export",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
   // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
   "arca.cuit_lookup",
@@ -91,6 +97,8 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "vouchersFileSha256",
     "aliquotsFileSha256",
     "operationId",
+    // Comprobantes eliminados de la app que el usuario confirmó volver a importar.
+    "reimportedDeletedCount",
   ],
   // Sólo el identificador de la operación, el libro, el formato y el código del error.
   "invoice.import.failed": ["operationId", "attemptId", "periodId", "category", "format", "code", "httpStatus"],
@@ -108,9 +116,17 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "client.update": ["changedFields", "condition", "iibbRegistration"],
   "client.delete": ["condition"], // NO cuit, nombre ni dirección
   "period.delete": ["clientId", "month", "year"],
-  // Sin texto libre (no hay motivo de reapertura), CUIT, nombres ni importes.
-  "period.close": ["clientId", "month", "year"],
-  "period.reopen": ["clientId", "month", "year"],
+  // Sin texto libre, CUIT, nombres ni importes. version: número de la versión
+  // cerrada (cierre) o reemplazada (reapertura). El motivo de la reapertura se
+  // guarda en la versión reemplazada; acá sólo su longitud.
+  "period.close": ["clientId", "month", "year", "version", "packageReady"],
+  "period.reopen": ["clientId", "month", "year", "version", "reasonLength"],
+  // Conteos por estado y huella del archivo. NUNCA importes, CUIT ni números de comprobante.
+  "taxrecord.import": ["periodId", "kind", "layout", "importedCount", "duplicateCount", "reviewCount", "errorCount", "fileSha256"],
+  // Por lote: cantidad de comprobantes y NOMBRES de los campos cambiados.
+  "invoice.classification_change": ["periodId", "category", "count", "changedFields"],
+  // Modo (DRAFT/FINAL), versión y huella del ZIP entregado. Sin importes.
+  "vat.package.export": ["periodId", "clientId", "month", "year", "mode", "version", "packageSha256"],
   // Reconstruye cómo se obtuvo una liquidación. Coeficientes como strings
   // decimales EXACTOS (nunca float). Sin CUIT, nombres ni importes.
   "period.vat_settings_change": [
@@ -143,8 +159,11 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "numberBefore",
     "numberAfter",
     "changedFields",
+    // Procedencia del comprobante (MANUAL / IMPORT): se conserva al corregirlo.
+    "source",
   ],
-  "invoice.delete": ["periodId", "category", "voucherCode", "pointOfSale", "number"],
+  // source: MANUAL / IMPORT. Un IMPORT eliminado deja además InvoiceImportDeletion (sin datos de la contraparte).
+  "invoice.delete": ["periodId", "category", "voucherCode", "pointOfSale", "number", "source"],
   // SÓLO el código de resultado. NUNCA el CUIT consultado, la respuesta de ARCA, tokens ni credenciales.
   "arca.cuit_lookup": ["result"],
   // Corrección de retenciones/percepciones. `typeBefore` sale de la fila
@@ -198,7 +217,7 @@ function sanitizeScalar(value: unknown): Scalar | undefined {
 }
 
 /** Campos de un TaxRecord que puede nombrar `changedFields`, en su orden canónico. */
-const TAXRECORD_CHANGED_FIELDS = ["date", "type", "amount", "description"] as const;
+const TAXRECORD_CHANGED_FIELDS = ["date", "type", "amount", "description", "f2051Detail"] as const;
 
 /**
  * `changedFields` de `taxrecord.update`: SÓLO un array de nombres de

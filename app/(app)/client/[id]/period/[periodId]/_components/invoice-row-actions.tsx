@@ -25,9 +25,11 @@ export interface InvoiceRowActionsProps {
     /** null = sin edición (rol o fila no editable). */
     editHref: string | null;
     canDelete: boolean;
+    /** Comprobante importado: la confirmación aclara qué pasa al volver a importarlo. */
+    imported?: boolean;
 }
 
-export function InvoiceRowActions({ invoiceId, updatedAt, label, editHref, canDelete }: InvoiceRowActionsProps) {
+export function InvoiceRowActions({ invoiceId, updatedAt, label, editHref, canDelete, imported = false }: InvoiceRowActionsProps) {
     const router = useRouter();
     const markDeleted = useMarkInvoiceDeleted();
     const [state, dispatch] = useReducer(rowActionReducer, ROW_ACTION_INITIAL);
@@ -89,7 +91,10 @@ export function InvoiceRowActions({ invoiceId, updatedAt, label, editHref, canDe
 
             {canDelete && (state.phase === "confirming" || state.phase === "deleting") && (
                 <div role="group" aria-labelledby={promptId} style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-xs)", alignItems: "center" }}>
-                    <span id={promptId}>¿Eliminar {label}? Esta acción no se puede deshacer.</span>
+                    <span id={promptId}>
+                        ¿Eliminar {label}? Esta acción no se puede deshacer. Eliminarlo de la app no anula el comprobante en ARCA.
+                        {imported && " Si volvés a importar el archivo, este comprobante quedará para revisar y no se cargará salvo que lo confirmes."}
+                    </span>
                     <button ref={confirmButton} type="button" className="btn btn-primary" onClick={onConfirm} disabled={busy}>
                         {busy ? "Eliminando..." : "Confirmar eliminación"}
                     </button>

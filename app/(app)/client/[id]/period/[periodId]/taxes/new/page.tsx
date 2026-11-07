@@ -7,6 +7,8 @@ import { formatPeriodLabel, periodFirstDayIso, periodLastDayIso } from "@/lib/pe
 import { TaxForm } from "../_components/tax-form";
 import { PeriodClosedNotice } from "../../_components/period-closed-notice";
 import { isPeriodClosed } from "@/lib/period-status";
+import { perceptionSources } from "@/lib/tax-perception-sources";
+import { EMPTY_TAX_DETAIL } from "@/lib/tax-form-client";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +25,8 @@ export default async function NewTaxPage({ params }: { params: Promise<{ id: str
         if (isPeriodClosed(access.period.status)) return null;
         const period = await prisma.period.findFirst({ where: { id: periodId, organizationId: access.organizationId }, select: { month: true, year: true } });
         if (!period) throw new NotFoundError();
-        return period;
+        const sources = await perceptionSources(prisma, { organizationId: access.organizationId, periodId });
+        return { ...period, sources };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
     const period = guard.data;
@@ -36,7 +39,8 @@ export default async function NewTaxPage({ params }: { params: Promise<{ id: str
             periodLabel={formatPeriodLabel(period)}
             dateMin={periodFirstDayIso(period)}
             dateMax={periodLastDayIso(period)}
-            initial={{ date: "", type: "RETENCION IVA", amount: "", description: "" }}
+            initial={{ date: "", type: "RETENCION IVA", amount: "", description: "", detail: EMPTY_TAX_DETAIL }}
+            perceptionSources={period.sources}
         />
     );
 }

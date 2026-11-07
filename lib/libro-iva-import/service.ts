@@ -3,10 +3,13 @@ import { createHash, randomBytes } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import defaultPrisma from "../prisma";
 import { DEFAULT_PERIOD_VAT_SETTINGS, legacyColumnsFor, type InvoiceModelData, type PeriodVatSettingsLike } from "../invoice-model";
+import { deletedImportHashes, importKeyHash } from "../invoice-import-deletion";
+import { lockClientForUpdate } from "../client-lock";
 import { ConflictError, NotFoundError, ValidationError } from "../auth/errors";
 import { parseLidFile, type LidCategory } from "./format";
 import { buildImportPreview, voucherKey, type ImportPreview, type ImportSource, type SectionTotals } from "./build";
 import { parsePortalDownload } from "./portal-csv";
+import { parseMisComprobantes } from "./mis-comprobantes-csv";
 import { recordAudit } from "../auth/audit";
 import { isAuthError } from "../auth/errors";
 import type { ImportOperationView, OperationResult } from "./operation";
@@ -27,7 +30,7 @@ import type { ImportOperationView, OperationResult } from "./operation";
  * (requirePeriodAccess con expectClientId). Toda lectura filtra por organización.
  */
 
-type Db = Pick<PrismaClient, "period" | "periodVatSettings" | "invoice" | "$transaction">;
+type Db = Pick<PrismaClient, "period" | "periodVatSettings" | "invoice" | "invoiceImportDeletion" | "auditLog" | "$transaction">;
 type AuditReadDb = Pick<PrismaClient, "auditLog"> | Prisma.TransactionClient;
 
 export interface ImportScope {
@@ -43,6 +46,8 @@ export interface ImportFiles {
     vouchers: Uint8Array;
     /** Sólo LID_TXT. */
     aliquots: Uint8Array;
+    /** Volver a importar los importados eliminados de la app (confirmación expresa). */
+    reimportDeleted?: boolean;
 }
 
 const sha256 = (b: Uint8Array | string) => createHash("sha256").update(b).digest("hex");
@@ -58,8 +63,55 @@ async function existingKeys(db: Pick<PrismaClient, "invoice"> | Prisma.Transacti
     })));
 }
 
+/**
+ * Claves de importados CORREGIDOS en la app (AuditLog invoice.update con
+ * procedencia IMPORT), sólo para el mensaje «ya cargado … modificado». Los
+ * cambios de clasificación no cuentan: no alteran lo que trae el archivo.
+ */
+async function editedImportKeys(db: Pick<PrismaClient, "invoice" | "auditLog"> | Prisma.TransactionClient, scope: ImportScope, category: LidCategory): Promise<Set<string>> {
+    const edits = await db.auditLog.findMany({
+        where: { organizationId: scope.organizationId, action: "invoice.update", targetType: "Invoice", metadata: { path: ["source"], equals: "IMPORT" } },
+        select: { targetId: true },
+        distinct: ["targetId"],
+    });
+    const ids = edits.map((e) => e.targetId).filter((v): v is string => typeof v === "string");
+    if (ids.length === 0) return new Set();
+    const rows = await db.invoice.findMany({
+        where: { id: { in: ids }, organizationId: scope.organizationId, clientId: scope.clientId, category, source: "IMPORT", voucherCode: { not: null } },
+        select: { voucherCode: true, pointOfSale: true, number: true, counterpartyDocType: true, counterpartyDocNumber: true },
+    });
+    return new Set(rows.map((r) => voucherKey({
+        category, voucherCode: r.voucherCode as number, pointOfSale: r.pointOfSale, number: r.number,
+        counterpartyDocType: r.counterpartyDocType, counterpartyDocNumber: r.counterpartyDocNumber,
+    })));
+}
+
+/** Rangos de venta global diaria del cliente (número hasta mayor que el número). */
+async function salesRanges(db: Pick<PrismaClient, "invoice"> | Prisma.TransactionClient, scope: ImportScope) {
+    const rows = await db.invoice.findMany({
+        where: { organizationId: scope.organizationId, clientId: scope.clientId, category: "SALES", numberTo: { not: null }, voucherCode: { not: null } },
+        select: { voucherCode: true, pointOfSale: true, number: true, numberTo: true },
+    });
+    return rows.filter((r) => (r.numberTo as number) > r.number).map((r) => ({ voucherCode: r.voucherCode as number, pointOfSale: r.pointOfSale, from: r.number, to: r.numberTo as number }));
+}
+
+/**
+ * Bajo el bloqueo del período: en ventas, bloqueo de la fila Client (serializa
+ * con las altas manuales de rangos de otros períodos) y relectura de los
+ * rangos: si una fila del plan cayó dentro de un rango cargado después de la
+ * vista previa, 409 (vista previa vencida).
+ */
+export async function assertNoSalesRangeConflictsUnderLock(tx: Prisma.TransactionClient, scope: ImportScope, plan: ConfirmPlan): Promise<void> {
+    if (plan.category !== "SALES") return;
+    if (!(await lockClientForUpdate(tx, scope.clientId, scope.organizationId))) throw new NotFoundError();
+    const ranges = await salesRanges(tx, scope);
+    const hit = plan.rows.some((r) => ranges.some((g) => g.voucherCode === r.model.voucherCode && g.pointOfSale === r.model.pointOfSale && g.from <= r.model.number && r.model.number <= g.to));
+    if (hit) throw new ConflictError(STALE_PREVIEW_MESSAGE);
+}
+
 export interface PreviewResult {
     preview: ImportPreview;
+    reimportDeleted: boolean;
     token: string;
     periodOpen: boolean;
     vouchersSha256: string;
@@ -70,7 +122,7 @@ export interface PreviewResult {
 export async function previewImport(scope: ImportScope, files: ImportFiles, db: Db = defaultPrisma): Promise<PreviewResult> {
     const period = await db.period.findFirst({
         where: { id: scope.periodId, organizationId: scope.organizationId, clientId: scope.clientId },
-        select: { month: true, year: true, status: true },
+        select: { month: true, year: true, status: true, client: { select: { cuit: true } } },
     });
     if (!period) throw new NotFoundError();
     const settingsRow = await db.periodVatSettings.findUnique({
@@ -78,23 +130,35 @@ export async function previewImport(scope: ImportScope, files: ImportFiles, db: 
         select: { creditProrationMode: true, globalCoefficient: true, globalCoefficientStatus: true, turivaIncluded: true },
     });
     const settings: PeriodVatSettingsLike = settingsRow ?? DEFAULT_PERIOD_VAT_SETTINGS;
-    const ctx = { category: files.category, period, settings, existingKeys: await existingKeys(db, scope, files.category) };
+    const deleted = await deletedImportHashes(db, scope, files.category);
+    const ranges = files.category === "SALES" ? await salesRanges(db, scope) : [];
+    const ctx = {
+        category: files.category, period, settings,
+        existingKeys: await existingKeys(db, scope, files.category),
+        editedKeys: await editedImportKeys(db, scope, files.category),
+        deletedLookup: (key: string) => deleted.get(importKeyHash(key)),
+        reimportDeleted: files.reimportDeleted === true,
+        rangeOf: (code: number, pos: number, n: number) => ranges.find((r) => r.voucherCode === code && r.pointOfSale === pos && r.from <= n && n <= r.to),
+    };
     const format: ImportSource = files.format ?? "LID_TXT";
     let preview: ImportPreview;
     if (format === "PORTAL_CSV") {
         const portal = parsePortalDownload(files.vouchers, files.category);
         preview = buildImportPreview({ ...ctx, source: "PORTAL_CSV" }, portal.vouchers, portal.aliquots, { fileErrors: portal.fileErrors, rowNotes: portal.totalColumnNotes });
+    } else if (format === "MIS_COMPROBANTES") {
+        const mc = parseMisComprobantes(files.vouchers, files.category, period.client.cuit.replace(/\D/g, ""));
+        preview = buildImportPreview({ ...ctx, source: "MIS_COMPROBANTES" }, mc.vouchers, mc.aliquots, { fileErrors: mc.fileErrors, rowNotes: mc.rowNotes });
     } else {
         preview = buildImportPreview(ctx, parseLidFile(files.vouchers, files.category, "VOUCHERS"), parseLidFile(files.aliquots, files.category, "ALIQUOTS"));
     }
     const vouchersSha256 = sha256(files.vouchers), aliquotsSha256 = sha256(files.aliquots);
     const token = sha256(JSON.stringify({
-        v: 1, ...scope, category: files.category, format, vouchersSha256, aliquotsSha256,
+        v: 2, ...scope, category: files.category, format, vouchersSha256, aliquotsSha256, reimportDeleted: files.reimportDeleted === true,
         settings: [settings.creditProrationMode, settings.turivaIncluded],
         rows: preview.rows.map((r) => [r.line, r.status, r.key]),
         fileErrors: preview.fileErrors,
     }));
-    return { preview, token, periodOpen: period.status === "OPEN", vouchersSha256, aliquotsSha256, format };
+    return { preview, token, periodOpen: period.status === "OPEN", vouchersSha256, aliquotsSha256, format, reimportDeleted: files.reimportDeleted === true };
 }
 
 export const STALE_PREVIEW_MESSAGE = "La vista previa ya no coincide con el estado del período o con los archivos: generala de nuevo antes de confirmar.";
@@ -135,7 +199,8 @@ export function importedInvoiceColumns(m: InvoiceModelData, scope: ImportScope) 
 }
 
 export interface ConfirmPlan {
-    rows: { key: string; model: InvoiceModelData }[];
+    /** reimportsDeleted: el comprobante se había eliminado de la app y se vuelve a importar por confirmación expresa. */
+    rows: { key: string; model: InvoiceModelData; reimportsDeleted: boolean }[];
     result: ConfirmResult;
     category: LidCategory;
     statusCounts: ImportPreview["reconciliation"]["statusCounts"];
@@ -161,7 +226,7 @@ export async function planConfirm(
     if (fresh.token !== opts.token) throw new ConflictError(STALE_PREVIEW_MESSAGE);
     const { preview } = fresh;
     if (preview.fileErrors.length > 0) throw new ValidationError("los archivos tienen problemas que impiden confirmar: " + preview.fileErrors[0], "files");
-    const rows = preview.rows.flatMap((r) => (r.status === "OK" && r.model !== null && r.key !== null ? [{ key: r.key, model: r.model }] : []));
+    const rows = preview.rows.flatMap((r) => (r.status === "OK" && r.model !== null && r.key !== null ? [{ key: r.key, model: r.model, reimportsDeleted: r.deletedOn !== null }] : []));
     if (rows.length === 0) throw new ValidationError("no hay comprobantes para importar", "files");
     const counts = preview.reconciliation.statusCounts;
     if (counts.ERROR + counts.REVIEW > 0 && opts.acceptPartial !== true) throw new ValidationError(PARTIAL_IMPORT_MESSAGE, "acceptPartial");
@@ -179,6 +244,22 @@ export async function planConfirm(
 
 /** Claves ya cargadas (para releer bajo el bloqueo del período). */
 export { existingKeys as importedVoucherKeys };
+
+/**
+ * Bajo el bloqueo del período: ninguna fila del plan puede corresponder a un
+ * importado eliminado DESPUÉS de la vista previa (quedaría importada sin la
+ * revisión); las que se vuelven a importar por confirmación expresa liberan su
+ * registro de eliminación.
+ */
+export async function settleDeletedImports(tx: Prisma.TransactionClient, scope: ImportScope, plan: ConfirmPlan): Promise<void> {
+    const deleted = await deletedImportHashes(tx, scope, plan.category);
+    const hashes = plan.rows.map((r) => ({ hash: importKeyHash(r.key), reimports: r.reimportsDeleted }));
+    if (hashes.some((h) => !h.reimports && deleted.has(h.hash))) throw new ConflictError(STALE_PREVIEW_MESSAGE);
+    const release = hashes.filter((h) => h.reimports).map((h) => h.hash);
+    if (release.length > 0) {
+        await tx.invoiceImportDeletion.deleteMany({ where: { organizationId: scope.organizationId, clientId: scope.clientId, keyHash: { in: release } } });
+    }
+}
 
 /**
  * Datos de escritura de los comprobantes del plan: filas de Invoice (sin
@@ -203,6 +284,7 @@ export function importAuditMetadata(plan: ConfirmPlan, scope: ImportScope, opera
         periodId: scope.periodId, category: plan.category, format: plan.format, importedCount: plan.result.imported, turivaCount: plan.result.turiva,
         duplicateCount: plan.statusCounts.DUPLICATE, reviewCount: plan.statusCounts.REVIEW, errorCount: plan.statusCounts.ERROR,
         vouchersFileSha256: plan.vouchersSha256, aliquotsFileSha256: plan.aliquotsSha256, operationId,
+        reimportedDeletedCount: plan.rows.filter((r) => r.reimportsDeleted).length,
     };
 }
 
@@ -323,7 +405,11 @@ export function serializePreview(r: PreviewResult) {
             informedTotal: row.informedTotal?.toFixed(2) ?? null,
             taxedNet: row.model?.taxedNetAmount.toFixed(2) ?? null, vat: row.model?.totalVatAmount.toFixed(2) ?? null,
             total: row.model?.voucherTotalAmount.toFixed(2) ?? null, aliquots: row.model?.vatLines.length ?? null,
+            deletedOn: row.deletedOn,
         })),
+        /** Filas de importados eliminados de la app (para ofrecer volver a importarlos). */
+        deletedCount: p.rows.filter((row) => row.deletedOn !== null).length,
+        reimportDeleted: r.reimportDeleted,
         reconciliation: {
             files: p.reconciliation.files,
             informed: Object.fromEntries(Object.entries(p.reconciliation.informed).map(([k, v]) => [k, v.toFixed(2)])),

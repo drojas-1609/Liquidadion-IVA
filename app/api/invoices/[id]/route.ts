@@ -19,6 +19,8 @@ import {
 } from "@/lib/invoice-edit";
 import { lockPeriodForWrite } from "@/lib/period-lock";
 import { lockInvoiceForUpdate, type LockedInvoiceRow } from "@/lib/invoice-lock";
+import { assertNoSalesRangeOverlapUnderLock } from "@/lib/invoice-range";
+import { recordImportedInvoiceDeletion } from "@/lib/invoice-import-deletion";
 import { duplicateVoucherMessage } from "@/lib/invoice-rules";
 import { serializeInvoice } from "@/lib/serializers";
 import {
@@ -149,6 +151,12 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
             // transacción (el helper no vuelve a bloquear).
             await assertTurivaIncludedUnderLock(tx, periodId, organizationId);
         }
+        if (input.category === "SALES") {
+            await assertNoSalesRangeOverlapUnderLock(tx, {
+                organizationId, clientId, voucherCode: resolved.model.voucherCode, pointOfSale: input.pointOfSale,
+                from: input.number, to: resolved.numberTo, excludeInvoiceId: id,
+            });
+        }
 
         const changed = changedFieldsOf(row, { input, resolved });
         if (changed.length === 0) {
@@ -213,7 +221,8 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
 });
 
 // DELETE /api/invoices/[id]?expectedUpdatedAt=<ISO> — baja de un comprobante
-// MANUAL (OWNER / ADMIN).
+// MANUAL o IMPORTADO (OWNER / ADMIN; el Operador no elimina). Un importado deja
+// InvoiceImportDeletion para que no se vuelva a importar en silencio.
 //
 // Orden: auth -> organización -> rol -> expectedUpdatedAt (422) -> comprobante
 // por id + organización (404) -> acceso al período (404) -> eliminabilidad
@@ -268,12 +277,23 @@ export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
         const row = editableRowOf(locked, lockedLines.map((l) => l.vatRateCode));
         const deletability = invoiceDeletability(row);
         if (!deletability.ok) throw notEditable(deletability.reason);
+        // Percepción registrada desde este comprobante (FK RESTRICT): se quita primero.
+        const linked = await tx.taxRecord.count({ where: { invoiceId: id, organizationId } });
+        if (linked > 0) throw new ConflictError("El comprobante tiene una percepción registrada a partir de él: eliminá o desvinculá esa percepción antes de eliminarlo.");
 
         const lines = await tx.invoiceVatLine.deleteMany({ where: { invoiceId: id, organizationId } });
         if (lines.count !== row.vatRateCodes.length) {
             throw new Error(`baja de comprobante: se esperaban ${row.vatRateCodes.length} líneas de IVA y se borraron ${lines.count}`);
         }
         await tx.invoice.delete({ where: { id_organizationId: { id, organizationId } } });
+        if (locked.source === "IMPORT") {
+            // Una nueva importación de este comprobante quedará para revisar (no se
+            // vuelve a cargar en silencio). Eliminarlo de la app no lo anula en ARCA.
+            await recordImportedInvoiceDeletion(tx, {
+                organizationId, clientId, periodId, deletedById: profileId,
+                row: { ...locked, voucherCode: locked.voucherCode as number },
+            });
+        }
         await recordAudit(tx, {
             organizationId,
             actorProfileId: profileId,
@@ -287,6 +307,7 @@ export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 voucherCode: locked.voucherCode,
                 pointOfSale: locked.pointOfSale,
                 number: locked.number,
+                source: locked.source,
             },
         });
     }, { maxWait: 5000, timeout: 10000 });

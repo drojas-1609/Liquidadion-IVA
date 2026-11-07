@@ -88,6 +88,7 @@ export type ViolationCode =
   | "TAX_RECORD_WRITE_BEFORE_LOCK"
   | "LOCK_KIND"
   | "TRANSITION_CONTENT_WRITE"
+  | "LIQUIDATION_VERSION_WRITE_OUTSIDE_TRANSITION"
   | "PERIOD_UPDATE_OUTSIDE_TRANSITION"
   | "STATUS_LOCK_OUTSIDE_TRANSITION"
   | "CLOSED_OUTSIDE_HELPER"
@@ -142,7 +143,18 @@ const HANDLER_TX_OPTIONS = [
  */
 export const HANDLER_TX_TIMEOUT_OVERRIDES: Readonly<Record<string, string>> = {
   "app/api/periods/[id]/libro-iva-import/confirm/route.ts": "40000",
+  // El cierre carga el período en lotes BAJO el bloqueo y arma el paquete de
+  // presentación (miles de comprobantes con la misma latencia de red): mismo
+  // presupuesto que la importación.
+  "app/api/periods/[id]/close/route.ts": "40000",
 };
+
+/**
+ * Versiones cerradas de la liquidación: sólo las escriben los handlers de
+ * TRANSICIÓN inventariados (alta en el cierre, reemplazo en la reapertura),
+ * después del bloqueo del Period. Ninguna otra ruta ni módulo las modifica.
+ */
+const LIQUIDATION_VERSION_MODEL = "periodLiquidationVersion";
 
 // ── SQL inventariado ───────────────────────────────────────────────────────
 
@@ -903,6 +915,19 @@ export function analyzeSource(file: string, src: string, methods?: readonly stri
     }
   }
   if (file === TAX_RECORD_LOCK_FILE) checkTaxRecordLockHelper(ctx);
+
+  // Escrituras de PeriodLiquidationVersion: sólo en handlers de transición inventariados.
+  for (const c of calls(sf)) {
+    const callee = unwrap(c.expression);
+    if (!ts.isPropertyAccessExpression(callee) || !WRITE_OPS.has(callee.name.text)) continue;
+    const target = unwrap(callee.expression);
+    const name = ts.isPropertyAccessExpression(target) ? target.name.text : ts.isElementAccessExpression(target) && ts.isStringLiteral(target.argumentExpression) ? target.argumentExpression.text : null;
+    if (name !== LIQUIDATION_VERSION_MODEL) continue;
+    const owner = [...handlers.entries()].find(([, h]) => within(sf, c, h));
+    if (!owner || !methods?.includes(owner[0]) || !transitions.includes(owner[0])) {
+      add(ctx, "LIQUIDATION_VERSION_WRITE_OUTSIDE_TRANSITION", c, `escritura de ${LIQUIDATION_VERSION_MODEL} fuera de un handler de transición inventariado: ${text(sf, c.expression)}`);
+    }
+  }
 
   // lockTaxRecordForUpdate sólo dentro de handlers inventariados.
   if (file !== TAX_RECORD_LOCK_FILE) {

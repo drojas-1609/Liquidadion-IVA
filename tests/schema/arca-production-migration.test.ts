@@ -22,7 +22,7 @@ describe(`migración ${MIGRATION} — revisión estática`, () => {
     it("sigue a la migración ARCA previa sin cambiarla; sólo la siguen migraciones posteriores conocidas", () => {
         const dirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
         // Posteriores, revisadas en su propio test (tests/schema/*).
-        const LATER = ["20261104120000_studio_users_permissions", "20261104230000_add_operator_role", "20261106120000_vat_credit_adjustments"];
+        const LATER = ["20261104120000_studio_users_permissions", "20261104230000_add_operator_role", "20261106120000_vat_credit_adjustments", "20261107120000_vat_export_close_versions", "20261108120000_invoice_import_deletions"];
         expect(dirs.slice(-1 - LATER.length)).toEqual([MIGRATION, ...LATER]);
         expect(dirs.at(-2 - LATER.length)).toBe("20261028120000_arca_wsaa_ticket_cache");
         expect(createHash("sha256").update(readFileSync(migrationsDir + "20261028120000_arca_wsaa_ticket_cache/migration.sql")).digest("hex")).toBe(PREVIOUS_ARCA_SHA256);

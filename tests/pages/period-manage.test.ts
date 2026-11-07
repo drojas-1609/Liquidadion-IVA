@@ -251,7 +251,7 @@ describe("dashboard del período — cerrar / reabrir según estado y rol", () =
     const text = textOf(el);
     expect(text).toMatch(/Período cerrado/);
     expect(text).toMatch(/se puede consultar y exportar/);
-    expect(text).toMatch(/no congela la liquidación/);
+    expect(text).toMatch(/guarda una versión de la liquidación de IVA/);
     // Sólo consulta: los accesos dicen "Ver", no "Gestionar".
     const hrefs = findAll(el, (e) => typeof e.props?.href === "string").map((e) => e.props.href);
     expect(hrefs).toEqual(expect.arrayContaining(["/client/c_a/period/p_closed/sales", "/client/c_a/period/p_closed/liquidation"]));

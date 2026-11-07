@@ -146,7 +146,7 @@ describe("PATCH /api/taxes/[id] — éxito y changedFields", () => {
     expect(db.taxRecord.update).toHaveBeenCalledTimes(1);
     const args = db.taxRecord.update.mock.calls[0][0];
     expect(args.where).toEqual({ id: TAX, organizationId: ORG_A });
-    expect(Object.keys(args.data).sort()).toEqual(["amount", "date", "description", "type", "updatedById"]);
+    expect(Object.keys(args.data).sort()).toEqual(["agentCuit", "amount", "certificateNumber", "customsDocument", "date", "description", "intermediaryCuit", "invoiceId", "nature", "regimeCode", "taxCode", "type", "updatedById", "voucherNumber", "voucherTypeCode"]);
     expect(args.data).toMatchObject({ type: "PERCEPCION IVA", description: "Banco Nación", updatedById: SUB_OWNER_A });
     expect(args.data.amount.toFixed(2)).toBe("2600.50");
     expect(row()?.updatedAt.toISOString()).toBe(TAX_RECORD_UPDATED_AT_AFTER);

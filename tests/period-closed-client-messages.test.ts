@@ -56,14 +56,14 @@ describe("cerrar / reabrir — traducción de errores y cuerpo enviado", () => {
     JSON.stringify({ periodId: "p/1", status: t === "close" ? "CLOSED" : "OPEN", updatedAt: V2, ...over });
   const fetchOf = (res: () => Response) => vi.fn(async () => res()) as unknown as typeof fetch;
 
-  it.each([["close"], ["reopen"]] as const)("%s: POST a /api/periods/<id>/%s con { expectedUpdatedAt } EXACTO; 200 autoritativo -> confirmed", async (t) => {
+  it.each([["close"], ["reopen"]] as const)("%s: POST a /api/periods/<id>/%s con el cuerpo EXACTO (reapertura con motivo); 200 autoritativo -> confirmed", async (t) => {
     const fetchImpl = vi.fn(async () => new Response(okBody(t), { status: 200 }));
-    const r = await submitPeriodTransition(t, "p/1", "2026-01-01T00:00:00.000Z", fetchImpl as unknown as typeof fetch);
+    const r = await submitPeriodTransition(t, "p/1", "2026-01-01T00:00:00.000Z", fetchImpl as unknown as typeof fetch, "Corrige una compra");
     expect(r).toEqual({ ok: true, confirmed: { status: t === "close" ? "CLOSED" : "OPEN", updatedAt: V2 } });
     expect(fetchImpl).toHaveBeenCalledWith(`/api/periods/p%2F1/${t}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expectedUpdatedAt: "2026-01-01T00:00:00.000Z" }),
+      body: JSON.stringify(t === "close" ? { expectedUpdatedAt: "2026-01-01T00:00:00.000Z" } : { expectedUpdatedAt: "2026-01-01T00:00:00.000Z", reason: "Corrige una compra" }),
     });
   });
 

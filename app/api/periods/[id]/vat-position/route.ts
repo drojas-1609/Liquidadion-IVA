@@ -47,7 +47,7 @@ export const PUT = withApiAuthz(async (request: Request, ctx: Ctx) => {
 
         const settings = await tx.periodVatSettings.findUnique({
             where,
-            select: { previousTechnicalBalance: true, previousTechnicalBalanceReference: true },
+            select: { previousTechnicalBalance: true, previousTechnicalBalanceReference: true, previousFreeBalance: true, previousFreeBalanceReference: true },
         });
         const current = await tx.periodVatCreditAdjustment.findMany({
             where: { periodId: id, organizationId },
@@ -62,6 +62,12 @@ export const PUT = withApiAuthz(async (request: Request, ctx: Ctx) => {
         }
         if ((settings?.previousTechnicalBalanceReference ?? null) !== next.previousTechnicalBalanceReference) {
             changedFields.push("previousTechnicalBalanceReference");
+        }
+        const free = next.previousFreeBalance;
+        if (free) {
+            const freeBefore = settings?.previousFreeBalance ?? null;
+            if (freeBefore === null ? !free.amount.isZero() : !freeBefore.equals(free.amount)) changedFields.push("previousFreeBalance");
+            if ((settings?.previousFreeBalanceReference ?? null) !== free.reference) changedFields.push("previousFreeBalanceReference");
         }
         const same = (a: (typeof current)[number] | undefined, b: (typeof next.adjustments)[number] | undefined) =>
             a !== undefined && b !== undefined &&
@@ -80,6 +86,7 @@ export const PUT = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 data: {
                     previousTechnicalBalance: next.previousTechnicalBalance,
                     previousTechnicalBalanceReference: next.previousTechnicalBalanceReference,
+                    ...(free ? { previousFreeBalance: free.amount, previousFreeBalanceReference: free.reference } : {}),
                     updatedById: profileId,
                 },
             });
@@ -91,6 +98,7 @@ export const PUT = withApiAuthz(async (request: Request, ctx: Ctx) => {
                     organizationId,
                     previousTechnicalBalance: next.previousTechnicalBalance,
                     previousTechnicalBalanceReference: next.previousTechnicalBalanceReference,
+                    ...(free ? { previousFreeBalance: free.amount, previousFreeBalanceReference: free.reference } : {}),
                     createdById: profileId,
                     updatedById: profileId,
                 },

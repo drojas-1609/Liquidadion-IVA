@@ -23,6 +23,8 @@ import {
     importWriteData,
     OPERATION_REUSED_MESSAGE,
     planConfirm,
+    settleDeletedImports,
+    assertNoSalesRangeConflictsUnderLock,
     recordImportFailure,
     sameOperation,
     STALE_PREVIEW_MESSAGE,
@@ -56,7 +58,7 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const access = await requirePeriodAccess(profileId, id, ROLES_CREATE, { expectClientId: input.clientId });
     if (access.organizationId !== organizationId) throw new NotFoundError();
     const scope = { organizationId, periodId: access.period.id, clientId: access.period.clientId };
-    const files = { category: input.category, format: input.format, vouchers: input.vouchers, aliquots: input.aliquots };
+    const files = { category: input.category, format: input.format, vouchers: input.vouchers, aliquots: input.aliquots, reimportDeleted: input.reimportDeleted };
 
     // Reintento de una operación que ya se aplicó (p. ej. la respuesta se cortó).
     const prior = await findImportOperation(prisma, scope, operationId);
@@ -83,6 +85,10 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
             // Otra carga del mismo comprobante entre la vista previa y este bloqueo.
             const loaded = await importedVoucherKeys(tx, scope, files.category);
             if (plan.rows.some((r) => loaded.has(r.key))) throw new ConflictError(STALE_PREVIEW_MESSAGE);
+            // Importados eliminados de la app: releídos bajo el bloqueo.
+            await settleDeletedImports(tx, scope, plan);
+            // Ventas: rangos de venta global diaria cargados después de la vista previa.
+            await assertNoSalesRangeConflictsUnderLock(tx, scope, plan);
             timing.mark("lock");
             await tx.invoice.createMany({ data: data.invoices });
             if (data.vatLines.length > 0) await tx.invoiceVatLine.createMany({ data: data.vatLines });

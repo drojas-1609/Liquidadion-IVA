@@ -13,7 +13,7 @@ import { failureText, operatorState, RESULT_WAIT_MS, resultText, type Attempt, t
  */
 
 type Category = "SALES" | "PURCHASES";
-type Format = "LID_TXT" | "PORTAL_CSV";
+type Format = "LID_TXT" | "PORTAL_CSV" | "MIS_COMPROBANTES";
 type Totals = Record<string, string | number>;
 interface PreviewRow {
     line: number;
@@ -31,9 +31,14 @@ interface PreviewRow {
     taxedNet: string | null;
     vat: string | null;
     total: string | null;
+    /** AAAA-MM-DD en que se eliminó de la app (null si no). */
+    deletedOn: string | null;
 }
 interface Preview {
     token: string;
+    /** Filas de comprobantes importados que se eliminaron de la app. */
+    deletedCount: number;
+    reimportDeleted: boolean;
     periodOpen: boolean;
     turivaFile: boolean;
     fileErrors: string[];
@@ -103,23 +108,42 @@ function writePending(periodId: string, v: PendingOp | null) {
  */
 const DONE_TTL_MS = 10 * 60_000;
 const doneKey = (periodId: string) => `lid-import-done:${periodId}`;
-function keepDone(periodId: string, text: string) {
+/**
+ * Filas que NO se importaron en la confirmación (revisar / error / ya
+ * cargadas): siguen visibles después de confirmar, con su motivo. Sin
+ * documento ni importes: sólo línea, estado, comprobante y motivo.
+ */
+interface PendingAfterConfirm { line: number; status: string; voucher: string; date: string | null; reason: string }
+function pendingOf(p: Preview | null): PendingAfterConfirm[] {
+    if (!p) return [];
+    return p.rows.filter((r) => r.status !== "OK").map((r) => ({
+        line: r.line,
+        status: r.status,
+        voucher: r.voucherCode !== null ? `${String(r.voucherCode).padStart(3, "0")} ${r.pointOfSale ?? "—"}-${r.number ?? "—"}` : "—",
+        date: r.date,
+        reason: r.messages.join(" · "),
+    }));
+}
+function keepDone(periodId: string, text: string, pending: PendingAfterConfirm[] = []) {
     try {
-        window.sessionStorage.setItem(doneKey(periodId), JSON.stringify({ text, at: Date.now() }));
+        window.sessionStorage.setItem(doneKey(periodId), JSON.stringify({ text, pending, at: Date.now() }));
     } catch {
         // Sin almacenamiento: el resultado igual figura en el historial del período.
     }
 }
-function readDone(periodId: string): string {
+function readDone(periodId: string): { text: string; pending: PendingAfterConfirm[] } {
+    const none = { text: "", pending: [] };
     try {
         const raw = window.sessionStorage.getItem(doneKey(periodId));
-        const v = raw ? (JSON.parse(raw) as { text?: unknown; at?: unknown }) : null;
-        if (v && typeof v.text === "string" && typeof v.at === "number" && Date.now() - v.at < DONE_TTL_MS) return v.text;
+        const v = raw ? (JSON.parse(raw) as { text?: unknown; pending?: unknown; at?: unknown }) : null;
+        if (v && typeof v.text === "string" && typeof v.at === "number" && Date.now() - v.at < DONE_TTL_MS) {
+            return { text: v.text, pending: Array.isArray(v.pending) ? (v.pending as PendingAfterConfirm[]) : [] };
+        }
         // Vencido o ilegible: una visita posterior no repite un resultado viejo.
         if (raw) window.sessionStorage.removeItem(doneKey(periodId));
-        return "";
+        return none;
     } catch {
-        return "";
+        return none;
     }
 }
 function clearDone(periodId: string) {
@@ -136,7 +160,7 @@ async function sha256Hex(file: File | null): Promise<string> {
 }
 const POLL_MS = 4000;
 const CATEGORY_LABEL: Record<string, string> = { SALES: "Ventas", PURCHASES: "Compras" };
-const FORMAT_LABEL: Record<string, string> = { LID_TXT: "TXT", PORTAL_CSV: "Portal IVA" };
+const FORMAT_LABEL: Record<string, string> = { LID_TXT: "TXT", PORTAL_CSV: "Portal IVA", MIS_COMPROBANTES: "Mis Comprobantes" };
 
 async function toBase64(file: File): Promise<string> {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -153,9 +177,12 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     const [aliquots, setAliquots] = useState<File | null>(null);
     const [preview, setPreview] = useState<Preview | null>(null);
     const [acceptPartial, setAcceptPartial] = useState(false);
+    // Volver a importar los importados eliminados de la app: confirmación expresa (por defecto quedan para revisar).
+    const [reimportDeleted, setReimportDeleted] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const [done, setDone] = useState<string>("");
+    const [donePending, setDonePending] = useState<PendingAfterConfirm[]>([]);
     const [tracking, setTracking] = useState<PendingOp | null>(null);
     const [trackingNote, setTrackingNote] = useState("");
     // Pasó el plazo sin registro de aplicación ni de falla de todos los envíos: no se afirma nada.
@@ -177,7 +204,10 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     useEffect(() => {
         void loadRecent();
         const kept = readDone(periodId);
-        if (kept) setDone(kept);
+        if (kept.text) {
+            setDone(kept.text);
+            setDonePending(kept.pending);
+        }
         const p = readPending(periodId);
         if (p) setTracking(p);
     }, [periodId, loadRecent]);
@@ -264,17 +294,19 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
         setTracking(op);
     }
 
-    async function send(kind: "preview" | "confirm") {
+    async function send(kind: "preview" | "confirm", overrides: { reimportDeleted?: boolean } = {}) {
+        const reimport = overrides.reimportDeleted ?? reimportDeleted;
         if (inFlight.current || !vouchers || (format === "LID_TXT" && !aliquots)) return;
         inFlight.current = true;
         setBusy(true);
         setError("");
         setDone("");
+        setDonePending([]);
         clearDone(periodId);
         if (kind === "confirm") setUnconfirmed(null);
         let op: PendingOp | null = null;
         try {
-            const body: Record<string, unknown> = { clientId, category, format, vouchersFile: await toBase64(vouchers) };
+            const body: Record<string, unknown> = { clientId, category, format, vouchersFile: await toBase64(vouchers), reimportDeleted: reimport };
             if (format === "LID_TXT" && aliquots) body.aliquotsFile = await toBase64(aliquots);
             if (kind === "confirm" && preview) {
                 // Mismo operationId si se reintenta lo mismo después de un corte: si ya se aplicó, la API devuelve ese resultado.
@@ -326,8 +358,10 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 writePending(periodId, null);
                 const r = json as OperationResult & { replayed?: boolean };
                 const text = resultText(r) + (r.replayed ? " Esta operación ya se había aplicado: no se escribió de nuevo." : "");
-                keepDone(periodId, text);
+                const pending = pendingOf(preview);
+                keepDone(periodId, text, pending);
                 setDone(text);
+                setDonePending(pending);
                 setPreview(null);
                 router.refresh();
                 void loadRecent();
@@ -352,18 +386,21 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-sm)" }}>
                     {format === "LID_TXT"
                         ? <>Archivos TXT del Libro IVA Digital (R.G. 4597): el de comprobantes y el de alícuotas del <strong>mismo período y libro</strong>, en ANSI, hasta 2 MB cada uno.</>
-                        : <>Descarga de comprobantes del período de Portal IVA: el ZIP <code>comprobantes_periodo_AAAAMM_…</code> tal como se descarga, o el CSV que contiene (montos expresados en pesos), hasta 2 MB.</>}
+                        : format === "PORTAL_CSV"
+                            ? <>Descarga de comprobantes del período de Portal IVA: el ZIP <code>comprobantes_periodo_AAAAMM_…</code> tal como se descarga, o el CSV que contiene (montos expresados en pesos), hasta 2 MB.</>
+                            : <>Consulta de Mis Comprobantes exportada como CSV: el ZIP <code>comprobantes_consulta_csv_emitidos_…</code> (ventas) o <code>…_recibidos_…</code> (compras), o el CSV que contiene, hasta 2 MB. No informa percepciones de IVA (van agrupadas en «Otros Tributos»): registralas como retención/percepción.</>}
                     Régimen TurIVA del período: <strong>{turivaIncluded ? "incluido" : "no incluido"}</strong>. Prorrateo del crédito: <strong>{prorationMode}</strong>.
                 </p>
                 <div style={{ display: "flex", gap: "var(--spacing-md)", flexWrap: "wrap", alignItems: "flex-end" }}>
                     <label>Formato<br />
-                        <select value={format} onChange={(e) => { setFormat(e.target.value as Format); setPreview(null); setVouchers(null); setAliquots(null); }} disabled={busy}>
+                        <select value={format} onChange={(e) => { setFormat(e.target.value as Format); setPreview(null); setReimportDeleted(false); setVouchers(null); setAliquots(null); }} disabled={busy}>
                             <option value="LID_TXT">Libro IVA Digital (par de TXT)</option>
                             <option value="PORTAL_CSV">Descarga de Portal IVA (ZIP o CSV)</option>
+                            <option value="MIS_COMPROBANTES">Mis Comprobantes (ZIP o CSV)</option>
                         </select>
                     </label>
                     <label>Libro<br />
-                        <select value={category} onChange={(e) => { setCategory(e.target.value as Category); setPreview(null); }} disabled={busy}>
+                        <select value={category} onChange={(e) => { setCategory(e.target.value as Category); setPreview(null); setReimportDeleted(false); }} disabled={busy}>
                             <option value="SALES">Ventas</option>
                             <option value="PURCHASES">Compras</option>
                         </select>
@@ -371,15 +408,15 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                     {format === "LID_TXT" ? (
                         <>
                             <label>Comprobantes (CBTE)<br />
-                                <input key="cbte" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); }} />
+                                <input key="cbte" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
                             </label>
                             <label>Alícuotas<br />
-                                <input key="ali" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setAliquots(e.target.files?.[0] ?? null); setPreview(null); }} />
+                                <input key="ali" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setAliquots(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
                             </label>
                         </>
                     ) : (
-                        <label>Descarga de Portal IVA<br />
-                            <input key="portal" type="file" accept=".zip,.csv,application/zip,text/csv" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); }} />
+                        <label>{format === "PORTAL_CSV" ? "Descarga de Portal IVA" : "Consulta de Mis Comprobantes"}<br />
+                            <input key="portal" type="file" accept=".zip,.csv,application/zip,text/csv" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
                         </label>
                     )}
                     <button type="button" className="btn btn-primary" disabled={busy || !vouchers || (format === "LID_TXT" && !aliquots)} onClick={() => send("preview")}>
@@ -390,6 +427,20 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
 
             {error && <div role="alert" className="card" style={{ border: "1px solid var(--error)", marginBottom: "var(--spacing-md)" }}>{error}</div>}
             {done && <div role="status" className="card" style={{ marginBottom: "var(--spacing-md)" }}>{done}</div>}
+            {done && donePending.length > 0 && (
+                <div className="card" style={{ marginBottom: "var(--spacing-md)" }}>
+                    <h3 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-xs)" }}>No importados en esta confirmación ({donePending.length})</h3>
+                    <p style={{ fontSize: "0.85rem", color: "var(--secondary)" }}>Quedan fuera de los totales importados. Corregí el archivo o cargalos a mano.</p>
+                    <table aria-label="No importados en esta confirmación" style={{ width: "100%", fontSize: "0.875rem" }}>
+                        <thead><tr><th style={{ textAlign: "left" }}>Línea</th><th style={{ textAlign: "left" }}>Estado</th><th style={{ textAlign: "left" }}>Comprobante</th><th style={{ textAlign: "left" }}>Fecha</th><th style={{ textAlign: "left" }}>Motivo</th></tr></thead>
+                        <tbody>
+                            {donePending.map((r) => (
+                                <tr key={r.line}><td>{r.line}</td><td>{r.status === "REVIEW" ? "Revisar" : r.status === "ERROR" ? "Error" : "Ya cargado"}</td><td>{r.voucher}</td><td>{r.date ?? "—"}</td><td>{r.reason}</td></tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
             {tracking && <div role="status" data-tracking className="card" style={{ marginBottom: "var(--spacing-md)" }}>{trackingNote || "Verificando el resultado de la confirmación…"}</div>}
             {unconfirmed && (
                 <div role="alert" data-unconfirmed className="card" style={{ border: "1px solid var(--accent)", marginBottom: "var(--spacing-md)" }}>
@@ -487,6 +538,22 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                         {counts.REVIEW > 0 && <>; quedan para revisar <strong>{counts.REVIEW}</strong> con IVA <strong>{preview.reconciliation.notImported.REVIEW.vat}</strong></>}
                         {counts.ERROR > 0 && <>; con error <strong>{counts.ERROR}</strong></>}.
                     </p>
+                    {(preview.deletedCount > 0 || reimportDeleted) && (
+                        <label style={{ display: "block", marginBottom: "var(--spacing-sm)" }}>
+                            <input
+                                type="checkbox"
+                                checked={reimportDeleted}
+                                disabled={busy}
+                                onChange={(e) => {
+                                    const next = e.target.checked;
+                                    setReimportDeleted(next);
+                                    // La elección cambia qué se importa: se vuelve a generar la vista previa.
+                                    void send("preview", { reimportDeleted: next });
+                                }}
+                            />{" "}
+                            Volver a importar los comprobantes eliminados de la app ({preview.deletedCount}). Sin esta marca quedan para revisar y no se importan.
+                        </label>
+                    )}
                     {partial && (
                         <label style={{ display: "block", marginBottom: "var(--spacing-sm)" }}>
                             <input type="checkbox" checked={acceptPartial} onChange={(e) => setAcceptPartial(e.target.checked)} /> Importar sólo las {counts.OK} filas «Se importa»; las de «Revisar» y «Error» quedan fuera.

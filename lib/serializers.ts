@@ -246,7 +246,13 @@ export interface LiquidationDTO {
     technicalBalanceArca: string;
     technicalBalanceInFavor: string;
     retentions: string;
+    withholdings: string;
+    perceptions: string;
+    customsPerceptions: string;
+    previousFreeBalance: string;
     payable: string;
+    balanceToPay: string;
+    freeBalanceInFavor: string;
   };
   iibb: { rate: string; base: string; tax: string; retentions: string; payable: string };
 }
@@ -271,7 +277,13 @@ export function serializeLiquidation(r: LiquidationResult): LiquidationDTO {
       technicalBalanceArca: money(r.iva.technicalBalanceArca),
       technicalBalanceInFavor: money(r.iva.technicalBalanceInFavor),
       retentions: money(r.iva.retentions),
+      withholdings: money(r.iva.withholdings),
+      perceptions: money(r.iva.perceptions),
+      customsPerceptions: money(r.iva.customsPerceptions),
+      previousFreeBalance: money(r.iva.previousFreeBalance),
       payable: money(r.iva.payable),
+      balanceToPay: money(r.iva.balanceToPay),
+      freeBalanceInFavor: money(r.iva.freeBalanceInFavor),
     },
     iibb: {
       rate: rate(r.iibb.rate),

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { buildPeriodTransitionInput } from "@/lib/api-input";
 import { lockPeriodForStatusChange } from "@/lib/period-lock";
 import { nextPeriodUpdatedAt, PERIOD_STALE_MESSAGE } from "@/lib/period-status";
+import { closeSnapshot } from "@/lib/vat-export/service";
 import {
     requireAuthenticatedProfile,
     resolveActiveOrganization,
@@ -25,10 +26,16 @@ type Ctx = { params: Promise<{ id: string }> };
 // (el MISMO FOR UPDATE que toman todas las escrituras del contenido; 404 /
 // 409 PERIOD_BUSY) -> relectura bajo el bloqueo -> updatedAt distinto del que
 // vio la pantalla: 409 CONFLICT sin escribir ni auditar -> ya cerrado: 200
-// sin escritura ni AuditLog -> status CLOSED + closedAt + closedById + nueva
-// versión (updatedAt) + AuditLog period.close. Si falla el AuditLog, rollback.
+// sin escritura ni AuditLog -> versión cerrada de la liquidación (el período se
+// carga BAJO el bloqueo: ninguna edición ni importación se intercala) con su
+// paquete de presentación si no hay bloqueos de exportación -> status CLOSED +
+// closedAt + closedById + nueva versión (updatedAt) + AuditLog period.close.
+// Si falla cualquier paso, rollback completo.
 //
-// No exige que la liquidación sea calculable ni modifica el contenido.
+// No exige que la liquidación sea calculable ni exportable: con bloqueos, la
+// versión se guarda sin paquete y la respuesta lo informa (packageReady=false).
+// Transacción de 40000 ms (excepción inventariada en
+// tests/_period-lock-structure.ts): carga el período en lotes y arma el paquete.
 export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const { id } = await ctx.params;
     const { profileId } = await requireAuthenticatedProfile();
@@ -53,9 +60,38 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
         if (period.updatedAt.getTime() !== parsed.data.expectedUpdatedAt.getTime()) {
             throw new ConflictError(PERIOD_STALE_MESSAGE);
         }
-        if (status === "CLOSED") return { status, updatedAt: period.updatedAt };
+        if (status === "CLOSED") {
+            const current = await tx.periodLiquidationVersion.findFirst({
+                where: { periodId: id, organizationId, supersededAt: null },
+                select: { version: true, packageSha256: true },
+            });
+            return { status, updatedAt: period.updatedAt, version: current?.version ?? null, packageReady: Boolean(current?.packageSha256) };
+        }
 
         const now = new Date();
+        const last = await tx.periodLiquidationVersion.findFirst({
+            where: { periodId: id, organizationId },
+            orderBy: { version: "desc" },
+            select: { version: true },
+        });
+        const version = (last?.version ?? 0) + 1;
+        const snap = await closeSnapshot(tx, { organizationId, periodId: id }, version, now);
+        if (!snap) throw new NotFoundError();
+        await tx.periodLiquidationVersion.create({
+            data: {
+                organizationId,
+                periodId: id,
+                version,
+                closedAt: now,
+                closedById: profileId,
+                engineVersion: snap.summary.engineVersion,
+                contentHash: snap.contentHash,
+                summary: JSON.parse(JSON.stringify(snap.summary)),
+                packageZip: snap.packageZip ? Buffer.from(snap.packageZip) : null,
+                packageSha256: snap.packageSha256,
+            },
+            select: { id: true },
+        });
         const updated = await tx.period.update({
             where: { id_organizationId: { id, organizationId } },
             data: {
@@ -67,19 +103,20 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
             },
             select: { status: true, updatedAt: true },
         });
+        const packageReady = snap.packageZip !== null;
         await recordAudit(tx, {
             organizationId,
             actorProfileId: profileId,
             action: "period.close",
             targetType: "Period",
             targetId: id,
-            metadata: { clientId: period.clientId, month: period.month, year: period.year },
+            metadata: { clientId: period.clientId, month: period.month, year: period.year, version, packageReady },
         });
-        return updated;
-    }, { maxWait: 5000, timeout: 10000 });
+        return { ...updated, version, packageReady };
+    }, { maxWait: 5000, timeout: 40000 });
 
     return NextResponse.json(
-        { periodId: id, status: result.status, updatedAt: result.updatedAt.toISOString() },
+        { periodId: id, status: result.status, updatedAt: result.updatedAt.toISOString(), version: result.version, packageReady: result.packageReady },
         { status: 200 },
     );
 });

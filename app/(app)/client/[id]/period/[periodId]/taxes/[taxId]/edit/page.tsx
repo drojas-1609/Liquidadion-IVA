@@ -9,6 +9,7 @@ import { formatPeriodLabel, periodFirstDayIso, periodLastDayIso } from "@/lib/pe
 import { TaxForm } from "../../_components/tax-form";
 import { PeriodClosedNotice } from "../../../_components/period-closed-notice";
 import { isPeriodClosed } from "@/lib/period-status";
+import { perceptionSources } from "@/lib/tax-perception-sources";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +31,18 @@ export default async function EditTaxPage({ params }: { params: Promise<{ id: st
         if (!tax) throw new NotFoundError();
         // Período cerrado (registro existente): aviso en lugar del formulario (la API rechaza igual).
         if (isPeriodClosed(access.period.status)) return null;
-        return { period, tax: serializeTaxRecord(tax) };
+        const sources = await perceptionSources(prisma, { organizationId, periodId }, tax.invoiceId);
+        const s = (v: string | number | null | undefined) => (v === null || v === undefined ? "" : String(v));
+        const detail = {
+            nature: s(tax.nature), taxCode: s(tax.taxCode), regimeCode: s(tax.regimeCode), agentCuit: s(tax.agentCuit), intermediaryCuit: s(tax.intermediaryCuit),
+            voucherTypeCode: s(tax.voucherTypeCode), voucherNumber: s(tax.voucherNumber), certificateNumber: s(tax.certificateNumber),
+            customsDocument: s(tax.customsDocument), invoiceId: s(tax.invoiceId),
+        };
+        return { period, tax: serializeTaxRecord(tax), detail, sources };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
     if (guard.data === null) return <PeriodClosedNotice clientId={id} periodId={periodId} />;
-    const { period, tax } = guard.data;
+    const { period, tax, detail, sources } = guard.data;
 
     const known = isTaxRecordType(tax.type);
     return (
@@ -47,7 +55,8 @@ export default async function EditTaxPage({ params }: { params: Promise<{ id: st
             dateMin={periodFirstDayIso(period)}
             dateMax={periodLastDayIso(period)}
             // `date` del DTO es la medianoche UTC del día: los primeros 10 caracteres son el día UTC.
-            initial={{ date: tax.date.slice(0, 10), type: known ? tax.type : "", amount: tax.amount, description: tax.description ?? "" }}
+            initial={{ date: tax.date.slice(0, 10), type: known ? tax.type : "", amount: tax.amount, description: tax.description ?? "", detail }}
+            perceptionSources={sources}
             edit={{ taxId: tax.id, updatedAt: tax.updatedAt, unknownType: known ? null : tax.type }}
         />
     );

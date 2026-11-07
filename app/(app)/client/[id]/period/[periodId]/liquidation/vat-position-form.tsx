@@ -23,6 +23,8 @@ interface Props {
     canEdit: boolean;
     previousTechnicalBalance: string;
     previousTechnicalBalanceReference: string;
+    previousFreeBalance: string;
+    previousFreeBalanceReference: string;
     rows: VatPositionFormRow[];
 }
 
@@ -38,10 +40,12 @@ function ratio(contributions: string, computable: string): string {
 
 const input: React.CSSProperties = { width: "100%", textAlign: "right" };
 
-export function VatPositionForm({ periodId, canEdit, previousTechnicalBalance, previousTechnicalBalanceReference, rows }: Props) {
+export function VatPositionForm({ periodId, canEdit, previousTechnicalBalance, previousTechnicalBalanceReference, previousFreeBalance, previousFreeBalanceReference, rows }: Props) {
     const router = useRouter();
     const [prev, setPrev] = useState(previousTechnicalBalance);
     const [prevRef, setPrevRef] = useState(previousTechnicalBalanceReference);
+    const [free, setFree] = useState(previousFreeBalance);
+    const [freeRef, setFreeRef] = useState(previousFreeBalanceReference);
     const [values, setValues] = useState(rows);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -62,6 +66,8 @@ export function VatPositionForm({ periodId, canEdit, previousTechnicalBalance, p
         const body = {
             previousTechnicalBalance: toAmount(prev),
             previousTechnicalBalanceReference: prevRef.trim() === "" ? null : prevRef.trim(),
+            previousFreeBalance: toAmount(free),
+            previousFreeBalanceReference: freeRef.trim() === "" ? null : freeRef.trim(),
             adjustments: values
                 .filter((r) => toAmount(r.contributionsAmount) !== "0" || toAmount(r.computableAmount) !== "0")
                 .map((r) => ({
@@ -79,7 +85,8 @@ export function VatPositionForm({ periodId, canEdit, previousTechnicalBalance, p
             });
             const json: unknown = await res.json().catch(() => null);
             if (!res.ok) {
-                const msg = (json as { error?: unknown } | null)?.error;
+                const err = (json as { error?: unknown } | null)?.error;
+                const msg = typeof err === "string" ? err : (err as { message?: unknown } | undefined)?.message;
                 setError(typeof msg === "string" && msg.length > 0 && msg.length < 300 ? msg : GENERIC_ERROR);
             } else {
                 setSaved(true);
@@ -108,6 +115,9 @@ export function VatPositionForm({ periodId, canEdit, previousTechnicalBalance, p
                     <label htmlFor="vp-prev">Saldo técnico a favor del contribuyente del período anterior</label>
                     <input id="vp-prev" inputMode="decimal" value={prev} onChange={(e) => setPrev(e.target.value)} style={input} />
                     <input aria-label="Referencia del saldo anterior" placeholder="Referencia (DJ anterior)" value={prevRef} maxLength={120} onChange={(e) => setPrevRef(e.target.value)} />
+                    <label htmlFor="vp-free">Saldo a favor de libre disponibilidad del período anterior (neto de usos)</label>
+                    <input id="vp-free" inputMode="decimal" value={free} onChange={(e) => setFree(e.target.value)} style={input} />
+                    <input aria-label="Referencia del saldo de libre disponibilidad" placeholder="Referencia (DJ anterior)" value={freeRef} maxLength={120} onChange={(e) => setFreeRef(e.target.value)} />
                 </div>
 
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>

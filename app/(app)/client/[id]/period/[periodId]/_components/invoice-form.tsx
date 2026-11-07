@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { formatPeriodLabel } from "@/lib/period";
 import { TURIVA_SECTION_ID } from "@/lib/turiva-setting";
 import { resolveInvoiceFormOptions, type InvoiceFormContext, type Option } from "@/lib/invoice-form-options";
+import { CounterpartyArcaLookup } from "./counterparty-arca-lookup";
 import {
     INITIAL_FORM_STATE,
     INVOICE_EDIT_TEXT,
@@ -27,6 +28,10 @@ import {
     type InvoiceFormControl,
     type SelectionKey,
     feedbackText,
+    DOC_TYPE_UNIDENTIFIED,
+    EMPTY_UNIDENTIFIED,
+    UNIDENTIFIED_LEGENDS,
+    type UnidentifiedSaleState,
 } from "@/lib/invoice-form-client";
 
 export interface InvoiceFormProps {
@@ -98,9 +103,20 @@ export function InvoiceForm(props: InvoiceFormProps) {
     const sel = options.selection;
 
     function onSelect(key: SelectionKey, raw: string) {
-        setState((prev) => applySelectionChange(ctx, prev, key, raw).state);
+        setState((prev) => {
+            const next = applySelectionChange(ctx, prev, key, raw).state;
+            // Documento 99: el modo se elige de nuevo cada vez (nunca queda uno por defecto).
+            const is99 = next.selection.docType === DOC_TYPE_UNIDENTIFIED;
+            return { ...next, unidentified: is99 ? (prev.selection.docType === DOC_TYPE_UNIDENTIFIED ? prev.unidentified : EMPTY_UNIDENTIFIED) : undefined };
+        });
         setFeedback(null);
     }
+    function onUnidentified(patch: Partial<UnidentifiedSaleState>) {
+        setState((prev) => ({ ...prev, unidentified: { ...(prev.unidentified ?? EMPTY_UNIDENTIFIED), ...patch } }));
+        setFeedback(null);
+    }
+    const is99 = sel.docType === DOC_TYPE_UNIDENTIFIED;
+    const unidentified = state.unidentified ?? EMPTY_UNIDENTIFIED;
     function onField(key: FieldKey, value: string) {
         setState((prev) => applyFieldChange(prev, key, value));
         setFeedback(null);
@@ -311,7 +327,50 @@ export function InvoiceForm(props: InvoiceFormProps) {
 
                 {/* 4. Documento y número */}
                 {selectField("docType", "Tipo de documento", options.docTypes, sel.docType, "Elegí primero el comprobante.")}
-                {textField("docNumber", docNumberLabel(sel.docType), { autoComplete: "off" }, sel.docType === null ? "Elegí primero el tipo de documento." : null)}
+                {is99 ? (
+                    <div>
+                        <span style={LABEL_STYLE}>{docNumberLabel(sel.docType)}</span>
+                        <span>0</span>
+                        <span style={HELP_STYLE}>Con el documento 99 el número es 0 (Libro IVA Digital, Ventas campo 7).</span>
+                    </div>
+                ) : (
+                    textField("docNumber", docNumberLabel(sel.docType), { autoComplete: "off" }, sel.docType === null ? "Elegí primero el tipo de documento." : null)
+                )}
+
+                {/* Consulta de ARCA: sólo con documento 80 y CUIT válido (el componente no se muestra en otro caso). */}
+                <CounterpartyArcaLookup
+                    docType={sel.docType}
+                    docNumber={state.fields.docNumber}
+                    currentName={state.fields.counterpartyName}
+                    disabled={loading || clientBlocked}
+                    onApplyName={(name) => onField("counterpartyName", name)}
+                />
+
+                {is99 && (
+                    <fieldset style={{ gridColumn: "1 / -1", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "var(--spacing-sm)" }}>
+                        <legend>Venta a consumidor final sin identificar</legend>
+                        <label style={{ display: "block" }}>
+                            <input type="radio" name="unidentified-mode" checked={unidentified.mode === "INDIVIDUAL"} disabled={loading} onChange={() => onUnidentified({ mode: "INDIVIDUAL" })} />{" "}
+                            Venta individual sin identificar (un comprobante de menos de $ 10.000.000; leyenda «{UNIDENTIFIED_LEGENDS.INDIVIDUAL}»)
+                        </label>
+                        <label style={{ display: "block" }}>
+                            <input type="radio" name="unidentified-mode" checked={unidentified.mode === "GLOBAL_DAILY"} disabled={loading} onChange={() => onUnidentified({ mode: "GLOBAL_DAILY" })} />{" "}
+                            Venta global diaria (rango de facturas B o C del día; leyenda «{UNIDENTIFIED_LEGENDS.GLOBAL_DAILY}»)
+                        </label>
+                        {unidentified.mode === "GLOBAL_DAILY" && (
+                            <>
+                                <label htmlFor="invoice-number-to" style={{ ...LABEL_STYLE, marginTop: "var(--spacing-sm)" }}>Último número del rango del día</label>
+                                <input id="invoice-number-to" className="input" inputMode="numeric" pattern="[0-9]*" disabled={loading} value={unidentified.numberTo} onChange={(e) => onUnidentified({ numberTo: e.target.value })} />
+                                <label style={{ display: "block", marginTop: "var(--spacing-xs)" }}>
+                                    <input type="checkbox" checked={unidentified.belowThresholdConfirmed} disabled={loading} onChange={(e) => onUnidentified({ belowThresholdConfirmed: e.target.checked })} />{" "}
+                                    Confirmo que cada comprobante del rango es menor a $ 10.000.000 (si alguno no lo es, va individual y con el comprador identificado).
+                                </label>
+                                <span style={HELP_STYLE}>Neto y alícuota: los del total del día. El primer número es el campo «Número».</span>
+                            </>
+                        )}
+                        <span style={HELP_STYLE}>Desde el 29/05/2025, el comprador se identifica desde $ 10.000.000 (RG 1415, Anexo II; RG 5700/2025 y RG 5866/2026). Elegí el modo en cada carga: nada se convierte en venta global automáticamente.</span>
+                    </fieldset>
+                )}
 
                 {/* 5. Variante (001–003) o relación TurIVA (195–197) */}
                 {options.variants.length > 0 &&
@@ -321,7 +380,14 @@ export function InvoiceForm(props: InvoiceFormProps) {
 
                 {/* 6. Contraparte */}
                 <div style={{ gridColumn: "1 / -1" }}>
-                    {textField("counterpartyName", `${text.counterparty} (razón social)`, { autoComplete: "off" })}
+                    {is99 ? (
+                        <>
+                            <span style={LABEL_STYLE}>{text.counterparty} (razón social)</span>
+                            <span>{unidentified.mode === "" ? "Elegí el modo de la venta sin identificar" : UNIDENTIFIED_LEGENDS[unidentified.mode]}</span>
+                        </>
+                    ) : (
+                        textField("counterpartyName", `${text.counterparty} (razón social)`, { autoComplete: "off" })
+                    )}
                 </div>
 
                 {/* 7. Punto de venta y número */}

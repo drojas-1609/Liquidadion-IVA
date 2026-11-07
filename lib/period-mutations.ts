@@ -141,6 +141,8 @@ export async function submitPeriodTransition(
     periodId: string,
     expectedUpdatedAt: string,
     fetchImpl: typeof fetch = fetch,
+    /** Reapertura: motivo obligatorio (lo valida la API). */
+    reason?: string,
 ): Promise<PeriodTransitionResult> {
     const uncertain = { ok: false, uncertain: true, message: PERIOD_TRANSITION_UNCERTAIN_ERROR[transition] } as const;
     let res: Response;
@@ -148,7 +150,7 @@ export async function submitPeriodTransition(
         res = await fetchImpl(`/api/periods/${encodeURIComponent(periodId)}/${transition}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ expectedUpdatedAt }),
+            body: JSON.stringify(transition === "reopen" ? { expectedUpdatedAt, reason: reason ?? "" } : { expectedUpdatedAt }),
         });
     } catch {
         return uncertain;

@@ -31,7 +31,7 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
             where: { id: periodId, organizationId },
             include: {
                 client: { select: { name: true } },
-                vatSettings: { select: { previousTechnicalBalance: true, previousTechnicalBalanceReference: true } },
+                vatSettings: { select: { previousTechnicalBalance: true, previousTechnicalBalanceReference: true, previousFreeBalance: true, previousFreeBalanceReference: true } },
                 vatCreditAdjustments: { select: { regime: true, contributionsAmount: true, computableAmount: true, reference: true } },
             },
         });
@@ -67,9 +67,14 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
                 </Link>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>Liquidación de Impuestos</h1>
-                    <a href={`/api/client/${id}/period/${periodId}/export`} className="btn btn-primary" target="_blank" rel="noreferrer">
-                        Exportar a Excel
-                    </a>
+                    <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
+                        <Link href={`/client/${id}/period/${periodId}/presentation`} className="btn btn-secondary">
+                            Presentación ARCA
+                        </Link>
+                        <a href={`/api/client/${id}/period/${periodId}/export`} className="btn btn-primary" target="_blank" rel="noreferrer">
+                            Exportar a Excel
+                        </a>
+                    </div>
                 </div>
                 <p style={{ color: "var(--secondary)" }}>
                     Cliente: {period.client.name} - Periodo: {period.month.toString().padStart(2, "0")}/{period.year}
@@ -108,20 +113,30 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
                     </span>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
-                    <span>Retenciones / Percepciones IVA</span>
-                    <span style={{ fontWeight: 500 }}>- ${m(r.iva.retentions)}</span>
-                </div>
+                {[
+                    ["Saldo a favor de libre disponibilidad del período anterior", r.iva.previousFreeBalance],
+                    ["Retenciones IVA", r.iva.withholdings],
+                    ["Percepciones IVA", r.iva.perceptions],
+                    ["Percepciones aduaneras IVA", r.iva.customsPerceptions],
+                ].map(([label, value]) => (
+                    <div key={label as string} style={{ display: "flex", justifyContent: "space-between", gap: "var(--spacing-md)", marginBottom: "var(--spacing-sm)" }}>
+                        <span>{label as string}</span>
+                        <span style={{ fontWeight: 500, whiteSpace: "nowrap" }}>- ${m(value as Prisma.Decimal)}</span>
+                    </div>
+                ))}
+                <p style={{ color: "var(--secondary)", fontSize: "0.8125rem", marginBottom: "var(--spacing-sm)" }}>
+                    Sólo cancelan el saldo técnico a favor de ARCA. Se computan las retenciones y percepciones registradas; las informadas en los comprobantes de compra no se suman hasta registrarlas (ver Presentación ARCA).
+                </p>
 
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: "var(--spacing-lg)", padding: "var(--spacing-md)", backgroundColor: "var(--surface-hover)", borderRadius: "var(--radius-md)" }}>
                     <span style={{ fontSize: "1.25rem", fontWeight: "bold" }}>Saldo de impuesto a favor de ARCA</span>
-                    <span style={{ fontSize: "1.25rem", fontWeight: "bold", color: r.iva.payable.greaterThan(0) ? "var(--error)" : "var(--success)" }}>
-                        ${m(clampPos(r.iva.payable))}
+                    <span style={{ fontSize: "1.25rem", fontWeight: "bold", color: r.iva.balanceToPay.greaterThan(0) ? "var(--error)" : "var(--success)" }}>
+                        ${m(r.iva.balanceToPay)}
                     </span>
                 </div>
-                {r.iva.payable.isNegative() && (
+                {!r.iva.freeBalanceInFavor.isZero() && (
                     <div style={{ textAlign: "right", marginTop: "var(--spacing-xs)", color: "var(--success)", fontSize: "0.875rem" }}>
-                        Saldo a favor de libre disponibilidad: ${m(r.iva.payable.abs())}
+                        Saldo a favor de libre disponibilidad: ${m(r.iva.freeBalanceInFavor)}
                     </div>
                 )}
                 {!r.iva.technicalBalanceInFavor.isZero() && (
@@ -136,6 +151,8 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
                 canEdit={roleAllows(ROLES_UPDATE, period.role) && period.status === "OPEN"}
                 previousTechnicalBalance={period.vatSettings?.previousTechnicalBalance.toFixed(2) ?? "0.00"}
                 previousTechnicalBalanceReference={period.vatSettings?.previousTechnicalBalanceReference ?? ""}
+                previousFreeBalance={period.vatSettings?.previousFreeBalance.toFixed(2) ?? "0.00"}
+                previousFreeBalanceReference={period.vatSettings?.previousFreeBalanceReference ?? ""}
                 rows={VAT_CREDIT_ADJUSTMENT_REGIMES.map((regime) => {
                     const a = (period.vatCreditAdjustments ?? []).find((x) => x.regime === regime);
                     return {

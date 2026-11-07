@@ -113,7 +113,7 @@ export function extractSingleCsv(zip: Uint8Array): { ok: true; name: string; byt
 
 // ── CSV ";" con comillas ─────────────────────────────────────────────────────
 
-function csvRows(text: string): string[][] {
+export function csvRows(text: string): string[][] {
     const rows: string[][] = [];
     let row: string[] = [], field = "", quoted = false, inQuotes = false;
     const push = () => { row.push(field); field = ""; quoted = false; };
@@ -135,7 +135,7 @@ function csvRows(text: string): string[][] {
 }
 
 /** "1234,56", "-1234,56" o vacío (null). Sin separador de miles. */
-function amount(raw: string): Prisma.Decimal | null | undefined {
+export function amount(raw: string): Prisma.Decimal | null | undefined {
     const s = raw.trim();
     if (s === "") return null;
     if (!/^-?\d+(,\d{1,6})?$/.test(s)) return undefined;

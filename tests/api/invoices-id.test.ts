@@ -174,7 +174,8 @@ const del = (expected: string | null = T0, id = INV) =>
 
 const current = () => (world.invoices ?? []).find((i) => i.id === INV);
 const linesOf = (id = INV) => (world.invoiceVatLines ?? []).filter((l) => l.invoiceId === id);
-const lockTargets = () => rec.locks.map((l) => `${/FROM "Invoice"/.test(l.sql) ? "Invoice" : "Period"}:${l.values[0]}`);
+/** Locks de Period e Invoice; el de Client (rangos de ventas, después de ambos) se prueba aparte. */
+const lockTargets = () => rec.locks.filter((l) => !/FROM "Client"/.test(l.sql)).map((l) => `${/FROM "Invoice"/.test(l.sql) ? "Invoice" : "Period"}:${l.values[0]}`);
 
 const expectNoUpdate = () => {
   expect(db.invoice.update).not.toHaveBeenCalled();
@@ -878,7 +879,8 @@ describe("DELETE /api/invoices/[id]", () => {
     expect(linesOf()).toHaveLength(0);
     expect(rec.audits).toHaveLength(1);
     expect(rec.audits[0]).toMatchObject({ action: "invoice.delete", targetType: "Invoice", targetId: INV, actorProfileId: sub, organizationId: ORG_A });
-    expect(rec.audits[0].metadata).toEqual({ periodId: "p_a", category: "PURCHASES", voucherCode: 1, pointOfSale: 1, number: 1001 });
+    expect(rec.audits[0].metadata).toEqual({ periodId: "p_a", category: "PURCHASES", voucherCode: 1, pointOfSale: 1, number: 1001, source: "MANUAL" });
+    expect(db.invoiceImportDeletion.upsert).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -921,7 +923,6 @@ describe("DELETE /api/invoices/[id]", () => {
   });
 
   it.each([
-    ["IMPORTED", { source: "IMPORT" }],
     ["LEGACY", { source: null }],
     ["LEGACY", { voucherCode: null }],
   ] as const)("%s -> 422", async (reason, over) => {
@@ -930,11 +931,22 @@ describe("DELETE /api/invoices/[id]", () => {
     expectNotDeleted();
   });
 
-  it("MULTI_RATE -> 422", async () => {
+  it("IMPORTADO -> 204: baja + registro de importado eliminado (huella, sin documento) + AuditLog con la procedencia", async () => {
+    withInvoice(valid, { source: "IMPORT" });
+    expect((await del()).status).toBe(204);
+    expect(current()).toBeUndefined();
+    expect(db.invoiceImportDeletion.upsert).toHaveBeenCalledTimes(1);
+    const args = db.invoiceImportDeletion.upsert.mock.calls[0][0];
+    expect(args.create).toMatchObject({ organizationId: ORG_A, category: "PURCHASES", voucherCode: 1, pointOfSale: 1, number: 1001, periodId: "p_a" });
+    expect(args.create.keyHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(args)).not.toMatch(/30999999995|Proveedor/);
+    expect(rec.audits[0].metadata).toMatchObject({ source: "IMPORT" });
+  });
+
+  it("varias alícuotas -> 204 (la baja no reconstruye el formulario)", async () => {
     withInvoice(valid, {}, (w) => w.invoiceVatLines!.push({ ...w.invoiceVatLines![0], id: "vl_x", vatRateCode: 4 }));
-    await expectNotEditable(await del(), "MULTI_RATE");
-    expect(current()).toBeDefined();
-    expect(rec.audits).toHaveLength(0);
+    expect((await del()).status).toBe(204);
+    expect(current()).toBeUndefined();
   });
 
   it("eliminabilidad = sólo alcance: fila MANUAL con datos insuficientes SÍ se puede borrar", async () => {
@@ -973,11 +985,10 @@ describe("DELETE /api/invoices/[id]", () => {
       ["clientId", { clientId: "c_ajeno" }],
       ["periodId y clientId", { periodId: "p_ajeno", clientId: "c_ajeno" }],
     ])("%s cambiado bajo lock -> 409 stale idéntico, sin leer líneas, evaluar eliminabilidad, borrar ni AuditLog", async (_l, over) => {
-      // Además la fila deja de ser eliminable (MULTI_RATE): si la eliminabilidad
+      // Además la fila deja de ser eliminable (LEGACY): si la eliminabilidad
       // se evaluara antes, respondería 422. El 409 prueba el orden.
       onPeriodLock(() => {
-        world.invoices![0] = { ...world.invoices![0], ...over };
-        world.invoiceVatLines!.push({ ...world.invoiceVatLines![0], id: "vl_x", vatRateCode: 4 });
+        world.invoices![0] = { ...world.invoices![0], ...over, source: null };
       });
       const res = await del();
       expect(res.status).toBe(409);
@@ -1011,9 +1022,9 @@ describe("DELETE /api/invoices/[id]", () => {
     expect(db.invoice.delete).not.toHaveBeenCalled();
   });
 
-  it("eliminabilidad reevaluada bajo lock -> 422 MULTI_RATE", async () => {
-    onPeriodLock(() => world.invoiceVatLines!.push({ ...world.invoiceVatLines![0], id: "vl_x", vatRateCode: 4 }));
-    await expectNotEditable(await del(), "MULTI_RATE");
+  it("eliminabilidad reevaluada bajo lock -> 422 LEGACY", async () => {
+    onPeriodLock(() => (world.invoices![0] = { ...world.invoices![0], source: null }));
+    await expectNotEditable(await del(), "LEGACY");
     expect(db.invoice.delete).not.toHaveBeenCalled();
   });
 

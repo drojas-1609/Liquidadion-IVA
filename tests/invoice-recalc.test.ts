@@ -158,7 +158,8 @@ const expectParity = () => expect(money(computeLiquidation(periodFromWorld(true)
 const row = (id: string) => (world.invoices ?? []).find((i) => i.id === id);
 const linesOf = (id: string) => (world.invoiceVatLines ?? []).filter((l) => l.invoiceId === id);
 const str = (v: unknown) => (v instanceof Prisma.Decimal ? v.toFixed(2) : v);
-const lockTargets = () => rec.locks.map((l) => `${/FROM "Invoice"/.test(l.sql) ? "Invoice" : "Period"}:${l.values[0]}`);
+/** Locks de Period e Invoice (el de Client de las ventas, por los rangos, se prueba en tests/api). */
+const lockTargets = () => rec.locks.filter((l) => !/FROM "Client"/.test(l.sql)).map((l) => `${/FROM "Invoice"/.test(l.sql) ? "Invoice" : "Period"}:${l.values[0]}`);
 const snapshot = () => JSON.parse(JSON.stringify({ invoices: world.invoices, lines: world.invoiceVatLines, settings: world.vatSettings }));
 
 /** Venta A 1000 + compra A 500 al 21 %, cliente RI (IIBB 3 %). */

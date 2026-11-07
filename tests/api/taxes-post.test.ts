@@ -290,7 +290,7 @@ describe("POST /api/taxes — catálogo, importe y fecha dentro del período", (
   it("orden: lock Period -> relectura (id + organización activa) -> create -> AuditLog, con opciones exactas", async () => {
     expect((await post(jbody(valid))).status).toBe(201);
     const order = (fn: { mock: { invocationCallOrder: number[] } }) => fn.mock.invocationCallOrder[0];
-    expect(db.period.findFirst).toHaveBeenCalledWith({ where: { id: "p_a", organizationId: ORG_A }, select: { month: true, year: true } });
+    expect(db.period.findFirst).toHaveBeenCalledWith({ where: { id: "p_a", organizationId: ORG_A }, select: { month: true, year: true, clientId: true } });
     expect(periodLockOrder(db)).toBeLessThan(order(db.period.findFirst));
     expect(timeoutRestoreOrder(db)).toBeLessThan(order(db.period.findFirst));
     expect(order(db.period.findFirst)).toBeLessThan(order(db.taxRecord.create));
