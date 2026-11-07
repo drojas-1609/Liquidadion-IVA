@@ -141,3 +141,49 @@ El 07/11 la Preview (deploy `6aee75d6…`, commit `bac5c22`) quedó en la protec
 3. Registrar `pointerdown` y `click` en el documento para ver si el evento llega al botón.
 
 Hipótesis a descartar con esa evidencia: barra flotante encima del botón; el clic llega antes del re-render que lo habilita después de marcar la casilla; desplazamiento del elemento al hacer clic por referencia.
+
+
+## Smoke por interfaz del 07/11/2026 (Propietario, Browser 2)
+
+| Dato | Valor |
+|---|---|
+| SHA probado | `ce0ef2f` (deploy `6aef1c3b`) hasta la confirmación de la reimportación; desde ahí `39f36ab` (deploy `6aef21de`). Los dos confirmados por la API de Netlify: el alias `deploy-preview-34` servía ese deploy en estado `ready` |
+| Base | DEV. El cliente creado desde la Preview existe en DEV y no en PROD (consulta de solo lectura) |
+| Datos | Cliente sintético nuevo **CLIENTE SINTETICO SMOKE2 PR34** (CUIT 30-79999700-9), período 11/2027. Septiembre 2026, los otros clientes sintéticos y el par real de 10/2026 no se tocaron |
+| Coordinación | Aviso previo a las sesiones de #25 y #32; ninguna tenía escrituras previstas en DEV |
+
+### Verificado en el navegador (Propietario)
+
+| Paso | Resultado |
+|---|---|
+| Importación parcial (Mis Comprobantes emitidos) | Se importan 4, revisar 1 (B sin denominación), error 1 (fecha de otro período). En `ce0ef2f`, después de confirmar sólo quedaba la cantidad de no importados: **defecto**, corregido en `39f36ab` y verificado (tabla «No importados en esta confirmación» con las 5 filas y su motivo) |
+| Retenciones y percepciones (percepciones) | 1 importada y 1 para revisar (fecha de otro período). Tras confirmar, la fila pendiente sigue visible y desaparece «Importar» |
+| Edición de importado con dos alícuotas (FC A 4-201) | El formulario detallado carga las dos líneas (10,5 % y 21 %) y la identidad fija. Se corrigió la razón social y la condición. En DEV: `source` IMPORT, las dos líneas intactas, AuditLog `invoice.update` con `changedFields` y `source` |
+| Reimportación del corregido | «ya cargado … modificado en la app después de importarlo: se omite»; la corrección se conserva |
+| Baja de importado (FC A 4-204) | La confirmación avisa que no se anula en ARCA y que al reimportar quedará para revisar. Al reimportar: «Revisar · se eliminó de la app». Con «Volver a importar…» se importa de nuevo y el registro de eliminación se libera (en DEV, 0 filas) |
+| Desglose en Ventas y Compras | Ventas: «Exento $500,00» y «Exento $-500,00» en la FC/NC sólo exentas. Compras: «Exento $200,00 + Otros tributos $30,00», con total 1.440 = 1.000 + 210 + 200 + 30. «Otros tributos» no se computa como percepción |
+| Documento 99 individual | FC B 8-1, «CONSUMIDOR FINAL», número 0. El modo no viene preseleccionado y «Consultar CUIT en ARCA» se oculta con el 99 |
+| Documento 99 global diaria | Sin confirmar el umbral la carga se rechaza; con la confirmación se guarda la FC B 8-10 a 50 «VENTA GLOBAL DIARIA». Un comprobante 8-20 dentro del rango, enviado por la API desde la misma sesión: 409 «Se superpone con el rango 10–50». La columna «Número» mostraba sólo el primer número: corregido en `8ac3f48` |
+
+### Primer clic que no llegaba: atribuido con evidencia
+
+En `ce0ef2f`, con «Confirmar importación» al pie de la página:
+- `document.elementFromPoint` en el centro del botón devolvía un **IFRAME**, la barra flotante de Netlify;
+- un clic real del mouse en ese punto no generó `pointerdown` ni `click` en la página ni ninguna solicitud;
+- con el teclado (foco y Enter), el clic y la solicitud salieron en 12 ms.
+
+En `39f36ab`, el contenido deja 8rem libres al final: el botón queda por encima de la barra, `elementFromPoint` devuelve el botón, y el clic del mouse produjo `pointerdown`, `click` y la solicitud en 8 ms.
+
+Además, las respuestas de la Preview tardan entre 10 y 15 s (confirmación 201 a los 14,5 s). Esa demora también se percibe como un clic perdido, pero el clic sí llega.
+
+### Bloqueos reproducibles
+
+- **Acceso de Netlify:** el token de acceso de Netlify venció durante la prueba. La descarga del borrador respondió 401 (HTML de Netlify) hasta que el navegador renovó el acceso por SSO.
+- **Extensión del navegador:** la extensión se desconectó varias veces y se perdió el grupo de pestañas.
+
+### Pendiente por interfaz
+
+- leer el TXT de ventas del borrador (99, número 0, rango 10–50);
+- la consulta de CUIT con respuesta sintética;
+- cerrar el período y verificar el rechazo de importación, edición y eliminación;
+- el Operador: no hay una sesión de Operador en el navegador. Lo cubren las pruebas en PostgreSQL local: edita importados, la baja responde 403 y la lista no ofrece Eliminar.
