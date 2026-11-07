@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { formatPeriodLabel } from "@/lib/period";
 import { TURIVA_SECTION_ID } from "@/lib/turiva-setting";
 import { resolveInvoiceFormOptions, type InvoiceFormContext, type Option } from "@/lib/invoice-form-options";
+import { CounterpartyArcaLookup } from "./counterparty-arca-lookup";
 import {
     INITIAL_FORM_STATE,
     INVOICE_EDIT_TEXT,
@@ -335,6 +336,15 @@ export function InvoiceForm(props: InvoiceFormProps) {
                 ) : (
                     textField("docNumber", docNumberLabel(sel.docType), { autoComplete: "off" }, sel.docType === null ? "Elegí primero el tipo de documento." : null)
                 )}
+
+                {/* Consulta de ARCA: sólo con documento 80 y CUIT válido (el componente no se muestra en otro caso). */}
+                <CounterpartyArcaLookup
+                    docType={sel.docType}
+                    docNumber={state.fields.docNumber}
+                    currentName={state.fields.counterpartyName}
+                    disabled={loading || clientBlocked}
+                    onApplyName={(name) => onField("counterpartyName", name)}
+                />
 
                 {is99 && (
                     <fieldset style={{ gridColumn: "1 / -1", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "var(--spacing-sm)" }}>

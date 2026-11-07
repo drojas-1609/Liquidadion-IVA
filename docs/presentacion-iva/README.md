@@ -331,6 +331,18 @@ Fuentes consultadas el 06/11/2026. Regla en `lib/arca/unidentified-buyer.ts`. La
 - **Exportación:** los mismos controles bloquean el TXT (UNIDENTIFIED_BUYER y NUMBER_RANGE). El TXT lleva 99, número 0 y el rango en los campos 4 y 5.
 - **Importación:** un 99 que no cumple las reglas queda para revisar. Los rangos agrupados siguen para revisar al importar: se cargan como venta global diaria.
 
+## Consulta de CUIT en ARCA en ventas y compras
+
+El alta, la edición manual y la corrección de importados ofrecen «Consultar CUIT en ARCA» **sólo con documento 80 y un CUIT válido**. Con otro documento la consulta no se muestra.
+
+**Servicio.** Reutiliza `POST /api/arca/cuit-lookup`, el mismo de la ficha de clientes, con sus mismos permisos (alta, módulo ARCA_PADRON), cupos por perfil, estudio y certificado, y auditoría mínima. La consulta no crea ni modifica clientes y no guarda la respuesta.
+
+**Qué propone.** Sólo la denominación. Si el formulario ya tiene otra, reemplazarla exige marcar la confirmación: nunca se pisa en silencio. No se toca la ficha del cliente del estudio.
+
+**Condición frente al IVA: no se deduce.** El manual oficial del padrón (ws_sr_constancia_inscripcion v3.4, 02/05/2023) informa impuestos, régimen y categoría de monotributo, pero no define su correspondencia con la tabla «Tipos de responsables». Se muestran como información y el usuario elige la condición.
+
+**Pruebas.** Se hicieron con respuestas sintéticas (`tests/invoice-counterparty-lookup.test.ts`), sin credenciales: la Preview de DEV no tiene la consulta a ARCA configurada y muestra «Consulta ARCA no configurada».
+
 ## Evidencia y validación
 
 - Smoke en la Deploy Preview, separado por interfaz y por API, con metadatos de Netlify: [SMOKE-PREVIEW.md](SMOKE-PREVIEW.md).

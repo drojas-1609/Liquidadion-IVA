@@ -16,6 +16,7 @@ import {
     type ImportedLineValues,
 } from "@/lib/imported-invoice-form";
 import { invoiceListHref } from "@/lib/invoice-form-client";
+import { CounterpartyArcaLookup } from "./counterparty-arca-lookup";
 
 /**
  * Corrección de un comprobante IMPORTADO con TODOS sus datos: varias
@@ -131,6 +132,13 @@ export function ImportedInvoiceForm(props: {
                     <input id="imp-name" type="text" className="input" value={values.counterpartyName} disabled={busy} maxLength={200} onChange={(e) => { setValues((p) => ({ ...p, counterpartyName: e.target.value })); setError(null); }} />
                     {fieldError("counterpartyName")}
                 </div>
+                <CounterpartyArcaLookup
+                    docType={identity.docType}
+                    docNumber={identity.docNumber}
+                    currentName={values.counterpartyName}
+                    disabled={busy}
+                    onApplyName={(name) => { setValues((p) => ({ ...p, counterpartyName: name })); setError(null); }}
+                />
                 <div>
                     <label htmlFor="imp-cond" style={LABEL}>Condición frente al IVA de la contraparte</label>
                     <select id="imp-cond" className="input" disabled={busy} value={values.counterpartyVatConditionCode ?? ""} onChange={(e) => setValues((p) => ({ ...p, counterpartyVatConditionCode: e.target.value === "" ? null : Number(e.target.value) }))}>
