@@ -108,23 +108,42 @@ function writePending(periodId: string, v: PendingOp | null) {
  */
 const DONE_TTL_MS = 10 * 60_000;
 const doneKey = (periodId: string) => `lid-import-done:${periodId}`;
-function keepDone(periodId: string, text: string) {
+/**
+ * Filas que NO se importaron en la confirmación (revisar / error / ya
+ * cargadas): siguen visibles después de confirmar, con su motivo. Sin
+ * documento ni importes: sólo línea, estado, comprobante y motivo.
+ */
+interface PendingAfterConfirm { line: number; status: string; voucher: string; date: string | null; reason: string }
+function pendingOf(p: Preview | null): PendingAfterConfirm[] {
+    if (!p) return [];
+    return p.rows.filter((r) => r.status !== "OK").map((r) => ({
+        line: r.line,
+        status: r.status,
+        voucher: r.voucherCode !== null ? `${String(r.voucherCode).padStart(3, "0")} ${r.pointOfSale ?? "—"}-${r.number ?? "—"}` : "—",
+        date: r.date,
+        reason: r.messages.join(" · "),
+    }));
+}
+function keepDone(periodId: string, text: string, pending: PendingAfterConfirm[] = []) {
     try {
-        window.sessionStorage.setItem(doneKey(periodId), JSON.stringify({ text, at: Date.now() }));
+        window.sessionStorage.setItem(doneKey(periodId), JSON.stringify({ text, pending, at: Date.now() }));
     } catch {
         // Sin almacenamiento: el resultado igual figura en el historial del período.
     }
 }
-function readDone(periodId: string): string {
+function readDone(periodId: string): { text: string; pending: PendingAfterConfirm[] } {
+    const none = { text: "", pending: [] };
     try {
         const raw = window.sessionStorage.getItem(doneKey(periodId));
-        const v = raw ? (JSON.parse(raw) as { text?: unknown; at?: unknown }) : null;
-        if (v && typeof v.text === "string" && typeof v.at === "number" && Date.now() - v.at < DONE_TTL_MS) return v.text;
+        const v = raw ? (JSON.parse(raw) as { text?: unknown; pending?: unknown; at?: unknown }) : null;
+        if (v && typeof v.text === "string" && typeof v.at === "number" && Date.now() - v.at < DONE_TTL_MS) {
+            return { text: v.text, pending: Array.isArray(v.pending) ? (v.pending as PendingAfterConfirm[]) : [] };
+        }
         // Vencido o ilegible: una visita posterior no repite un resultado viejo.
         if (raw) window.sessionStorage.removeItem(doneKey(periodId));
-        return "";
+        return none;
     } catch {
-        return "";
+        return none;
     }
 }
 function clearDone(periodId: string) {
@@ -163,6 +182,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const [done, setDone] = useState<string>("");
+    const [donePending, setDonePending] = useState<PendingAfterConfirm[]>([]);
     const [tracking, setTracking] = useState<PendingOp | null>(null);
     const [trackingNote, setTrackingNote] = useState("");
     // Pasó el plazo sin registro de aplicación ni de falla de todos los envíos: no se afirma nada.
@@ -184,7 +204,10 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     useEffect(() => {
         void loadRecent();
         const kept = readDone(periodId);
-        if (kept) setDone(kept);
+        if (kept.text) {
+            setDone(kept.text);
+            setDonePending(kept.pending);
+        }
         const p = readPending(periodId);
         if (p) setTracking(p);
     }, [periodId, loadRecent]);
@@ -278,6 +301,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
         setBusy(true);
         setError("");
         setDone("");
+        setDonePending([]);
         clearDone(periodId);
         if (kind === "confirm") setUnconfirmed(null);
         let op: PendingOp | null = null;
@@ -334,8 +358,10 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 writePending(periodId, null);
                 const r = json as OperationResult & { replayed?: boolean };
                 const text = resultText(r) + (r.replayed ? " Esta operación ya se había aplicado: no se escribió de nuevo." : "");
-                keepDone(periodId, text);
+                const pending = pendingOf(preview);
+                keepDone(periodId, text, pending);
                 setDone(text);
+                setDonePending(pending);
                 setPreview(null);
                 router.refresh();
                 void loadRecent();
@@ -401,6 +427,20 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
 
             {error && <div role="alert" className="card" style={{ border: "1px solid var(--error)", marginBottom: "var(--spacing-md)" }}>{error}</div>}
             {done && <div role="status" className="card" style={{ marginBottom: "var(--spacing-md)" }}>{done}</div>}
+            {done && donePending.length > 0 && (
+                <div className="card" style={{ marginBottom: "var(--spacing-md)" }}>
+                    <h3 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-xs)" }}>No importados en esta confirmación ({donePending.length})</h3>
+                    <p style={{ fontSize: "0.85rem", color: "var(--secondary)" }}>Quedan fuera de los totales importados. Corregí el archivo o cargalos a mano.</p>
+                    <table aria-label="No importados en esta confirmación" style={{ width: "100%", fontSize: "0.875rem" }}>
+                        <thead><tr><th style={{ textAlign: "left" }}>Línea</th><th style={{ textAlign: "left" }}>Estado</th><th style={{ textAlign: "left" }}>Comprobante</th><th style={{ textAlign: "left" }}>Fecha</th><th style={{ textAlign: "left" }}>Motivo</th></tr></thead>
+                        <tbody>
+                            {donePending.map((r) => (
+                                <tr key={r.line}><td>{r.line}</td><td>{r.status === "REVIEW" ? "Revisar" : r.status === "ERROR" ? "Error" : "Ya cargado"}</td><td>{r.voucher}</td><td>{r.date ?? "—"}</td><td>{r.reason}</td></tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
             {tracking && <div role="status" data-tracking className="card" style={{ marginBottom: "var(--spacing-md)" }}>{trackingNote || "Verificando el resultado de la confirmación…"}</div>}
             {unconfirmed && (
                 <div role="alert" data-unconfirmed className="card" style={{ border: "1px solid var(--accent)", marginBottom: "var(--spacing-md)" }}>
