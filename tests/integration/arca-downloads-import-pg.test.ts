@@ -15,6 +15,7 @@ vi.mock("@/lib/prisma", () => ({
 import { POST as PREVIEW } from "@/app/api/periods/[id]/libro-iva-import/preview/route";
 import { POST as CONFIRM } from "@/app/api/periods/[id]/libro-iva-import/confirm/route";
 import { POST as TAX_IMPORT } from "@/app/api/periods/[id]/tax-import/route";
+import { POST as TAX_CREATE } from "@/app/api/taxes/route";
 import { cuit } from "../helpers/libro-iva-synth";
 
 /**
@@ -115,6 +116,49 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
         expect([p3.layout, p3.counts]).toEqual(["ARCA_DOWNLOAD", { OK: 0, DUPLICATE: 2, REVIEW: 0, ERROR: 0 }]);
         const rec = await db.taxRecord.findMany({ where: { periodId: period, nature: "RETENTION" }, orderBy: { certificateNumber: "asc" }, select: { type: true, taxCode: true, regimeCode: true, certificateNumber: true, amount: true } });
         expect(rec.map((r) => [r.type, r.taxCode, r.regimeCode, r.certificateNumber, r.amount.toFixed(2)])).toEqual([["RETENCION IVA", 767, 499, "2027000001", "3101.70"], ["RETENCION IVA", 767, 499, "2027000002", "354480.00"]]);
+    });
+
+    it("concurrencia: el MISMO certificado importado a la vez en dos períodos del cliente se registra una sola vez", async () => {
+        const AG = cuit("3055555555");
+        const nov = (await db.period.create({ data: { clientId: "c_dl", organizationId: ORG, month: 11, year: 2027 } })).id;
+        const dic = (await db.period.create({ data: { clientId: "c_dl", organizationId: ORG, month: 12, year: 2027 } })).id;
+        // Mismo agente y certificado; cada archivo con fecha dentro de su período.
+        const fileFor = (date: string) => b64(`767;499;${AG};;${date};6;000000000777;2027009999;150.00\n`);
+        const call = (periodId: string, body: Record<string, unknown>) => {
+            H.sub = OWNER;
+            return TAX_IMPORT(new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "RETENTIONS", ...body }) }), ctx(periodId));
+        };
+        for (let round = 0; round < 3; round++) {
+            await db.taxRecord.deleteMany({ where: { periodId: { in: [nov, dic] } } });
+            const [fa, fb] = [fileFor("2027-11-10"), fileFor("2027-12-10")];
+            // Las dos vistas previas antes de confirmar: ninguna ve a la otra.
+            const [pa, pb] = [await json(await call(nov, { file: fa })), await json(await call(dic, { file: fb }))];
+            expect([pa.counts?.OK, pb.counts?.OK]).toEqual([1, 1]);
+            const results = await Promise.all([call(nov, { file: fa, confirm: true, token: pa.token }), call(dic, { file: fb, confirm: true, token: pb.token })]);
+            expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+            const rows = await db.taxRecord.findMany({ where: { periodId: { in: [nov, dic] }, certificateNumber: "2027009999" } });
+            expect(rows).toHaveLength(1);
+            // La que perdió, al volver a previsualizar: misma identidad con otra fecha -> para revisar (no se importa).
+            const loser = rows[0].periodId === nov ? { id: dic, file: fb } : { id: nov, file: fa };
+            const again = await json(await call(loser.id, { file: loser.file }));
+            expect(again.counts).toEqual({ OK: 0, DUPLICATE: 0, REVIEW: 1, ERROR: 0 });
+        }
+        // Carga manual del mismo certificado en el otro período: 409 con el período donde ya está.
+        const existing = await db.taxRecord.findFirstOrThrow({ where: { certificateNumber: "2027009999" }, include: { period: true } });
+        const other = existing.periodId === nov ? { id: dic, date: "2027-12-11" } : { id: nov, date: "2027-11-11" };
+        H.sub = OWNER;
+        const manual = await TAX_CREATE(new Request("http://localhost/api/taxes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+            periodId: other.id, date: other.date, type: "RETENCION IVA", amount: "150.00", description: "manual", nature: "RETENTION",
+            taxCode: 767, regimeCode: 499, agentCuit: AG, voucherTypeCode: 6, voucherNumber: "000000000777", certificateNumber: "2027009999",
+        }) }));
+        expect(manual.status).toBe(409);
+        expect(JSON.stringify(await json(manual))).toMatch(new RegExp(`ya está registrada para el cliente en el período ${String(existing.period.month).padStart(2, "0")}/2027`));
+        // Otro agente con el MISMO número de certificado es otra retención: se admite.
+        const otherAgent = await TAX_CREATE(new Request("http://localhost/api/taxes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+            periodId: other.id, date: other.date, type: "RETENCION IVA", amount: "150.00", description: "manual", nature: "RETENTION",
+            taxCode: 767, regimeCode: 499, agentCuit: cuit("3044444444"), voucherTypeCode: 6, voucherNumber: "000000000777", certificateNumber: "2027009999",
+        }) }));
+        expect(otherAgent.status).toBe(201);
     });
 
     it("período cerrado: la confirmación se rechaza sin escribir", async () => {

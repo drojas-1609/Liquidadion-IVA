@@ -84,8 +84,3 @@ export function parsePerceptionsCsv(bytes: Uint8Array): PerceptionsParse {
     });
     return { rows, fileErrors: [] };
 }
-
-/** Clave de duplicidad, la misma del índice único TaxRecord_perception_voucher_key. */
-export function perceptionKey(r: { regimeCode: number | null; agentCuit: string | null; voucherTypeCode: number | null; voucherNumber: string | null }): string {
-    return `${r.regimeCode}|${r.agentCuit}|${r.voucherTypeCode}|${r.voucherNumber}`;
-}

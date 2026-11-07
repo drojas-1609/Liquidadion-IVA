@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { lockPeriodForWrite } from "@/lib/period-lock";
+import { lockClientTaxIdentity } from "@/lib/tax-identity";
 import { buildTaxImportPreview, existingTaxKeys, type TaxImportKind, type TaxImportPreview } from "@/lib/tax-import/service";
 import {
     requireAuthenticatedProfile,
@@ -30,7 +31,9 @@ function decode(v: unknown): Uint8Array {
 // descargas de ARCA (lib/tax-import).
 //  - { kind, file, integerAmountsArePesos?, confirm: false } -> vista previa (sin escribir).
 //  - { …, confirm: true, token } -> transacción: lockPeriodForWrite (409
-//    PERIOD_CLOSED / PERIOD_BUSY) -> relectura del período y de las claves ya
+//    PERIOD_CLOSED / PERIOD_BUSY) -> lockClientTaxIdentity (bloqueo por
+//    cliente: dos importaciones del mismo certificado en períodos distintos no
+//    se cruzan) -> relectura del período y de las claves ya
 //    registradas para el cliente BAJO el bloqueo -> la misma vista previa; token
 //    distinto: 409 sin escribir -> alta de las filas OK + AuditLog taxrecord.import
 //    (tipo, forma, conteos y huella; sin importes, CUIT ni certificados).
@@ -68,6 +71,10 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
         await lockPeriodForWrite(tx, id, organizationId);
         const period = await tx.period.findFirst({ where: { id, organizationId }, select: { month: true, year: true, clientId: true } });
         if (!period) throw new NotFoundError();
+        // Identidad entre períodos: serializa con las demás escrituras de
+        // retenciones/percepciones del MISMO cliente (otro período incluido)
+        // antes de releer lo registrado.
+        await lockClientTaxIdentity(tx, organizationId, period.clientId);
         const preview = buildTaxImportPreview(kind, file, period, await existingTaxKeys(tx, { organizationId, clientId: period.clientId }, kind), id, opts);
         if (preview.token !== body.token) throw new ConflictError("La vista previa ya no coincide con el período o con el archivo: generala de nuevo.");
         if (preview.fileErrors.length > 0) throw new ValidationError(preview.fileErrors[0], "file");

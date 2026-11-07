@@ -3,8 +3,9 @@ import { createHash } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { F2051_VOUCHER_TYPE_CODES, isDateInPeriod, parseIsoDateOnly } from "../api-input";
 import { raise, type ImportRowStatus } from "./common";
-import { parsePerceptionsCsv, perceptionKey, type PerceptionRow } from "./perceptions-csv";
-import { parseRetentionsCsv, retentionKey, type RetentionLayout, type RetentionRow } from "./retentions-csv";
+import { parsePerceptionsCsv, type PerceptionRow } from "./perceptions-csv";
+import { parseRetentionsCsv, type RetentionLayout, type RetentionRow } from "./retentions-csv";
+import { registeredTaxIdentities, taxIdentityKey, type RegisteredTaxIdentity } from "../tax-identity";
 
 /**
  * Vista previa de la importación de retenciones o percepciones de IVA desde
@@ -40,20 +41,29 @@ export interface TaxImportPreview {
 
 type Db = Pick<PrismaClient, "taxRecord"> | Prisma.TransactionClient;
 
-/** Claves ya registradas para el cliente en cualquiera de sus períodos, con el período. */
-export async function existingTaxKeys(db: Db, scope: { organizationId: string; clientId: string }, kind: TaxImportKind): Promise<Map<string, string>> {
-    const rows = await db.taxRecord.findMany({
-        where: { organizationId: scope.organizationId, period: { clientId: scope.clientId }, nature: kind === "RETENTIONS" ? "RETENTION" : "PERCEPTION" },
-        select: { regimeCode: true, agentCuit: true, voucherTypeCode: true, voucherNumber: true, certificateNumber: true, period: { select: { month: true, year: true } } },
+/** Identidades ya registradas para el cliente en cualquiera de sus períodos (lib/tax-identity). */
+export async function existingTaxKeys(db: Db, scope: { organizationId: string; clientId: string }, kind: TaxImportKind): Promise<Map<string, RegisteredTaxIdentity>> {
+    return registeredTaxIdentities(db, scope, [kind === "RETENTIONS" ? "RETENTION" : "PERCEPTION"]);
+}
+
+/** Clave de identidad de una fila del archivo (misma composición que lo registrado). */
+function rowIdentityKey(kind: TaxImportKind, r: TaxImportRow): string | null {
+    return taxIdentityKey({
+        nature: kind === "RETENTIONS" ? "RETENTION" : "PERCEPTION",
+        regimeCode: r.regimeCode,
+        agentCuit: r.agentCuit,
+        voucherTypeCode: r.voucherTypeCode,
+        voucherNumber: r.voucherNumber,
+        certificateNumber: kind === "RETENTIONS" ? (r.certificateNumber ?? null) : null,
+        customsDocument: null,
     });
-    return new Map(rows.map((r) => [kind === "RETENTIONS" ? retentionKey(r) : perceptionKey(r), `${String(r.period.month).padStart(2, "0")}/${r.period.year}`]));
 }
 
 export function buildTaxImportPreview(
     kind: TaxImportKind,
     file: Uint8Array,
     period: { month: number; year: number },
-    existing: ReadonlyMap<string, string>,
+    existing: ReadonlyMap<string, RegisteredTaxIdentity>,
     periodId: string,
     opts: { integerAmountsArePesos: boolean },
 ): TaxImportPreview {
@@ -68,13 +78,22 @@ export function buildTaxImportPreview(
         if (!date || !isDateInPeriod(date, period)) raise(r, "REVIEW", `fecha fuera del período ${String(period.month).padStart(2, "0")}/${period.year}: si corresponde computarla acá, cargala a mano`);
         if (r.voucherTypeCode !== null && !F2051_VOUCHER_TYPE_CODES.includes(r.voucherTypeCode)) raise(r, "REVIEW", `tipo de comprobante ${r.voucherTypeCode} fuera de la tabla del F.2051`);
         if (r.integerAmount && !opts.integerAmountsArePesos) raise(r, "REVIEW", "importe sin decimales: confirmá que son pesos enteros (la descarga no lo indica)");
-        const k = kind === "RETENTIONS" ? retentionKey(r as RetentionRow) : perceptionKey(r);
+        // Con los datos de identidad validados por el lector la clave siempre existe; sin ella, la línea.
+        const k = rowIdentityKey(kind, r) ?? `L${r.line}`;
         if (seen.has(k)) raise(r, "ERROR", kind === "RETENTIONS" ? "certificado repetido en el archivo" : "percepción repetida en el archivo");
         seen.add(k);
         const at = existing.get(k);
         if ((r.status as ImportRowStatus) !== "ERROR" && at !== undefined) {
-            r.messages.unshift(`ya registrada para el cliente en el período ${at}: se omite`);
-            r.status = "DUPLICATE";
+            // Misma identidad: es la misma retención o percepción. Si el importe o la
+            // fecha difieren, no se descarta como duplicada: queda para revisar.
+            const sameAmount = r.amount !== null && r.amount.equals(at.amount);
+            const sameDate = r.date === at.date;
+            if (sameAmount && sameDate) {
+                r.messages.unshift(`ya registrada para el cliente en el período ${at.period}: se omite`);
+                r.status = "DUPLICATE";
+            } else {
+                raise(r, "REVIEW", `ya registrada para el cliente en el período ${at.period} con ${sameAmount ? "otra fecha" : "otro importe"} (${sameAmount ? at.date : at.amount.toFixed(2)}): revisar cuál corresponde; no se importa`);
+            }
         }
     }
     const counts: Record<ImportRowStatus, number> = { OK: 0, DUPLICATE: 0, REVIEW: 0, ERROR: 0 };

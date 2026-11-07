@@ -4,6 +4,10 @@ import { parseMisComprobantes } from "@/lib/libro-iva-import/mis-comprobantes-cs
 import { buildImportPreview } from "@/lib/libro-iva-import/build";
 import { parsePerceptionsCsv } from "@/lib/tax-import/perceptions-csv";
 import { buildTaxImportPreview } from "@/lib/tax-import/service";
+import { taxIdentityKey, type RegisteredTaxIdentity } from "@/lib/tax-identity";
+import { Prisma } from "@prisma/client";
+
+const reg = (period: string, amount: string, date: string): RegisteredTaxIdentity => ({ id: "x", period, amount: new Prisma.Decimal(amount), date });
 import { parseRetentionsCsv } from "@/lib/tax-import/retentions-csv";
 import { cuit } from "./helpers/libro-iva-synth";
 
@@ -111,7 +115,7 @@ describe("Percepciones de IVA: descarga de ARCA (forma observada, 8 campos, sin 
 
     it("vista previa: fecha fuera del período a revisar, ya registradas omitidas, repetidas en el archivo con error", () => {
         const f = file([line(), line({ date: "2027-09-30", nro: "0007000000000002" }), line({ nro: "0007000000000003" }), line({ nro: "0007000000000003" })]);
-        const existing = new Map([[`493|${AGENT}|1|0007000000012345`, "09/2027"]]);
+        const existing = new Map([[`P|493|${AGENT}|1|0007000000012345`, reg("09/2027", "1234.56", "2027-10-15")]]);
         const pv = buildTaxImportPreview("PERCEPTIONS", f, { month: 10, year: 2027 }, existing, "per", { integerAmountsArePesos: false });
         expect(pv.rows.map((r) => r.status)).toEqual(["DUPLICATE", "REVIEW", "OK", "ERROR"]);
         expect(pv.rows[0].messages[0]).toBe("ya registrada para el cliente en el período 09/2027: se omite");
@@ -130,7 +134,7 @@ describe("Retenciones de IVA con certificado: diseño del F.2051 (9 campos) y de
     const d10 = (o: Parameters<typeof d9>[0] & { extra?: string } = {}) => { const f = d9(o).split(";"); f.splice(2, 0, o.extra ?? "0"); return f.join(";"); };
     const file = (lines: string[], eol = "\n") => new TextEncoder().encode(lines.join(eol) + eol);
     const P = { month: 10, year: 2027 };
-    const pv = (f: Uint8Array, existing = new Map<string, string>(), integerAmountsArePesos = false) => buildTaxImportPreview("RETENTIONS", f, P, existing, "per", { integerAmountsArePesos });
+    const pv = (f: Uint8Array, existing = new Map<string, RegisteredTaxIdentity>(), integerAmountsArePesos = false) => buildTaxImportPreview("RETENTIONS", f, P, existing, "per", { integerAmountsArePesos });
 
     it("detecta la forma por la cantidad de campos y lee los mismos datos en ambas", () => {
         const a = parseRetentionsCsv(file([d9(), d9({ type: "5", nro: "0000000030092027", cert: "2027000002" })], "\r\n"));
@@ -169,9 +173,27 @@ describe("Retenciones de IVA con certificado: diseño del F.2051 (9 campos) y de
         const inFile = pv(file([d9(), d9({ amount: "1.00" })]));
         expect(inFile.rows.map((r) => r.status)).toEqual(["OK", "ERROR"]);
         // La misma retención importada antes con la otra forma (misma clave agente + certificado).
-        const existing = new Map([[`${AGENT2}|2027000001`, "10/2027"]]);
+        const existing = new Map([[`R|${AGENT2}|2027000001`, reg("10/2027", "3101.70", "2027-10-14")]]);
         expect(pv(file([d10()]), existing).rows[0].status).toBe("DUPLICATE");
         expect(pv(file([d10({ date: "2027-09-30" })]), new Map()).rows[0].status).toBe("REVIEW");
+    });
+
+    it("misma identidad con otro importe o fecha: no se descarta como duplicada, queda para revisar", () => {
+        const existing = new Map([[`R|${AGENT2}|2027000001`, reg("09/2027", "3101.70", "2027-10-14")]]);
+        const otherAmount = pv(file([d9({ amount: "3101.71" })]), existing).rows[0];
+        expect([otherAmount.status, otherAmount.messages.join()]).toEqual(["REVIEW", expect.stringMatching(/09\/2027 con otro importe \(3101\.70\)/)]);
+        const otherDate = pv(file([d9({ date: "2027-10-15" })]), existing).rows[0];
+        expect([otherDate.status, otherDate.messages.join()]).toEqual(["REVIEW", expect.stringMatching(/con otra fecha \(2027-10-14\)/)]);
+    });
+
+    it("identidad por formato: el mismo certificado de OTRO agente es otra retención; una percepción nunca coincide con una retención", () => {
+        const otherAgent = cuit("3077777777");
+        const existing = new Map([[`R|${otherAgent}|2027000001`, reg("10/2027", "3101.70", "2027-10-14")]]);
+        expect(pv(file([d9()]), existing).rows[0].status).toBe("OK");
+        expect(taxIdentityKey({ nature: "RETENTION", regimeCode: 499, agentCuit: AGENT2, voucherTypeCode: 6, voucherNumber: "000000000638", certificateNumber: "2027000001", customsDocument: null }))
+            .not.toBe(taxIdentityKey({ nature: "PERCEPTION", regimeCode: 499, agentCuit: AGENT2, voucherTypeCode: 6, voucherNumber: "000000000638", certificateNumber: "2027000001", customsDocument: null }));
+        // Sin certificado no hay identidad (no se compara).
+        expect(taxIdentityKey({ nature: "RETENTION", regimeCode: 499, agentCuit: AGENT2, voucherTypeCode: null, voucherNumber: null, certificateNumber: null, customsDocument: null })).toBeNull();
     });
 });
 

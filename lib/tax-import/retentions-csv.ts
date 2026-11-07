@@ -101,8 +101,3 @@ export function parseRetentionsCsv(bytes: Uint8Array): RetentionsParse {
     });
     return { layout, rows, fileErrors: [] };
 }
-
-/** Clave de duplicidad: agente + certificado (índice TaxRecord_retention_certificate_key). */
-export function retentionKey(r: { agentCuit: string | null; certificateNumber: string | null }): string {
-    return `${r.agentCuit}|${r.certificateNumber}`;
-}

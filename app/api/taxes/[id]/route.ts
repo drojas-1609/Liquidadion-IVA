@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { buildTaxUpdateInput, isDateInPeriod, parseExpectedUpdatedAt, type TaxUpdateData } from "@/lib/api-input";
 import { lockPeriodForWrite } from "@/lib/period-lock";
+import { assertTaxIdentityFree } from "@/lib/tax-identity";
 import { lockTaxRecordForUpdate, type LockedTaxRecordRow } from "@/lib/tax-record-lock";
 import { formatPeriodLabel } from "@/lib/period";
 import { serializeTaxRecord } from "@/lib/serializers";
@@ -118,6 +119,7 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
         const currentDetail = await tx.taxRecord.findFirst({ where: { id, organizationId }, select: TAX_DETAIL_SELECT });
         if (!currentDetail) throw new NotFoundError();
         await assertPerceptionLink(tx, { periodId: authorized.periodId, organizationId }, input, input.amount);
+        await assertTaxIdentityFree(tx, { organizationId, clientId: period.clientId }, input, id);
         const changed = changedFieldsOf(locked, input);
         if (!sameTaxDetail(currentDetail, input)) changed.push("f2051Detail");
         // Sin cambios: 200 con la fila bloqueada, sin escritura ni AuditLog.
