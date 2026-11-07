@@ -1,4 +1,5 @@
 import "server-only";
+import { unidentifiedExportProblem } from "../arca/unidentified-buyer";
 import { Prisma } from "@prisma/client";
 import { VOUCHER_TYPES } from "../arca/catalogs";
 import { purchaseHasNoVatBreakdown, voucherSign } from "../invoice-model";
@@ -40,6 +41,7 @@ export type IssueCode =
     | "NAME_NOT_ANSI"
     | "NAME_TRUNCATED"
     | "NUMBER_RANGE"
+    | "UNIDENTIFIED_BUYER"
     | "CURRENCY_NOT_PES"
     | "EXPORT_VOUCHER"
     | "DATION_WITHOUT_VAT"
@@ -116,7 +118,13 @@ export function invoiceIssues(inv: ExportInvoice, settings: ExportSettings): Exp
     const ansi = toAnsiText(name);
     if (ansi === null) add("EXPORT", "NAME_NOT_ANSI", "la denominación tiene caracteres que el Libro IVA Digital no admite (ANSI): corregirla");
     else if (ansi.length > 30) add("WARNING", "NAME_TRUNCATED", "la denominación supera 30 caracteres: el archivo lleva los primeros 30");
-    if (inv.numberTo !== null && inv.numberTo !== inv.number) add("EXPORT", "NUMBER_RANGE", "rango de comprobantes agrupado: no se exporta en esta etapa");
+    // Documento 99 y rangos: sólo la venta global diaria (B/C a consumidor final, leyenda) se registra agrupada.
+    const unidentified = unidentifiedExportProblem({
+        category: inv.category, voucherCode: code, number: inv.number, numberTo: inv.numberTo, voucherDate: inv.voucherDate,
+        counterpartyDocType: inv.counterpartyDocType, counterpartyDocNumber: inv.counterpartyDocNumber, counterpartyName: inv.counterpartyName,
+        totalCents: BigInt(inv.voucherTotalAmount.times(100).toFixed(0)),
+    });
+    if (unidentified !== null) add("EXPORT", inv.numberTo !== null && inv.numberTo !== inv.number && inv.counterpartyDocType !== 99 ? "NUMBER_RANGE" : "UNIDENTIFIED_BUYER", unidentified);
     if ((inv.currencyCode ?? "PES") !== "PES") add("WARNING", "CURRENCY_NOT_PES", "moneda distinta de pesos: el archivo informa los importes en pesos (PES, tipo de cambio 1)");
     if (needsZeroRateRecord(inv) && (inv.operationCode === null || inv.operationCode.trim() === "")) {
         add("EXPORT", "OPERATION_CODE_MISSING", "alícuota 0 % u operación sin IVA: falta el código de operación (E exenta, N no gravada, A no alcanzado…)");

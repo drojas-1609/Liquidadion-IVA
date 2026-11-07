@@ -16,6 +16,7 @@ import { POST as PREVIEW } from "@/app/api/periods/[id]/libro-iva-import/preview
 import { POST as CONFIRM } from "@/app/api/periods/[id]/libro-iva-import/confirm/route";
 import { PATCH as PATCH_DETAIL } from "@/app/api/invoices/[id]/detail/route";
 import { DELETE as DELETE_INVOICE } from "@/app/api/invoices/[id]/route";
+import { POST as CREATE_INVOICE } from "@/app/api/invoices/route";
 import { cuit } from "../helpers/libro-iva-synth";
 
 /**
@@ -165,6 +166,31 @@ describe.skipIf(!raw)("comprobantes importados: edición detallada, baja y nueva
         const audit = await db.auditLog.findFirstOrThrow({ where: { action: "invoice.import", targetId: period }, orderBy: { createdAt: "desc" } });
         expect(audit.metadata).toMatchObject({ reimportedDeletedCount: 1 });
         invoiceId = back.id;
+    });
+
+    it("documento 99: venta global diaria (rango) y venta individual; un comprobante dentro del rango -> 409", async () => {
+        const post = async (o: Record<string, unknown>) => {
+            H.sub = OPERATOR;
+            return CREATE_INVOICE(new Request("http://localhost/api/invoices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+                contractVersion: 2, category: "SALES", periodId: period, date: "2027-10-10", voucherCode: 6, voucherVariant: null, pointOfSale: 5, number: 100,
+                counterparty: { name: "VENTA GLOBAL DIARIA", docType: 99, docNumber: "0", vatConditionCode: 5 }, turivaRelationCode: null,
+                netAmount: "50000.00", vatRate: "21", unidentifiedSale: { mode: "GLOBAL_DAILY", numberTo: 180, belowThresholdConfirmed: true }, ...o,
+            }) }));
+        };
+        const g = await post({});
+        expect(g.status).toBe(201);
+        const saved = await db.invoice.findFirstOrThrow({ where: { periodId: period, pointOfSale: 5, number: 100 } });
+        expect([saved.numberTo, saved.counterpartyDocType, saved.counterpartyDocNumber, saved.counterpartyName, saved.source]).toEqual([180, 99, "0", "VENTA GLOBAL DIARIA", "MANUAL"]);
+        // Un comprobante individual dentro del rango del día: superposición.
+        const inside = await post({ number: 150, counterparty: { name: "CONSUMIDOR FINAL", docType: 99, docNumber: "0", vatConditionCode: 5 }, netAmount: "100.00", unidentifiedSale: { mode: "INDIVIDUAL" } });
+        expect(inside.status).toBe(409);
+        expect(JSON.stringify(await json(inside))).toMatch(/Se superpone con el rango 100–180/);
+        // Otro rango que se cruza con el primero: superposición.
+        expect((await post({ number: 170, unidentifiedSale: { mode: "GLOBAL_DAILY", numberTo: 200, belowThresholdConfirmed: true } })).status).toBe(409);
+        // Fuera del rango: individual sin identificar, con la leyenda.
+        const after = await post({ number: 181, counterparty: { name: "consumidor final", docType: 99, docNumber: "0", vatConditionCode: 5 }, netAmount: "100.00", unidentifiedSale: { mode: "INDIVIDUAL" } });
+        expect(after.status).toBe(201);
+        await db.invoice.deleteMany({ where: { periodId: period, pointOfSale: 5 } });
     });
 
     it("período cerrado: ni corrección ni baja (409 PERIOD_CLOSED); exige reapertura", async () => {

@@ -526,11 +526,60 @@ describe("POST /api/invoices — documento de la contraparte", () => {
     expect(rec.created.invoice).toMatchObject({ counterpartyDocType: docType, counterpartyDocNumber: stored });
   });
 
-  it("99 Sin identificar -> 422 counterpartyDocType con pending: true", async () => {
-    const res = await post(jbody({ ...saleB, counterparty: consumer(99, "0") }));
-    expect(res.status).toBe(422);
-    expect(await res.json()).toMatchObject({ field: "counterpartyDocType", pending: true });
-    expectNoWrite();
+  describe("documento 99: venta individual sin identificar o venta global diaria", () => {
+    const cf99 = (name: string) => ({ name, docType: 99, docNumber: "0", vatConditionCode: 5 });
+    const indiv = { ...saleB, counterparty: cf99("Consumidor Final"), unidentifiedSale: { mode: "INDIVIDUAL" } };
+    const global = { ...saleB, number: 100, counterparty: cf99("VENTA GLOBAL DIARIA"), unidentifiedSale: { mode: "GLOBAL_DAILY", numberTo: 180, belowThresholdConfirmed: true } };
+
+    it("sin elegir el modo -> 422 unidentifiedSaleMode (nunca se convierte en global por defecto)", async () => {
+      const res = await post(jbody({ ...saleB, counterparty: cf99("CONSUMIDOR FINAL") }));
+      expect([res.status, (await res.json()).field]).toEqual([422, "unidentifiedSaleMode"]);
+      expectNoWrite();
+    });
+
+    it("individual -> 201 con la leyenda CONSUMIDOR FINAL, número 0 y sin rango", async () => {
+      const res = await post(jbody(indiv));
+      expect(res.status).toBe(201);
+      expect(rec.created.invoice).toMatchObject({ counterpartyDocType: 99, counterpartyDocNumber: "0", counterpartyName: "CONSUMIDOR FINAL", numberTo: 1001 });
+    });
+
+    it("individual desde $ 10.000.000 -> 422 (debe identificarse); con otra denominación -> 422", async () => {
+      const big = await post(jbody({ ...indiv, netAmount: "8264462.81", vatRate: "21" }));
+      expect([big.status, (await big.json()).field]).toEqual([422, "netAmount"]);
+      const named = await post(jbody({ ...indiv, counterparty: cf99("Juan Pérez") }));
+      expect([named.status, (await named.json()).field]).toEqual([422, "counterpartyName"]);
+      expectNoWrite();
+    });
+
+    it("global diaria -> 201 con el rango y la leyenda; validación parcial (cada comprobante no se verifica)", async () => {
+      const res = await post(jbody(global));
+      expect(res.status).toBe(201);
+      expect(rec.created.invoice).toMatchObject({ number: 100, numberTo: 180, counterpartyName: "VENTA GLOBAL DIARIA", counterpartyDocNumber: "0" });
+      expect((await res.json()).partialValidation).toBe(true);
+    });
+
+    it.each([
+      ["sin confirmación del umbral", { unidentifiedSale: { mode: "GLOBAL_DAILY", numberTo: 180, belowThresholdConfirmed: false } }, "belowThresholdConfirmed"],
+      ["rango invertido", { unidentifiedSale: { mode: "GLOBAL_DAILY", numberTo: 50, belowThresholdConfirmed: true } }, "numberTo"],
+      ["nota de crédito B", { voucherCode: 8 }, "voucherCode"],
+      ["número de documento distinto de 0", { counterparty: { ...cf99("VENTA GLOBAL DIARIA"), docNumber: "123" } }, "counterpartyDocNumber"],
+    ])("global diaria %s -> 422", async (_l, over, field) => {
+      const res = await post(jbody({ ...global, ...over }));
+      expect([res.status, (await res.json()).field]).toEqual([422, field]);
+      expectNoWrite();
+    });
+
+    it("rango o modo sin documento 99 -> 422 (no se agrupan ventas identificadas)", async () => {
+      const res = await post(jbody({ ...saleB, unidentifiedSale: { mode: "GLOBAL_DAILY", numberTo: 1200, belowThresholdConfirmed: true } }));
+      expect([res.status, (await res.json()).field]).toEqual([422, "unidentifiedSaleMode"]);
+      expectNoWrite();
+    });
+
+    it("99 a un responsable inscripto (clase A) -> 422 counterpartyDocType", async () => {
+      const res = await post(jbody({ ...sale, counterparty: { ...cf99("CONSUMIDOR FINAL"), vatConditionCode: 1 }, unidentifiedSale: { mode: "INDIVIDUAL" } }));
+      expect([res.status, (await res.json()).field]).toEqual([422, "counterpartyDocType"]);
+      expectNoWrite();
+    });
   });
 
   it("87 CDI (fuera del catálogo incorporado) -> 422 counterpartyDocType", async () => {

@@ -209,3 +209,18 @@ describe("Comprobante repetido dentro de una descarga de un solo archivo (regres
         expect(pv.reconciliation.files.orphanAliquots).toBe(0);
     });
 });
+
+describe("Documento 99 en la importación: mismas reglas que la carga manual", () => {
+    const as99 = (row: string, name = "CONSUMIDOR FINAL") => { const f = row.split(";"); f[6] = "99"; f[7] = "0"; f[8] = name; return f.join(";"); };
+    it("B a consumidor final sin identificar -> se importa; clase A o desde $ 10.000.000 -> para revisar", () => {
+        const ok = as99(emitido("2027-10-05", 6, 40, "1210,00", { r21: ["1000,00", "210,00"] }, { netTotal: "1000,00", vat: "210,00" }));
+        const classA = as99(emitido("2027-10-05", 1, 41, "1210,00", { r21: ["1000,00", "210,00"] }, { netTotal: "1000,00", vat: "210,00" }));
+        const big = as99(emitido("2027-10-05", 6, 42, "10000000,00", { r21: ["8264462,81", "1735537,19"] }, { netTotal: "8264462,81", vat: "1735537,19" }));
+        const p = parseMisComprobantes(utf8([H_EMITIDOS, ok, classA, big]), "SALES", CLIENT);
+        const pv = buildImportPreview({ ...CTX, category: "SALES" }, p.vouchers, p.aliquots, {});
+        expect(pv.rows.map((r) => r.status)).toEqual(["OK", "REVIEW", "REVIEW"]);
+        expect(pv.rows[1].messages.join()).toMatch(/no es clase B o C/);
+        expect(pv.rows[2].messages.join()).toMatch(/10\.000\.000/);
+        expect(pv.rows[0].model?.counterpartyDocNumber).toBe("0");
+    });
+});

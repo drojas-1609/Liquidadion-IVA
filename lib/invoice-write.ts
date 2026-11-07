@@ -86,6 +86,29 @@ export async function prepareManualInvoice(args: {
         args.excludeInvoiceId,
     );
 
+    // Ventas: un comprobante no puede caer dentro de un rango de venta global
+    // diaria ya cargado (ni un rango contener comprobantes ya cargados). Mismo
+    // tipo y punto de venta, en todos los períodos del cliente. La coincidencia
+    // exacta del primer número la cubre la duplicidad (índice único).
+    if (input.category === "SALES") {
+        const from = input.number, to = resolved.data.numberTo;
+        const overlap = await prisma.invoice.findFirst({
+            where: {
+                organizationId, clientId, category: "SALES", voucherCode: model.voucherCode, pointOfSale: input.pointOfSale,
+                NOT: [{ number: from }, ...(args.excludeInvoiceId ? [{ id: args.excludeInvoiceId }] : [])],
+                OR: [
+                    { numberTo: null, number: { gte: from, lte: to } },
+                    { numberTo: { gte: from }, number: { lte: to } },
+                ],
+            },
+            select: { number: true, numberTo: true, period: { select: { month: true, year: true } } },
+        });
+        if (overlap) {
+            const r = overlap.numberTo !== null && overlap.numberTo !== overlap.number ? `el rango ${overlap.number}–${overlap.numberTo}` : `el comprobante ${overlap.number}`;
+            throw new ConflictError(`Se superpone con ${r} del período ${String(overlap.period.month).padStart(2, "0")}/${overlap.period.year} (mismo tipo y punto de venta).`);
+        }
+    }
+
     return { warnings: dateCheck.warnings, resolved: resolved.data, duplicateWhere };
 }
 
@@ -164,6 +187,8 @@ export function manualInvoiceColumns(args: {
         clientId,
         source: "MANUAL" as const,
         voucherCode: model.voucherCode,
+        // Último número: el del comprobante salvo la venta global diaria (documento 99).
+        numberTo: resolved.numberTo,
         voucherDate: model.voucherDate,
         counterpartyDocType: model.counterpartyDocType,
         counterpartyDocNumber: model.counterpartyDocNumber,

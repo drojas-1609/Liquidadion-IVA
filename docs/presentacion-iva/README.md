@@ -297,6 +297,40 @@ Archivo `Retenciones-AAAAMM.csv` o el archivo de importación del F.2051, en Ret
   - el primer archivo tiene 2 filas para revisar por importe sin decimales, que pasan a 2 importables con la confirmación;
   - el segundo da duplicados después del primero, y para revisar si se usa en octubre.
 
+## Documento 99: venta sin identificar y venta global diaria
+
+Fuentes consultadas el 06/11/2026. Regla en `lib/arca/unidentified-buyer.ts`. La aprobación funcional del estudio no reemplaza estas fuentes.
+
+| Fuente | Qué establece |
+|---|---|
+| [RG 5700/2025](https://www.argentina.gob.ar/normativa/nacional/resoluci%C3%B3n-5700-2025-413219/texto), art. 1°, vigente desde el 29/05/2025, y [RG 5866/2026](https://www.argentina.gob.ar/normativa/nacional/norma-427092/texto), art. 1° inc. f), vigente desde el 01/07/2026 | Sustituyen el inciso d) del Anexo II, A, Título II de la RG 1415. Al consumidor final se lo identifica (DNI, CUIL o CDI; CUIT si lo pide) cuando la operación es **igual o superior a $ 10.000.000**. Ninguna regula la registración global diaria. |
+| [Libro IVA Digital — Especificaciones](https://www.afip.gob.ar/iva/documentos/Libro-IVA-Digital-Especificaciones.pdf) (rev. 30/07/2025), Ventas, campos 4 a 8 | El código 99 es «Sin identificar/Venta Global Diaria» y su número de documento puede ser 0. Las leyendas son «CONSUMIDOR FINAL» para la venta sin identificar y «VENTA GLOBAL DIARIA» para la registración agrupada, que lleva el primer y el último número. El monto de $ 20.932 que cita esa especificación quedó desactualizado. |
+| [Libro IVA Digital — Situaciones especiales de registración](https://www.afip.gob.ar/iva/documentos/libro-iva-digital-modalidades-especiales-de-registracion.pdf), II b) a d) | La registración global diaria se admite para comprobantes **B o C** a consumidores finales por debajo del umbral, con el primer y el último número del día. Con el IVA discriminado, la registración es individual. |
+
+**Qué admite la app.** En ventas, el documento 99 (regla DV7, ahora ALLOWED) sirve para un receptor «Consumidor Final» con comprobantes clase B o C. El usuario **elige el modo en cada carga**; nada se convierte en venta global automáticamente.
+- **Individual sin identificar:**
+  - un comprobante por debajo de $ 10.000.000;
+  - leyenda «CONSUMIDOR FINAL»;
+  - documento 0;
+  - sin rango.
+- **Venta global diaria:**
+  - sólo facturas B o C, sin notas de crédito ni de débito;
+  - primer y último número del día;
+  - leyenda «VENTA GLOBAL DIARIA»;
+  - confirmación expresa de que cada comprobante del rango es menor al umbral (la app no puede verificarlo con el total del día: queda como validación parcial).
+
+**Qué se rechaza:**
+- el 99 en compras, en clase A, M, E o T, o con un receptor que no es consumidor final;
+- un número de documento distinto de 0;
+- una fecha anterior al 29/05/2025, porque el umbral histórico no se verificó;
+- una venta individual desde $ 10.000.000;
+- un rango sin documento 99;
+- un comprobante o un rango que se superpone con otro del mismo tipo y punto de venta, en cualquier período del cliente (409).
+
+**En las otras etapas:**
+- **Exportación:** los mismos controles bloquean el TXT (UNIDENTIFIED_BUYER y NUMBER_RANGE). El TXT lleva 99, número 0 y el rango en los campos 4 y 5.
+- **Importación:** un 99 que no cumple las reglas queda para revisar. Los rangos agrupados siguen para revisar al importar: se cargan como venta global diaria.
+
 ## Evidencia y validación
 
 - Smoke en la Deploy Preview, separado por interfaz y por API, con metadatos de Netlify: [SMOKE-PREVIEW.md](SMOKE-PREVIEW.md).

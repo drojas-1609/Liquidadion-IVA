@@ -20,6 +20,7 @@ export interface LockedInvoiceRow {
     voucherDate: Date | null;
     pointOfSale: number;
     number: number;
+    numberTo: number | null;
     counterpartyDocType: number | null;
     counterpartyDocNumber: string | null;
     counterpartyName: string | null;
@@ -45,7 +46,7 @@ export async function lockInvoiceForUpdate(
 ): Promise<LockedInvoiceRow | null> {
     const rows = await tx.$queryRaw<LockedInvoiceRow[]>`
         SELECT "id", "organizationId", "periodId", "clientId", "category", "source",
-               "voucherCode", "voucherDate", "pointOfSale", "number",
+               "voucherCode", "voucherDate", "pointOfSale", "number", "numberTo",
                "counterpartyDocType", "counterpartyDocNumber", "counterpartyName",
                "counterpartyVatConditionCode", "voucherVariant", "turivaRelationCode",
                "taxedNetAmount", "netWithoutVatBreakdownAmount", "updatedAt"

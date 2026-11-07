@@ -5,6 +5,7 @@ import { derivedVoucherClass, type LegalClass } from "./arca/voucher-legal-class
 import type { VoucherVariant } from "./arca/catalogs";
 import { modelFromVoucher, legacyColumnsFor, type InvoiceModelData, type LegacyColumns } from "./invoice-model";
 import { modelRangeError, type InvoiceV2Data } from "./api-input";
+import { UNIDENTIFIED_DOC_TYPE, checkUnidentifiedSale } from "./arca/unidentified-buyer";
 
 /**
  * Alta MANUAL con el contrato v2: resuelve, en este orden,
@@ -26,8 +27,10 @@ export interface ManualInvoiceData {
     counterpartyVatConditionCode: number;
     legalClass: LegalClass;
     mandatoryLegend: string | null;
-    /** Matriz O documento con validación parcial. */
+    /** Matriz O documento (o venta global diaria) con validación parcial. */
     partialValidation: boolean;
+    /** Último número: = número salvo la venta global diaria (documento 99). */
+    numberTo: number;
     requiresTurivaSection: boolean;
 }
 
@@ -82,6 +85,32 @@ export function resolveManualInvoice(input: InvoiceV2Data, clientCondition: numb
     const range = modelRangeError(model);
     if (range) return fail(range.field, range.error);
 
+    // Documento 99: venta individual sin identificar o venta global diaria
+    // (lib/arca/unidentified-buyer). Con otro documento no hay rango ni modo.
+    let numberTo = input.number;
+    let unidentifiedPartial = false;
+    if (doc.docType === UNIDENTIFIED_DOC_TYPE) {
+        const u = checkUnidentifiedSale({
+            category: input.category,
+            dateIso: input.dateIso,
+            voucherCode: model.voucherCode,
+            number: input.number,
+            numberTo: input.unidentifiedSale?.numberTo ?? null,
+            mode: input.unidentifiedSale?.mode ?? null,
+            counterpartyName: cp.name,
+            docNumber: cp.docNumber,
+            totalCents: BigInt(model.voucherTotalAmount.times(100).toFixed(0)),
+            belowThresholdConfirmed: input.unidentifiedSale?.belowThresholdConfirmed === true,
+        });
+        if (!u.ok) return fail(u.field, u.error);
+        numberTo = u.numberTo;
+        unidentifiedPartial = u.partialValidation;
+        model.counterpartyName = u.name;
+        model.counterpartyDocNumber = "0";
+    } else if (input.unidentifiedSale && (input.unidentifiedSale.mode !== null || (input.unidentifiedSale.numberTo !== null && input.unidentifiedSale.numberTo !== input.number))) {
+        return fail("unidentifiedSaleMode", "la venta sin identificar o global diaria sólo corresponde con el documento 99");
+    }
+
     const derived = derivedVoucherClass(model.voucherCode, input.dateIso);
     // La matriz no admite 051–053 antes de RG 1575; defensa: nunca sin clase.
     if (derived.legalClass === null) return fail("voucherCode", "la norma no define la clase del comprobante para esa fecha");
@@ -96,7 +125,8 @@ export function resolveManualInvoice(input: InvoiceV2Data, clientCondition: numb
             counterpartyVatConditionCode: cp.vatConditionCode,
             legalClass: derived.legalClass,
             mandatoryLegend: derived.mandatoryLegend,
-            partialValidation: matrix.partialValidation || doc.partialValidation,
+            partialValidation: matrix.partialValidation || doc.partialValidation || unidentifiedPartial,
+            numberTo,
             requiresTurivaSection: matrix.requiresTurivaSection,
         },
     };

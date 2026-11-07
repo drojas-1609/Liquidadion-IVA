@@ -43,9 +43,24 @@ export interface InvoiceFormFields {
 
 export const EMPTY_FIELDS: InvoiceFormFields = { counterpartyName: "", docNumber: "", pointOfSale: "", number: "", netAmount: "" };
 
+/**
+ * Documento 99 (lib/arca/unidentified-buyer): el usuario elige SIEMPRE el modo;
+ * nada se convierte en venta global por defecto.
+ */
+export interface UnidentifiedSaleState {
+    mode: "" | "INDIVIDUAL" | "GLOBAL_DAILY";
+    numberTo: string;
+    belowThresholdConfirmed: boolean;
+}
+export const EMPTY_UNIDENTIFIED: UnidentifiedSaleState = { mode: "", numberTo: "", belowThresholdConfirmed: false };
+export const DOC_TYPE_UNIDENTIFIED = 99;
+export const UNIDENTIFIED_LEGENDS = { INDIVIDUAL: "CONSUMIDOR FINAL", GLOBAL_DAILY: "VENTA GLOBAL DIARIA" } as const;
+
 export interface InvoiceFormState {
     selection: InvoiceFormSelection;
     fields: InvoiceFormFields;
+    /** Sólo con documento 99. */
+    unidentified?: UnidentifiedSaleState;
 }
 
 export const INITIAL_FORM_STATE: InvoiceFormState = { selection: EMPTY_SELECTION, fields: EMPTY_FIELDS };
@@ -106,6 +121,8 @@ export interface InvoiceV2Body {
     turivaRelationCode: string | null;
     netAmount: string;
     vatRate: string;
+    /** Sólo con documento 99. */
+    unidentifiedSale?: { mode: "INDIVIDUAL" | "GLOBAL_DAILY"; numberTo: number | null; belowThresholdConfirmed: boolean };
 }
 
 /** Control del formulario al que se asocia un error ("form" = general). */
@@ -158,9 +175,21 @@ export function buildInvoiceV2Body(input: {
     }
     if (s.vatRate === null) return { ok: false, control: "vatRate", message: "Elegí la alícuota de IVA." };
 
-    const name = state.fields.counterpartyName.trim();
+    // Documento 99: el modo lo elige el usuario; la denominación y el número son los del Libro IVA Digital.
+    let unidentifiedSale: InvoiceV2Body["unidentifiedSale"];
+    const u = state.unidentified ?? EMPTY_UNIDENTIFIED;
+    if (s.docType === DOC_TYPE_UNIDENTIFIED) {
+        if (u.mode === "") return { ok: false, control: "form", message: "Elegí si es una venta individual sin identificar o la venta global diaria." };
+        let numberTo: number | null = null;
+        if (u.mode === "GLOBAL_DAILY") {
+            numberTo = positiveInt(u.numberTo);
+            if (numberTo === null) return { ok: false, control: "form", message: "Ingresá el último número del rango del día." };
+        }
+        unidentifiedSale = { mode: u.mode, numberTo, belowThresholdConfirmed: u.mode === "GLOBAL_DAILY" && u.belowThresholdConfirmed };
+    }
+    const name = unidentifiedSale ? UNIDENTIFIED_LEGENDS[unidentifiedSale.mode] : state.fields.counterpartyName.trim();
     if (name === "") return { ok: false, control: "counterpartyName", message: "Ingresá la razón social de la contraparte." };
-    const docNumber = state.fields.docNumber.trim();
+    const docNumber = unidentifiedSale ? "0" : state.fields.docNumber.trim();
     if (docNumber === "") return { ok: false, control: "docNumber", message: "Ingresá el número de documento." };
     const pointOfSale = positiveInt(state.fields.pointOfSale);
     if (pointOfSale === null) {
@@ -188,6 +217,7 @@ export function buildInvoiceV2Body(input: {
             turivaRelationCode: s.turivaRelationCode,
             netAmount,
             vatRate: s.vatRate,
+            ...(unidentifiedSale ? { unidentifiedSale } : {}),
         },
     };
 }

@@ -139,6 +139,12 @@ export interface InvoiceV2Data {
   /** Neto informado; una nota de crédito puede venir con signo negativo. */
   netAmount: Prisma.Decimal;
   vatRate: Prisma.Decimal;
+  /**
+   * Sólo con documento 99 (lib/arca/unidentified-buyer): venta individual sin
+   * identificar o venta global diaria (con el último número del rango y la
+   * confirmación de que cada comprobante es menor al umbral). null = no aplica.
+   */
+  unidentifiedSale: { mode: "INDIVIDUAL" | "GLOBAL_DAILY" | null; numberTo: number | null; belowThresholdConfirmed: boolean } | null;
 }
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
@@ -222,6 +228,20 @@ export function buildInvoiceInputV2(body: unknown): InputResult<InvoiceV2Data> {
   const rate = parseRate(b.vatRate);
   if (!rate.ok) return fail("vatRate", rate.error);
 
+  let unidentifiedSale: InvoiceV2Data["unidentifiedSale"] = null;
+  if (b.unidentifiedSale !== undefined && b.unidentifiedSale !== null) {
+    if (!isPlainObject(b.unidentifiedSale)) return fail("unidentifiedSaleMode", "datos de la venta sin identificar inválidos");
+    const u = b.unidentifiedSale;
+    if (u.mode !== undefined && u.mode !== null && u.mode !== "INDIVIDUAL" && u.mode !== "GLOBAL_DAILY") return fail("unidentifiedSaleMode", "modo inválido (INDIVIDUAL o GLOBAL_DAILY)");
+    let numberTo: number | null = null;
+    if (u.numberTo !== undefined && u.numberTo !== null) {
+      numberTo = positiveSafeInteger(u.numberTo);
+      if (numberTo === null) return fail("numberTo", `número hasta inválido: debe ser un entero entre 1 y ${VOUCHER_INT_MAX}`);
+    }
+    if (u.belowThresholdConfirmed !== undefined && typeof u.belowThresholdConfirmed !== "boolean") return fail("belowThresholdConfirmed", "confirmación inválida");
+    unidentifiedSale = { mode: (u.mode as "INDIVIDUAL" | "GLOBAL_DAILY" | null | undefined) ?? null, numberTo, belowThresholdConfirmed: u.belowThresholdConfirmed === true };
+  }
+
   return {
     ok: true,
     data: {
@@ -242,6 +262,7 @@ export function buildInvoiceInputV2(body: unknown): InputResult<InvoiceV2Data> {
       turivaRelationCode,
       netAmount: net.value,
       vatRate: rate.value,
+      unidentifiedSale,
     },
   };
 }

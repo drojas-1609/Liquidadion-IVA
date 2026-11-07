@@ -24,6 +24,8 @@ export interface EditableInvoiceRow {
     voucherDate: Date | null;
     pointOfSale: number;
     number: number;
+    /** Último número (venta global diaria); null/igual al número = comprobante único. */
+    numberTo?: number | null;
     counterpartyDocType: number | null;
     counterpartyDocNumber: string | null;
     counterpartyName: string | null;
@@ -206,6 +208,17 @@ export function invoiceEditInitialState(row: EditableInvoiceRow): InvoiceFormSta
             number: String(row.number),
             netAmount: net.toFixed(2),
         },
+        // Documento 99: el modo guardado se deduce del rango (no se infiere nada más).
+        ...(row.counterpartyDocType === 99
+            ? {
+                  unidentified: {
+                      mode: row.numberTo !== null && row.numberTo !== undefined && row.numberTo !== row.number ? ("GLOBAL_DAILY" as const) : ("INDIVIDUAL" as const),
+                      numberTo: row.numberTo !== null && row.numberTo !== undefined && row.numberTo !== row.number ? String(row.numberTo) : "",
+                      // Al editar se vuelve a confirmar el umbral.
+                      belowThresholdConfirmed: false,
+                  },
+              }
+            : {}),
     };
 }
 
@@ -218,6 +231,7 @@ export const CHANGED_FIELDS_ORDER = [
     "voucherVariant",
     "pointOfSale",
     "number",
+    "numberTo",
     "counterpartyVatConditionCode",
     "counterpartyDocType",
     "counterpartyDocNumber",
@@ -270,6 +284,8 @@ export function changedFieldsOf(
         voucherVariant: before.voucherVariant !== after.resolved.voucherVariant,
         pointOfSale: before.pointOfSale !== after.input.pointOfSale,
         number: before.number !== after.input.number,
+        // Sólo cuenta si antes o después hay un rango (venta global diaria); si no, ya lo cubre `number`.
+        numberTo: ((before.numberTo ?? before.number) !== before.number || after.resolved.numberTo !== after.input.number) && (before.numberTo ?? before.number) !== after.resolved.numberTo,
         counterpartyVatConditionCode: before.counterpartyVatConditionCode !== after.resolved.counterpartyVatConditionCode,
         counterpartyDocType: before.counterpartyDocType !== model.counterpartyDocType,
         counterpartyDocNumber: before.counterpartyDocNumber !== model.counterpartyDocNumber,

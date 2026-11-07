@@ -98,6 +98,7 @@ const EDIT_SELECT = {
     voucherDate: true,
     pointOfSale: true,
     number: true,
+    numberTo: true,
     counterpartyDocType: true,
     counterpartyDocNumber: true,
     counterpartyName: true,

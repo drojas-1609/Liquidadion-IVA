@@ -18,6 +18,7 @@ import {
 import { checkVoucherDate, type InvoiceWarning } from "../invoice-rules";
 import { DOCUMENT_TYPES, VAT_RATES, VOUCHER_TYPES, CURRENCY_PESOS } from "../arca/catalogs";
 import { normalizeImportedDocNumber } from "../arca/document-rules";
+import { UNIDENTIFIED_DOC_TYPE, unidentifiedExportProblem } from "../arca/unidentified-buyer";
 import { VOUCHER_INT_MAX } from "../api-input";
 import type { LidCategory, ParsedFile, ParsedRecord } from "./format";
 
@@ -466,6 +467,18 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     const computedTotal = computeVoucherTotal(amounts);
     if (!computedTotal.equals(header.total.abs())) {
         d.raise("REVIEW", `el total informado ${header.total.abs().toFixed(2)} no coincide con la suma de sus componentes ${computedTotal.toFixed(2)} (diferencia ${header.total.abs().minus(computedTotal).toFixed(2)})`);
+    }
+
+    // Documento 99 (sin identificar / venta global diaria): mismas reglas que la
+    // carga manual y la exportación (lib/arca/unidentified-buyer). Si no se
+    // cumplen, queda para revisar (no se corrige ni se identifica nada).
+    if (vt && docType === UNIDENTIFIED_DOC_TYPE && number !== null) {
+        const numberTo = category === "SALES" ? Number(str(v.numberTo) || number) : number;
+        const problem = unidentifiedExportProblem({
+            category, voucherCode, number, numberTo, voucherDate: dateIso, counterpartyDocType: docType,
+            counterpartyDocNumber: row.docNumber, counterpartyName: row.name, totalCents: BigInt(header.total.abs().times(100).toFixed(0)),
+        });
+        if (problem) d.raise("REVIEW", problem);
     }
 
     if (vt && number !== null && row.docNumber !== null) {

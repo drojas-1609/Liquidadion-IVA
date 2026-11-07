@@ -469,3 +469,43 @@ describe("Huella del contenido (versiones cerradas)", () => {
         expect(contentHashFor("v9", d)).toBeNull();
     });
 });
+
+describe("documento 99: venta individual sin identificar y venta global diaria (exportación)", () => {
+    const sale99 = (o: Partial<ExportInvoice>) =>
+        inv({
+            category: "SALES", voucherCode: 6, voucherDate: "2027-01-15", counterpartyDocType: 99, counterpartyDocNumber: "0", counterpartyName: "CONSUMIDOR FINAL",
+            vatLines: [line(5, "1000.00", "210.00")], voucherTotalAmount: D("1210.00"), counterpartyVatConditionCode: 5, ...o,
+        });
+    const codes = (i: ExportInvoice) => invoiceIssues(i, SETTINGS).filter((x) => x.level === "EXPORT").map((x) => x.code);
+
+    it("combinaciones válidas: individual B y global diaria de facturas B/C -> sin bloqueos del 99", () => {
+        expect(codes(sale99({}))).not.toContain("UNIDENTIFIED_BUYER");
+        expect(codes(sale99({ number: 100, numberTo: 180, counterpartyName: "VENTA GLOBAL DIARIA" }))).not.toContain("UNIDENTIFIED_BUYER");
+        expect(codes(sale99({ number: 100, numberTo: 180, counterpartyName: "VENTA GLOBAL DIARIA" }))).not.toContain("NUMBER_RANGE");
+    });
+
+    it.each([
+        ["compra con 99", { category: "PURCHASES" as const, vatLines: [line(5, "1000.00", "210.00", "DIRECT_COMPUTABLE", "210.00")] }],
+        ["clase A con 99", { voucherCode: 1 }],
+        ["antes del 29/05/2025", { voucherDate: "2025-05-28" }],
+        ["número de documento distinto de 0", { counterpartyDocNumber: "12345678" }],
+        ["individual desde $ 10.000.000", { voucherTotalAmount: D("10000000.00") }],
+        ["global con nota de crédito", { voucherCode: 8, number: 100, numberTo: 180, counterpartyName: "VENTA GLOBAL DIARIA" }],
+        ["global sin la leyenda", { number: 100, numberTo: 180, counterpartyName: "CONSUMIDOR FINAL" }],
+    ])("%s -> bloquea la exportación (UNIDENTIFIED_BUYER)", (_l, o) => {
+        expect(codes(sale99(o))).toContain("UNIDENTIFIED_BUYER");
+    });
+
+    it("rango sin documento 99 -> NUMBER_RANGE (no se agrupan ventas identificadas)", () => {
+        expect(codes(inv({ category: "SALES", voucherCode: 6, number: 10, numberTo: 20, counterpartyDocType: 96, counterpartyDocNumber: "12345678", vatLines: [line(5, "1.00", "0.21")], voucherTotalAmount: D("1.21") }))).toContain("NUMBER_RANGE");
+    });
+
+    it("TXT de ventas: código 99, número 0 y el rango «desde/hasta», leídos con el lector del importador", () => {
+        const g = sale99({ pointOfSale: 4, number: 100, numberTo: 180, counterpartyName: "VENTA GLOBAL DIARIA" });
+        const { files } = writeLidFiles([g], SETTINGS);
+        const parsed = parseLidFile(byName(files, LID_FILE_NAMES.SALES_GENERAL_VOUCHERS), "SALES", "VOUCHERS");
+        expect(parsed.issues).toEqual([]);
+        const v = parsed.records[0].values;
+        expect([Number(v.number), Number(v.numberTo), Number(v.docType), Number(v.docNumber), String(v.name).trim()]).toEqual([100, 180, 99, 0, "VENTA GLOBAL DIARIA"]);
+    });
+});

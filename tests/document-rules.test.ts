@@ -44,9 +44,11 @@ describe("DOCUMENT_RULES — integridad", () => {
     }
   });
 
-  it("pendientes documentados: 99 sin identificar, clave fiscal extranjera, condiciones 8/10 y emisores 15/8/10", () => {
-    expect(DOCUMENT_RULES.filter((r) => r.status === "PENDING").map((r) => r.id).sort()).toEqual(["DC4", "DV10", "DV12", "DV7"]);
-    expect(DOCUMENT_RULES.find((r) => r.id === "DV7")?.docTypes).toEqual([DOC_TYPE_SIN_IDENTIFICAR]);
+  it("pendientes documentados: clave fiscal extranjera, condiciones 8/10 y emisores 15/8/10; 99 habilitado (DV7)", () => {
+    expect(DOCUMENT_RULES.filter((r) => r.status === "PENDING").map((r) => r.id).sort()).toEqual(["DC4", "DV10", "DV12"]);
+    const dv7 = DOCUMENT_RULES.find((r) => r.id === "DV7");
+    expect([dv7?.status, dv7?.docTypes, dv7?.letters, dv7?.receivers]).toEqual(["ALLOWED", [DOC_TYPE_SIN_IDENTIFICAR], ["B", "C"], [5]]);
+    expect(dv7?.basis).toMatch(/RG 5700\/2025 y RG 5866\/2026/);
   });
 
   it("87 CDI no se incorpora en este cambio", () => {
@@ -74,8 +76,8 @@ describe("allowedDocTypes — tabla 2B", () => {
     ["V RI→Monotributo A", "SALES", 1, 6, 1, [80]],
     ["V RI→Monotributo social B", "SALES", 1, 13, 6, [80]],
     ["V RI→No categorizado B", "SALES", 1, 7, 6, [80]],
-    ["V RI→Consumidor final B", "SALES", 1, 5, 6, [80, 86, 91, 94, 96]],
-    ["V Monotributo→Consumidor final C", "SALES", 6, 5, 11, [80, 86, 91, 94, 96]],
+    ["V RI→Consumidor final B", "SALES", 1, 5, 6, [80, 86, 91, 94, 96, 99]],
+    ["V Monotributo→Consumidor final C", "SALES", 6, 5, 11, [80, 86, 91, 94, 96, 99]],
     ["V RI→Consumidor final T", "SALES", 1, 5, 195, [91, 94, 96]],
     ["V RI→Exterior E", "SALES", 1, 9, 19, [80]],
     ["V Exento→Exterior E", "SALES", 4, 9, 19, [80]],
@@ -142,8 +144,14 @@ describe("checkCounterpartyDocument", () => {
       .toMatchObject({ ok: true, docNumber: "P1234567" });
     expect(checkCounterpartyDocument(input({ counterpartyCondition: 5, voucherCode: 6, docType: 91, docNumber: "AB-123" })))
       .toMatchObject({ ok: false, field: "counterpartyDocNumber" });
-    expect(checkCounterpartyDocument(input({ counterpartyCondition: 5, voucherCode: 6, docType: 99, docNumber: "0" })))
-      .toMatchObject({ ok: false, field: "counterpartyDocType", pending: true });
+    // 99: admitido sólo con número 0 (monto, fecha y modo: lib/arca/unidentified-buyer).
+    expect(checkCounterpartyDocument(input({ counterpartyCondition: 5, voucherCode: 6, docType: 99, docNumber: "000" })))
+      .toEqual({ ok: true, ruleId: "DV7", docType: 99, docNumber: "0", partialValidation: false });
+    expect(checkCounterpartyDocument(input({ counterpartyCondition: 5, voucherCode: 6, docType: 99, docNumber: "12345678" })))
+      .toMatchObject({ ok: false, field: "counterpartyDocNumber" });
+    // Nunca a un receptor identificado ni en clase A.
+    expect(checkCounterpartyDocument(input({ counterpartyCondition: 1, voucherCode: 1, docType: 99, docNumber: "0" })))
+      .toMatchObject({ ok: false, field: "counterpartyDocType" });
   });
 
   it("exportación: 80 como CUIT o CUIT País con 11 dígitos numéricos y validación parcial; otro documento -> pendiente", () => {
@@ -224,15 +232,15 @@ describe("allowedDocumentRule / pendingDocumentRules — metadata normativa sin 
   });
 
   it("documento no admitido, condiciones nulas o código fuera del catálogo -> null", () => {
-    expect(allowedDocumentRule("SALES", 1, 5, 6, 99)).toBeNull();
+    expect(allowedDocumentRule("SALES", 1, 1, 1, 99)).toBeNull();
     expect(allowedDocumentRule("SALES", 1, 5, 6, 87)).toBeNull();
     expect(allowedDocumentRule("SALES", null, 1, 1, 80)).toBeNull();
     expect(allowedDocumentRule("SALES", 1, null, 1, 80)).toBeNull();
     expect(allowedDocumentRule("SALES", 1, 1, 63, 80)).toBeNull();
   });
 
-  it("filas PENDING aplicables: 99 del consumidor final y clave fiscal extranjera de exportación", () => {
-    expect(pendingDocumentRules("SALES", 1, 5, 6).map((r) => [r.id, r.docTypes])).toEqual([["DV7", [99]]]);
+  it("filas PENDING aplicables: clave fiscal extranjera de exportación (el 99 ya no está pendiente)", () => {
+    expect(pendingDocumentRules("SALES", 1, 5, 6)).toEqual([]);
     expect(pendingDocumentRules("SALES", 1, 9, 19).map((r) => [r.id, r.docTypes])).toEqual([["DV10", []]]);
     expect(pendingDocumentRules("SALES", 1, 1, 1)).toEqual([]);
   });

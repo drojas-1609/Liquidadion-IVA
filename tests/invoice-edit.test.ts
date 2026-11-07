@@ -229,6 +229,8 @@ describe("changedFieldsOf", () => {
       voucherVariant: null,
       pointOfSale: 9,
       number: 9,
+      // Antes era un rango (venta global diaria): también cambia el último número.
+      numberTo: 20,
       counterpartyVatConditionCode: null,
       counterpartyDocType: 86,
       counterpartyDocNumber: "20111111112",
@@ -238,6 +240,11 @@ describe("changedFieldsOf", () => {
       vatRateCodes: [4],
     });
     expect(changedFieldsOf(before, after())).toEqual([...CHANGED_FIELDS_ORDER]);
+  });
+  it("número hasta: sólo cuenta con un rango antes o después (si no, lo cubre el número)", () => {
+    expect(changedFieldsOf(row({ number: 9 }), after())).toEqual(["number"]);
+    expect(changedFieldsOf(row({ numberTo: 1001 }), after())).toEqual([]);
+    expect(changedFieldsOf(row({ numberTo: 1100 }), after())).toEqual(["numberTo"]);
   });
   it("nunca devuelve campos derivados", () => {
     const names = changedFieldsOf(row({ taxedNetAmount: D("5") }), after());
