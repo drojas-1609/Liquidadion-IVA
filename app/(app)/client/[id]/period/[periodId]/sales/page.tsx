@@ -92,6 +92,8 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
                                 const { vatLines, ...columns } = invoice;
                                 const view = normalizeInvoiceRow(columns);
                                 const number = `${invoice.pointOfSale.toString().padStart(4, "0")}-${invoice.number.toString().padStart(8, "0")}`;
+                                // Venta global diaria (documento 99): el rango del día, no sólo el primer número.
+                                const range = invoice.numberTo !== null && invoice.numberTo !== invoice.number ? ` a ${invoice.numberTo.toString().padStart(8, "0")}` : "";
                                 const actions = showActions
                                     ? invoiceRowActions(role, { ...columns, vatRateCodes: vatLines.map((l) => l.vatRateCode) })
                                     : null;
@@ -99,7 +101,7 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
                                     <DeletableInvoiceRow key={invoice.id} invoiceId={invoice.id}>
                                         <td>{formatIsoDate(view.voucherDate)}</td>
                                         <td>{view.voucherLabel}</td>
-                                        <td>{number}</td>
+                                        <td>{number}{range}</td>
                                         <td>{view.counterpartyName}</td>
                                         <td>${formatMoney(view.signedNet.toFixed(2))}</td>
                                         <td>${formatMoney(view.signedVat.toFixed(2))}</td>
