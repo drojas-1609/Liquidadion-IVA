@@ -68,6 +68,41 @@ En #33, la primera corrida de PostgreSQL agotó el tiempo del hook de `period-to
 
 **Siguen sin autorizar:** la migración 14, los merges de #32 y #34 y la carga en el Portal IVA. El commit local `2fadb1a` sigue afuera.
 
+## 1d. Paso 4 ejecutado el 07/11/2026: migración 14 en PROD
+
+- **Verificación previa (19:43 UTC):**
+  - producción publicada en `cc039dd`;
+  - PROD con 13 migraciones (huella `9188588e…`) y datos iguales al respaldo verificado (`0211480d…`);
+  - ningún objeto de la migración 14;
+  - ensayo de compatibilidad de `cc039dd` repetido con la 14 sola y con la 14 a la 16 (47 tests OK).
+- **Kit de un intento:** `kit-14-20261106120000_vat_credit_adjustments.sql` (sha256 `1af51630…db241cf`).
+  - Ensayado sobre el respaldo restaurado: la 1.ª corrida aplica, la 2.ª la rechaza el control previo sin cambios.
+  - El titular lo ejecutó una vez desde su terminal por el Session pooler, con la contraseña en un prompt oculto. Terminó con `INSERT 0 1` y `COMMIT`; la fila de la 14 quedó terminada a las 19:58:51 UTC.
+- **Postcheck (solo lectura), todo según lo esperado:**
+  - 14 migraciones, 0 sin terminar o revertidas; checksum de la 14 `5093b64d…` (igual al sha256 del `migration.sql` en el head revisado de #32); huella posterior `91722b11c8705d43259ab34cc43df682b8f16f8e2ba3675c9355ab9e8a218b30`.
+  - Tipo `VatCreditAdjustmentRegime` = `LEY_27541_ANEXO_I`, `LEY_27467_ART_91`.
+  - `PeriodVatSettings`: `previousTechnicalBalance numeric(18,2) NOT NULL DEFAULT 0` y `previousTechnicalBalanceReference varchar(120)` nulable; su check, validado.
+  - `PeriodVatCreditAdjustment`: 11 columnas, 4 índices (pkey, único período + régimen, período + organización, organización); check de importes, FK a período y organización en cascada, FK de creador y modificador SET NULL, todas validadas.
+  - RLS activa, 0 políticas, 0 privilegios para `anon`, `authenticated`, `service_role` y `PUBLIC`; 0 filas.
+  - Las 22 tablas preexistentes dan `fd49fa8aba6ede60b945556b41949c6c`, igual al ensayo sobre el respaldo.
+  - Producción siguió en `cc039dd` y respondiendo; sin errores en los registros de PostgreSQL.
+
+## 1e. Paso 5 ejecutado el 07/11/2026: merge de #32 y deploy de producción
+
+- **Verificación previa:**
+  - head remoto de #32 `2891b98`, checks de Netlify en verde, MERGEABLE/CLEAN;
+  - `main` y la producción publicada en `cc039dd`;
+  - PROD con el postcheck de la 14 intacto (14 migraciones, huella `91722b11…`, datos `fd49fa8a…`, tabla nueva vacía, sin políticas ni privilegios de API).
+- **Merge:** #32 pasó de borrador a listo y se unió con merge commit fijando el head (`--match-head-commit`). Merge `bb868b1` a las 20:08:26 UTC, con padres `cc039dd` y `2891b98`; su árbol es idéntico al de `2891b98`. El commit local `2fadb1a` quedó afuera.
+- **Producción:** Netlify publicó `main@bb868b1` (deploy `6aef853c`) a las 20:09:16 UTC.
+- **Smoke de solo lectura con la sesión del titular (Propietario):**
+  - cargan la lista de clientes, el período 10/2026 (abierto, con ventas, compras y posición) y la liquidación;
+  - la posición de IVA muestra la fila del saldo técnico a favor del período anterior y la sección «Ajustes y saldos de la posición de IVA», con el saldo técnico anterior y los conceptos Anexo I Ley 27.541 y Art. 91 Ley 27.467;
+  - no se guardó nada.
+- **PROD sin cambios después del smoke:** 14 migraciones (`91722b11…`), datos `fd49fa8a…`, 0 ajustes, sin configuración de IVA nueva para el período; sin errores en los registros de PostgreSQL.
+
+**Siguen sin autorizar:** las migraciones 15 y 16, el merge de #34 y la carga en el Portal IVA.
+
 ## 2. Compatibilidad con el deploy publicado
 
 Las tres migraciones son **aditivas**:
