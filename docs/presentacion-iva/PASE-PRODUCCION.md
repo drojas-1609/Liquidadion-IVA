@@ -207,6 +207,37 @@ En #33, la primera corrida de PostgreSQL agotó el tiempo del hook de `period-to
 
 **Siguen sin autorizar:** la migración 16 (kit `66d43b6f…`, cuya guarda exige 15 migraciones y la huella `41ba625d…`), el merge de #34 y la carga en el Portal IVA.
 
+## 1h. Paso 7 ejecutado el 07/11/2026: migración 16 en PROD
+
+**Verificación previa (sólo lectura):**
+- producción publicada en `bb868b1`;
+- 15 migraciones, 0 a medias, huella `41ba625d…`;
+- datos invariantes `3c589a4e…`;
+- ni la fila de la 16 ni la tabla `InvoiceImportDeletion`; 0 sesiones activas.
+
+**Aplicación:** el titular ejecutó una vez, por el Session pooler, un bloque con `pipefail` que copia el kit y verifica su sha256 completo (`66d43b6fad337708d40b8d21d67c9d6a5ebe7c3c8930c318c26bfa911d2db49a`, OK) antes de conectarse. Pidió la contraseña en un prompt oculto y guardó la salida en un log.
+- Salida idéntica a la esperada: `BEGIN`, 2 `SET`, `DO`, `CREATE TABLE`, 2 `CREATE INDEX`, 3 `ALTER TABLE`, `DO`, `INSERT 0 1` y `COMMIT`.
+- La fila de la 16 quedó terminada a las 21:00:15 UTC.
+
+**Postcheck (sólo lectura):** los 14 valores coinciden con los esperados de la sección 1f.
+- 16 migraciones, 0 sin terminar; checksum `c48dc828…`; huella `3bbca8fc6e6bc96379f5e11567c7d9423a41121fdb86328b7069d1bfdc60db28`.
+- Los 4 tipos de la 15 siguen y `PeriodLiquidationVersion` sigue vacía.
+- `InvoiceImportDeletion`:
+  - 11 columnas y 3 índices (pkey, único por organización, cliente y huella, y por cliente y organización);
+  - restricciones: pkey, check de estado, FK a cliente CASCADE y FK de quien elimina SET NULL, todas validadas;
+  - RLS activa, 0 políticas, 0 privilegios para `anon`, `authenticated`, `service_role` y `PUBLIC`, y 0 filas.
+- Datos invariantes `3c589a4e…`, iguales al respaldo `203316Z` y al preflight.
+
+**Producción (`bb868b1`) con la 16 aplicada:**
+- `/` responde 303, `/login` 200 y `/api/clients` sin sesión 401.
+- Con la sesión del titular, en sólo lectura, cargan las ventas del período 10/2026 (21 comprobantes) y la liquidación, con los mismos totales.
+- Sin errores ni bloqueos en los registros de PostgreSQL desde las 20:55 UTC.
+- Después de la navegación siguen las 16 migraciones (`3bbca8fc…`), las dos tablas nuevas vacías y los datos `3c589a4e…`.
+
+**Estado de PROD:** las 16 migraciones de #34 están aplicadas. El código publicado sigue siendo `bb868b1`.
+
+**Siguen sin autorizar:** el merge de #34 y la carga en el Portal IVA.
+
 ## 2. Compatibilidad con el deploy publicado
 
 Las tres migraciones son **aditivas**:
