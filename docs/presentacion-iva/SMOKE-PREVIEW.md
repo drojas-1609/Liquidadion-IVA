@@ -127,9 +127,17 @@ Archivos cargados con el selector de archivos de la pantalla.
 2. **Corregido en el commit siguiente:** al confirmar retenciones o percepciones, la pantalla borraba la vista previa. Ahora conserva las filas pendientes con su motivo y deja de ofrecer «Importar».
 3. **Observado, sin confirmar:** en la Preview, el primer clic en «Confirmar importación» después de marcar la casilla no siempre se registró y hubo que repetirlo. El botón queda bajo la barra flotante de Netlify, que sólo existe en las Previews.
 
-### Pendiente por interfaz
+### Pendiente por interfaz (actualizado 07/11/2026)
 
-- Cerrar el período 10/2027 e intentar una importación (se espera `PERIOD_CLOSED`).
-- Comprobar en la Preview el hallazgo 2.
+El 07/11 la Preview (deploy `6aee75d6…`, commit `bac5c22`) quedó en la protección de equipo de Netlify («This site is private») en las pestañas nuevas del navegador. No se inicia sesión en nombre del titular. **Sin verificar por interfaz:**
+- filas pendientes visibles después de confirmar retenciones o percepciones (corregido en `4f7f0ec`; cubierto por la lógica del componente);
+- rechazo `PERIOD_CLOSED` al importar con el período cerrado (cubierto en PostgreSQL local);
+- edición y baja de importados, «Volver a importar los comprobantes eliminados», documento 99 y «Consultar CUIT en ARCA» (con respuestas sintéticas inyectadas en el navegador, sin credenciales);
+- permisos por rol en la interfaz: hay una sola sesión OWNER (los demás roles, en PostgreSQL local).
 
-La nueva pestaña del navegador quedó en la protección de equipo de Netlify («Este sitio es privado»). Esto queda pendiente hasta que el titular vuelva a abrir la Preview con su sesión.
+**Primer clic que no se registró: sin atribuir todavía.** Procedimiento para comprobarlo cuando haya acceso:
+1. Con el botón «Confirmar importación» en la posición donde falló, medir `document.elementFromPoint` en el centro del botón y registrar qué elemento queda arriba (el botón o la barra de Netlify).
+2. Repetir con el botón en el centro de la pantalla y con el teclado (foco y Enter).
+3. Registrar `pointerdown` y `click` en el documento para ver si el evento llega al botón.
+
+Hipótesis a descartar con esa evidencia: barra flotante encima del botón; el clic llega antes del re-render que lo habilita después de marcar la casilla; desplazamiento del elemento al hacer clic por referencia.
