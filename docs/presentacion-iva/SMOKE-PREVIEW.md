@@ -181,9 +181,25 @@ Además, las respuestas de la Preview tardan entre 10 y 15 s (confirmación 201 
 - **Acceso de Netlify:** el token de acceso de Netlify venció durante la prueba. La descarga del borrador respondió 401 (HTML de Netlify) hasta que el navegador renovó el acceso por SSO.
 - **Extensión del navegador:** la extensión se desconectó varias veces y se perdió el grupo de pestañas.
 
-### Pendiente por interfaz
+### Completado después de reconectar el navegador (SHA `7fa2953`, deploy `6aef39db`; mismo código que `8ac3f48`)
 
-- leer el TXT de ventas del borrador (99, número 0, rango 10–50);
-- la consulta de CUIT con respuesta sintética;
-- cerrar el período y verificar el rechazo de importación, edición y eliminación;
-- el Operador: no hay una sesión de Operador en el navegador. Lo cubren las pruebas en PostgreSQL local: edita importados, la baja responde 403 y la lista no ofrece Eliminar.
+| Paso | Cómo | Resultado |
+|---|---|---|
+| Rango en la lista | Navegador | «0008-00000010 a 00000050» |
+| TXT de ventas del borrador | Navegador (ZIP leído en la página, sin guardarlo) | Registros de 266 caracteres y CRLF. Individual: 99, documento 0, «CONSUMIDOR FINAL», desde = hasta = 1. Global: 99, documento 0, «VENTA GLOBAL DIARIA», desde 10 y hasta 50, total 60.500 |
+| Código de operación de los sintéticos sólo exentos | API desde la sesión (PATCH detallado) | Sin código, el Libro IVA no se generaba (el escritor se detiene con datos pendientes y el borrador lo informa). Con «E» en la FC A 4-202 y la NC A 4-10, sintéticas, el TXT sale. El par real de 10/2026 queda sin tocar, con su código pendiente |
+| Consulta de CUIT | Navegador | Botón oculto con documento 99 y con un CUIT inválido. Con un CUIT válido, la llamada real responde «Consulta ARCA no configurada» (DEV no tiene credenciales). Con una respuesta FOUND sintética inyectada en la página sólo para `/api/arca/cuit-lookup`: propone la denominación; «Aplicar» queda deshabilitado hasta confirmar el reemplazo de la ya cargada; al aplicar cambia el nombre y no la condición; avisa que la condición no se deduce. La comprobación llega hasta la interfaz y el servicio sin configurar; la respuesta real de ARCA no se probó |
+| Cierre del período | Navegador | DEV: CLOSED, versión 1. La lista muestra «Período cerrado: sólo consulta» y no ofrece acciones; la edición muestra el aviso de período cerrado. Tras «Sí, cerrar», el encabezado siguió en «Abierto» hasta recargar (comportamiento existente, con su botón «Recargar») |
+| Rechazos con el período cerrado | API desde la sesión | Corrección detallada, baja, confirmación de percepciones y confirmación de Mis Comprobantes: los cuatro `409 PERIOD_CLOSED`. La vista previa de Mis Comprobantes informa `periodOpen: false`. En DEV no cambió nada |
+
+### Operador
+
+No hubo una sesión de Operador en el navegador: la única cuenta Operador activa en DEV es de una persona real y no se inicia sesión con credenciales ajenas. Evidencia sólo en PostgreSQL local (`tests/integration/imported-invoice-edit-pg.test.ts`):
+- el Operador corrige un importado (200);
+- `DELETE` responde 403 al Operador y al Contable;
+- la lista no ofrece «Eliminar» al Operador (`tests/invoice-edit.test.ts`, `invoiceRowActions`).
+
+### Fuera del alcance de #34 (observado)
+
+- Formulario de clientes: al escribir sobre un campo con error, los caracteres siguientes cayeron en otros campos (CUIT «3», teléfono «0+54…», email «-…»). Con valores asignados directamente se guardó bien.
+- En DEV, a las 12:49–12:50Z, el Propietario pasó la cuenta A a Operador, con cuatro clientes, desde la Preview. No lo hizo esta sesión. Afecta la limpieza de #25 y la página Usuarios de las Previews de #25 y #29, que no conocen el rol Operador. Lo decide el titular.
