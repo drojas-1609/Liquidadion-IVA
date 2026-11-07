@@ -103,6 +103,75 @@ En #33, la primera corrida de PostgreSQL agotó el tiempo del hook de `period-to
 
 **Siguen sin autorizar:** las migraciones 15 y 16, el merge de #34 y la carga en el Portal IVA.
 
+## 1f. Preparación de las migraciones 15 y 16 (07/11/2026, solo lectura y ensayo local)
+
+**Estado verificado:**
+- Netlify publica `main@bb868b1` (deploy `6aef853c`).
+- #34: head remoto `4b5528a`, checks en verde, MERGEABLE/CLEAN. Desde el código del smoke (`8ac3f48`) sólo cambiaron `PASE-PRODUCCION.md`, `SMOKE-PREVIEW.md` y `VALIDACION-ARCA.md`. `2891b98` es ancestro de #34 y el árbol de `main` es idéntico al suyo; `2fadb1a` no es ancestro.
+- PROD: 14 migraciones terminadas, 0 a medias, huella `91722b11…`. No existe ningún objeto de la 15 ni de la 16. Hay 0 sesiones activas.
+- Precondiciones de la 15: existen las claves únicas `(id, organizationId)` de `Invoice`, `Period` y `Client`, que usan las FK nuevas; las filas actuales cumplen los checks que la 15 valida.
+
+**Huella de datos invariante a las columnas nuevas.** La 15 agrega columnas a `Invoice`, `TaxRecord` y `PeriodVatSettings`, así que la huella por fila completa de `Invoice` cambia aunque no se modifique ningún dato. Para comparar los datos preexistentes:
+- cada fila se toma como `to_jsonb` sin las columnas que agregan la 15 y la 16, en las 23 tablas del estado 14 (sin `_prisma_migrations`);
+- se calcula con `TimeZone='UTC'` (hay 11 columnas `timestamptz`) y `COLLATE "C"` en los ordenamientos, porque la base local usa C y PROD `en_US.UTF-8`;
+- PROD hoy y el respaldo `192843Z` restaurado más el kit 14 dan el mismo valor: `3c589a4e532f394dc763ce2a38259ac0`.
+
+**Kits de un intento** (mismo patrón que el 14: guarda, cuerpo idéntico a `migration.sql` y fila de Prisma antes del `COMMIT`):
+
+| Migración | sha256 de `migration.sql` = checksum (igual al registrado en DEV) | sha256 del kit | La guarda exige |
+|---|---|---|---|
+| 15 `20261107120000_vat_export_close_versions` | `e2f768ad2b81ba05e856fed098e48ae5201dee187875d36188875b8692fc5f73` | `8304f125fcb329f0f80b78bc7044f330cdf5e94af00168346865602d1b1d2fc6` | 14 migraciones, huella `91722b11…`, sin fila de la 15, ninguno de sus 4 tipos ni la tabla `PeriodLiquidationVersion` |
+| 16 `20261108120000_invoice_import_deletions` | `c48dc828bf60a00e23a4849dd9828682299ce79d17da0494c15777878cdd2a63` | `66d43b6fad337708d40b8d21d67c9d6a5ebe7c3c8930c318c26bfa911d2db49a` | 15 migraciones, huella `41ba625d…` (la que deja el kit 15), sin fila de la 16 ni la tabla `InvoiceImportDeletion` |
+
+**Ensayo sobre el respaldo restaurado más el kit 14 (estado actual de PROD):**
+
+| Paso | Resultado |
+|---|---|
+| Kit 15, 1.ª corrida | Termina bien (~0,03 s). Cambian sólo `_prisma_migrations` e `Invoice` (por la columna nueva con default; la huella invariante no cambia). Tabla nueva: `PeriodLiquidationVersion`. Huella `41ba625ddb92b180f61fe6a7529cc44b9e8cc661f4c07b6d8141809e3651732b` |
+| Kit 15, 2.ª corrida | `KIT15 PREFLIGHT`: se rechaza sin cambios |
+| Kit 16, 1.ª corrida | Termina bien. Cambia sólo `_prisma_migrations`. Tabla nueva: `InvoiceImportDeletion`. Huella `3bbca8fc6e6bc96379f5e11567c7d9423a41121fdb86328b7069d1bfdc60db28` |
+| Kit 16, 2.ª corrida | `KIT16 PREFLIGHT`: se rechaza sin cambios |
+| Esquema final frente a `prisma/schema.prisma` de #34 | `migrate status`: 16 migraciones, «up to date». `migrate diff`: migración vacía, sin deriva |
+
+**Postcheck esperado de la 15:**
+- 15 migraciones, 0 sin terminar; checksum `e2f768ad…`; huella `41ba625d…`.
+- Tipos: `BuyerType`, `PurchaseCreditConcept`, `SaleOperationType` y `TaxRecordNature`, con sus valores.
+- Columnas nuevas:
+  - `Invoice`: 5, todas nulas salvo `dationInPayment`, que es obligatoria con default false;
+  - `PeriodVatSettings`: `previousFreeBalance numeric(18,2) NOT NULL DEFAULT 0` y su referencia `varchar(120)`;
+  - `TaxRecord`: 10, todas nulas.
+- Restricciones validadas: `Invoice_activityCode_check`, `Invoice_export_classification_check`, `PeriodVatSettings_previousFreeBalance_check`, `TaxRecord_f2051_detail_check` y la FK `TaxRecord_invoiceId_organizationId_fkey` (RESTRICT).
+- 4 índices únicos parciales en `TaxRecord`.
+- Sin datos inferidos: 0 comprobantes clasificados, 0 retenciones con detalle y 0 saldos de libre disponibilidad.
+- `PeriodLiquidationVersion`:
+  - 15 columnas y 5 índices (pkey, vigente por período, por organización, por período y organización, y período más versión);
+  - restricciones: pkey, check de estado, FK a período RESTRICT, y FK de quien cierra y de quien reemplaza SET NULL;
+  - RLS activa, 0 políticas, 0 privilegios de API y 0 filas.
+- Datos invariantes: `3c589a4e…`.
+
+**Postcheck esperado de la 16:**
+- 16 migraciones; checksum `c48dc828…`; huella `3bbca8fc…`; los 4 tipos de la 15 siguen y `PeriodLiquidationVersion` sigue vacía.
+- `InvoiceImportDeletion`:
+  - 11 columnas y 3 índices (pkey, único por organización, cliente y huella, y por cliente y organización);
+  - restricciones: pkey, check de estado, FK a cliente CASCADE y FK de quien elimina SET NULL;
+  - RLS activa, 0 políticas, 0 privilegios de API y 0 filas.
+- Datos invariantes: `3c589a4e…`.
+
+**Compatibilidad** (mismo SQL y fila de Prisma que los kits, sobre el `migrate deploy` de `bb868b1`):
+
+| Código | Esquema | Resultado |
+|---|---|---|
+| `main@bb868b1` (publicado) | 14 + 15 | **52 OK**, 3 de volumen salteados (6 archivos) |
+| `main@bb868b1` (publicado) | 14 + 15 + 16 | **52 OK**, 3 de volumen salteados |
+| #34 `4b5528a` | 14 + 15 + 16 | **75 OK**, 4 de volumen salteados (9 archivos: incluye cierre versionado, edición de importados y descargas de ARCA) |
+
+**Respaldo:**
+- El respaldo `192843Z` (13 migraciones) más el kit 14 reproducen exactamente el estado actual de PROD: misma huella de migraciones, la misma huella por tabla de las 22 previas y la misma huella invariante.
+- Alcanza para ensayar.
+- Como la 15 altera tablas con datos (`Invoice`, `TaxRecord`, `PeriodVatSettings`), se recomienda un respaldo nuevo inmediatamente antes de aplicarla. Así el punto de restauración incluye cualquier escritura posterior a este preflight.
+
+**Siguen sin autorizar:** aplicar la 15 y la 16, el merge de #34 y la carga en el Portal IVA.
+
 ## 2. Compatibilidad con el deploy publicado
 
 Las tres migraciones son **aditivas**:
