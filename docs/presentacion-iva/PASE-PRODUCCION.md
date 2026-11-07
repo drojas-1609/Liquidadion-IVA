@@ -1,6 +1,6 @@
 # Pase a producción de #33, #32 y #34: revisión y procedimiento (07/11/2026)
 
-**Estado:** preparado y verificado. **Sin ejecutar.**
+**Estado:** pasos 1 y 2 (respaldo y preflight) ejecutados el 07/11/2026; el resto preparado y **sin ejecutar**.
 
 En esta etapa no se hace merge, no se escribe en PROD ni se carga nada en ARCA. Cada paso con escritura requiere la autorización del titular, en el orden de abajo.
 
@@ -34,6 +34,22 @@ En #33, la primera corrida de PostgreSQL agotó el tiempo del hook de `period-to
 **Pendientes en PROD: la 14, la 15 y la 16, verificadas contra el historial.**
 
 **Observación sobre el worktree principal.** El checkout local de `feature/liquidacion-ajustes-credito-fiscal` tiene un commit **sin publicar**, `2fadb1a`. Agrega los cuatro archivos «… 2» que creó la sincronización de la carpeta. **No debe publicarse en #32.** No se tocó.
+
+## 1b. Pasos 1 y 2 ejecutados el 07/11/2026: respaldo y preflight de PROD (solo lectura)
+
+| Momento (UTC) | Qué se verificó | Resultado |
+|---|---|---|
+| 18:32 | Deploy publicado y heads remotos | Netlify publica `main@4ebf540` (deploy `6aed1d42`). Heads: #33 `1989e6e`, #32 `2891b98`, #34 `ed3e2d3`. El commit local `2fadb1a` queda afuera |
+| 18:32 | Migraciones de PROD | 13 terminadas, 0 a medias. Huella `9188588e641c727e3a5e222154a3eb643514f42aafb45463824cce26bfbc5314`. Ninguno de los objetos de la 14, la 15 o la 16 existe |
+| 18:32 | Actividad | 0 sesiones activas, 0 transacciones abiertas, 0 bloqueos exclusivos en Invoice, TaxRecord, PeriodVatSettings y Period |
+| 18:32 | Estado de los datos | Conteo y huella md5 de las 23 tablas de `public`, guardados fuera del repositorio |
+| 19:28 | Respaldo | `pg_dump` 17.11 del esquema `public`, formato custom, hecho por el titular con la contraseña en un prompt oculto. Archivo `prod-public-20261107T192843Z.dump` (101.460 bytes), fuera del repositorio y de carpetas sincronizadas; sha256 `d64a6e55227bac6b8bbe289811aa235953ea36eada4ff23912c72c67cb75c621`, verificado |
+| 19:30 | Restauración en PostgreSQL 17 local temporal (`--no-owner --no-privileges`) | Un solo aviso esperado: «schema "public" already exists». **Las 23 tablas coinciden** en conteo y huella con el preflight. 13 migraciones, la misma huella. 23 tablas, 73 índices, 90 restricciones, 16 enums y RLS en las 23 tablas, igual que PROD |
+| 19:31 | PROD de nuevo | Las 23 tablas, la huella y los objetos **sin cambios** desde el preflight y el respaldo |
+
+**Pendiente del titular:** confirmar en el panel de Supabase de PROD que el respaldo diario o PITR está activo, y anotar la hora del último.
+
+**Siguen sin autorizar:** los merges, las migraciones en PROD y la carga en el Portal IVA.
 
 ## 2. Compatibilidad con el deploy publicado
 
