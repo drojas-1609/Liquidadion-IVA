@@ -151,6 +151,8 @@ export interface PreviewContext {
     deletedLookup?: (key: string) => { deletedOn: string } | undefined;
     /** Confirmación expresa de volver a importar los eliminados (si no, quedan para revisar). */
     reimportDeleted?: boolean;
+    /** Ventas: rango de venta global diaria ya cargado que contiene ese comprobante (lib/invoice-range). */
+    rangeOf?: (voucherCode: number, pointOfSale: number, number: number) => { from: number; to: number } | undefined;
     /**
      * Origen de los registros: el par TXT del Libro IVA Digital (por defecto) o
      * la descarga de comprobantes del período de Portal IVA (portal-csv.ts), que
@@ -572,6 +574,12 @@ export function buildImportPreview(ctx: PreviewContext, vouchers: ParsedFile, al
                 : "ya cargado para este cliente: se omite");
             r.status = "DUPLICATE";
             continue;
+        }
+        // Ventas: dentro de un rango de venta global diaria ya cargado (superposición).
+        const range = r.status !== "ERROR" && r.voucherCode !== null && r.pointOfSale !== null && r.number !== null ? ctx.rangeOf?.(r.voucherCode, r.pointOfSale, r.number) : undefined;
+        if (range) {
+            r.messages.push(`está dentro del rango de venta global diaria ${range.from}–${range.to} ya cargado (mismo tipo y punto de venta): revisar`);
+            if (RANK.REVIEW > RANK[r.status]) r.status = "REVIEW";
         }
         // Importado y después eliminado de la app: no se vuelve a cargar en silencio.
         const deleted = r.status !== "ERROR" && r.key !== null ? ctx.deletedLookup?.(r.key) : undefined;

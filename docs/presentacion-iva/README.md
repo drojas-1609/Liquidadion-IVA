@@ -326,6 +326,9 @@ Fuentes consultadas el 06/11/2026. Regla en `lib/arca/unidentified-buyer.ts`. La
 - una venta individual desde $ 10.000.000;
 - un rango sin documento 99;
 - un comprobante o un rango que se superpone con otro del mismo tipo y punto de venta, en cualquier período del cliente (409).
+  - Para que no entren dos cargas simultáneas, el control se repite dentro de la transacción, bajo el bloqueo de la fila Client (después del Period).
+  - La importación de ventas también lo hace: una fila dentro de un rango queda para revisar, y al confirmar se vuelve a leer bajo el mismo bloqueo.
+  - La prueba concurrente en PostgreSQL falla sin ese control (201/201).
 
 **En las otras etapas:**
 - **Exportación:** los mismos controles bloquean el TXT (UNIDENTIFIED_BUYER y NUMBER_RANGE). El TXT lleva 99, número 0 y el rango en los campos 4 y 5.
@@ -342,6 +345,18 @@ El alta, la edición manual y la corrección de importados ofrecen «Consultar C
 **Condición frente al IVA: no se deduce.** El manual oficial del padrón (ws_sr_constancia_inscripcion v3.4, 02/05/2023) informa impuestos, régimen y categoría de monotributo, pero no define su correspondencia con la tabla «Tipos de responsables». Se muestran como información y el usuario elige la condición.
 
 **Pruebas.** Se hicieron con respuestas sintéticas (`tests/invoice-counterparty-lookup.test.ts`), sin credenciales: la Preview de DEV no tiene la consulta a ARCA configurada y muestra «Consulta ARCA no configurada».
+
+## Comprobantes con importe sólo exento en la lista
+
+**Qué se revisó.** Una factura A y la nota de crédito A que la anula, importadas desde Mis Comprobantes con todo el importe en «Imp. Op. Exentas». La revisión, en solo lectura y autorizada, se hizo el 07/11/2026 sobre un par real. Los datos reales no se copian al repositorio.
+- Lo guardado coincide con el origen: el importe está en **exento**, sin neto gravado, IVA ni líneas de alícuota.
+- El par se compensa en el exento, porque la nota de crédito resta por su código.
+- No genera débito y la base de IIBB es 0.
+- No se recalculó el IVA ni se dedujo nada de la condición del emisor. Sin diferencia con el origen, no se propone ninguna corrección de datos.
+
+**Problema de presentación, corregido.** La columna «Neto» de la lista suma sólo el neto gravado y el sin discriminar, así que mostraba neto e IVA en 0 con un total distinto de 0, sin explicación. Ahora la lista muestra, con signo, el exento, el no gravado, las percepciones, los impuestos internos y los otros tributos, y aclara que integran el total. Lo reproducen con datos sintéticos `tests/invoice-list-view.test.ts` y `tests/mis-comprobantes-and-perceptions.test.ts`.
+
+**Pendiente.** Si la descarga no trae código de operación, la exportación lo pedirá (control «falta el código de operación»). No se completa automáticamente.
 
 ## Evidencia y validación
 

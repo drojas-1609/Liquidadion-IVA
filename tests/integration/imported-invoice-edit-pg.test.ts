@@ -193,6 +193,24 @@ describe.skipIf(!raw)("comprobantes importados: edición detallada, baja y nueva
         await db.invoice.deleteMany({ where: { periodId: period, pointOfSale: 5 } });
     });
 
+    it("concurrencia: un rango de venta global diaria y un comprobante dentro de él, en dos períodos y a la vez -> se registra uno solo", async () => {
+        const nov = (await db.period.create({ data: { clientId: "c_ie", organizationId: ORG, month: 11, year: 2027 } })).id;
+        const body = (periodId: string, o: Record<string, unknown>) => JSON.stringify({
+            contractVersion: 2, category: "SALES", periodId, voucherCode: 6, voucherVariant: null, pointOfSale: 9, turivaRelationCode: null, vatRate: "21", ...o,
+        });
+        const post = (b: string) => { H.sub = OWNER; return CREATE_INVOICE(new Request("http://localhost/api/invoices", { method: "POST", headers: { "Content-Type": "application/json" }, body: b })); };
+        const global = body(period, { date: "2027-10-10", number: 100, netAmount: "50000.00", counterparty: { name: "VENTA GLOBAL DIARIA", docType: 99, docNumber: "0", vatConditionCode: 5 }, unidentifiedSale: { mode: "GLOBAL_DAILY", numberTo: 180, belowThresholdConfirmed: true } });
+        const inside = body(nov, { date: "2027-11-05", number: 150, netAmount: "100.00", counterparty: { name: "CONSUMIDOR FINAL", docType: 99, docNumber: "0", vatConditionCode: 5 }, unidentifiedSale: { mode: "INDIVIDUAL" } });
+        for (let round = 0; round < 3; round++) {
+            await db.invoice.deleteMany({ where: { clientId: "c_ie", pointOfSale: 9 } });
+            const results = await Promise.all([post(global), post(inside)]);
+            expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+            expect(await db.invoice.count({ where: { clientId: "c_ie", pointOfSale: 9 } })).toBe(1);
+        }
+        await db.invoice.deleteMany({ where: { clientId: "c_ie", pointOfSale: 9 } });
+        await db.period.delete({ where: { id: nov } });
+    });
+
     it("período cerrado: ni corrección ni baja (409 PERIOD_CLOSED); exige reapertura", async () => {
         await db.period.update({ where: { id: period }, data: { status: "CLOSED", closedAt: new Date() } });
         const p = await patch(OWNER, await detailBody({ counterpartyName: "OTRO" }));

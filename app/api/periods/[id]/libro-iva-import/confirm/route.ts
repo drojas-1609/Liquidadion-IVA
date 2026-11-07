@@ -24,6 +24,7 @@ import {
     OPERATION_REUSED_MESSAGE,
     planConfirm,
     settleDeletedImports,
+    assertNoSalesRangeConflictsUnderLock,
     recordImportFailure,
     sameOperation,
     STALE_PREVIEW_MESSAGE,
@@ -86,6 +87,8 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
             if (plan.rows.some((r) => loaded.has(r.key))) throw new ConflictError(STALE_PREVIEW_MESSAGE);
             // Importados eliminados de la app: releídos bajo el bloqueo.
             await settleDeletedImports(tx, scope, plan);
+            // Ventas: rangos de venta global diaria cargados después de la vista previa.
+            await assertNoSalesRangeConflictsUnderLock(tx, scope, plan);
             timing.mark("lock");
             await tx.invoice.createMany({ data: data.invoices });
             if (data.vatLines.length > 0) await tx.invoiceVatLine.createMany({ data: data.vatLines });

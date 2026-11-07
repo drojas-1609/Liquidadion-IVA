@@ -19,6 +19,7 @@ import {
 } from "@/lib/invoice-edit";
 import { lockPeriodForWrite } from "@/lib/period-lock";
 import { lockInvoiceForUpdate, type LockedInvoiceRow } from "@/lib/invoice-lock";
+import { assertNoSalesRangeOverlapUnderLock } from "@/lib/invoice-range";
 import { recordImportedInvoiceDeletion } from "@/lib/invoice-import-deletion";
 import { duplicateVoucherMessage } from "@/lib/invoice-rules";
 import { serializeInvoice } from "@/lib/serializers";
@@ -149,6 +150,12 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
             // Relectura bajo el bloqueo del Period ya tomado al inicio de la
             // transacción (el helper no vuelve a bloquear).
             await assertTurivaIncludedUnderLock(tx, periodId, organizationId);
+        }
+        if (input.category === "SALES") {
+            await assertNoSalesRangeOverlapUnderLock(tx, {
+                organizationId, clientId, voucherCode: resolved.model.voucherCode, pointOfSale: input.pointOfSale,
+                from: input.number, to: resolved.numberTo, excludeInvoiceId: id,
+            });
         }
 
         const changed = changedFieldsOf(row, { input, resolved });

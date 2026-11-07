@@ -98,6 +98,8 @@ const valid = {
   vatRate: "21",
 };
 const sale = { ...valid, category: "SALES", counterparty: { ...RI_CUIT, name: "Cliente SA" } };
+/** Locks de Period/Invoice (el de Client lo toma la venta por los rangos: se prueba aparte). */
+const periodOrInvoiceLocks = () => rec.locks.filter((l) => !/FROM "Client"/.test(l.sql));
 const consumer = (docType: number, docNumber: string) => ({ name: "Consumidor", docType, docNumber, vatConditionCode: 5 });
 const saleB = { ...sale, voucherCode: 6, voucherVariant: null, counterparty: consumer(96, "12345678") };
 // Venta T a turista no residente (TV2 / DV8), 01/04/2017 en adelante.
@@ -623,7 +625,7 @@ describe("POST /api/invoices — TurIVA (195–197)", () => {
     const json = await res.json();
     expect(json.field).toBe("turivaRelationCode");
     expect(json.error.message).toBe(TURIVA_NOT_INCLUDED_MESSAGE);
-    expect(rec.locks).toHaveLength(1);
+    expect(periodOrInvoiceLocks()).toHaveLength(1);
     expectNoWrite();
     expect(world.vatSettings).toBeUndefined(); // nunca se activa automáticamente
   });
@@ -662,9 +664,9 @@ describe("POST /api/invoices — TurIVA (195–197)", () => {
       type: "FC T",
     });
 
-    expect(rec.locks).toHaveLength(1);
-    expect(rec.locks[0].values).toEqual(["p_a", ORG_A]);
-    expect(rec.locks[0].sql).toMatch(/FOR UPDATE/);
+    expect(periodOrInvoiceLocks()).toHaveLength(1);
+    expect(periodOrInvoiceLocks()[0].values).toEqual(["p_a", ORG_A]);
+    expect(periodOrInvoiceLocks()[0].sql).toMatch(/FOR UPDATE/);
     const lockAt = periodLockOrder(db);
     expect(lockAt).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
     expect(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]).toBeLessThan(db.invoice.create.mock.invocationCallOrder[0]);
@@ -739,7 +741,7 @@ describe("POST /api/invoices — TurIVA (195–197)", () => {
 
   it("códigos no T: bloquean el período pero no leen TurIVA aunque el período no esté incluido", async () => {
     expect((await post(jbody(sale))).status).toBe(201);
-    expect(rec.locks).toHaveLength(1);
+    expect(periodOrInvoiceLocks()).toHaveLength(1);
     expect(db.periodVatSettings.findUnique).not.toHaveBeenCalled();
     expect(rec.created.invoice.lidSection).toBe("GENERAL");
   });
@@ -760,16 +762,25 @@ describe("POST /api/invoices — bloqueo del período (lockPeriodForWrite)", () 
   };
   const periodLocks = () => rec.locks.filter((l) => /FROM "Period"/.test(l.sql));
 
+  it("venta -> después del Period bloquea la fila Client (rangos de venta global diaria); compra -> no", async () => {
+    expect((await post(jbody(sale))).status).toBe(201);
+    expect(rec.locks.map((l) => (/FROM "Client"/.test(l.sql) ? "Client" : /FROM "Period"/.test(l.sql) ? "Period" : "?"))).toEqual(["Period", "Client"]);
+    expect(rec.locks[1].values).toEqual(["c_a", ORG_A]);
+    rec.locks.length = 0;
+    expect((await post(jbody(valid))).status).toBe(201);
+    expect(rec.locks.filter((l) => /FROM "Client"/.test(l.sql))).toHaveLength(0);
+  });
+
   it.each([
     ["venta A", sale],
     ["compra A", valid],
     ["venta B", saleB],
   ])("%s (no T) -> un único bloqueo de Period, primera operación de la transacción, antes del comprobante y del AuditLog", async (_l, body) => {
     expect((await post(jbody(body))).status).toBe(201);
-    expect(rec.locks).toHaveLength(1);
-    expect(rec.locks[0].sql).toMatch(/FOR UPDATE/);
-    expect(rec.locks[0].sql).toMatch(/FROM "Period"/);
-    expect(rec.locks[0].values).toEqual(["p_a", ORG_A]);
+    expect(periodOrInvoiceLocks()).toHaveLength(1);
+    expect(periodOrInvoiceLocks()[0].sql).toMatch(/FOR UPDATE/);
+    expect(periodOrInvoiceLocks()[0].sql).toMatch(/FROM "Period"/);
+    expect(periodOrInvoiceLocks()[0].values).toEqual(["p_a", ORG_A]);
     const lockAt = periodLockOrder(db);
     expect(lockAt).toBeGreaterThan(db.$transaction.mock.invocationCallOrder[0]);
     expect(lockAt).toBeLessThan(db.invoice.create.mock.invocationCallOrder[0]);
@@ -790,14 +801,15 @@ describe("POST /api/invoices — bloqueo del período (lockPeriodForWrite)", () 
     turivaIncluded(true);
     expect((await post(jbody(saleT))).status).toBe(201);
     expect(periodLocks()).toHaveLength(1);
-    expect(rec.locks).toHaveLength(1);
+    expect(periodOrInvoiceLocks()).toHaveLength(1);
     expect(periodLockOrder(db)).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);
   });
 
   it("T: leer timeout -> set 3000ms -> lock Period -> restaurar; recién después lectura TurIVA, comprobante y AuditLog", async () => {
     turivaIncluded(true);
     expect((await post(jbody(saleT))).status).toBe(201);
-    expect(rec.rawSteps).toEqual(periodLockSteps("0"));
+    // Después de restaurar el timeout, la venta bloquea la fila Client (rangos); se prueba aparte.
+    expect(rec.rawSteps.filter((x) => !x.includes("Client"))).toEqual(periodLockSteps("0"));
     const restoreAt = timeoutRestoreOrder(db);
     expect(restoreAt).toBeGreaterThan(periodLockOrder(db));
     expect(restoreAt).toBeLessThan(db.periodVatSettings.findUnique.mock.invocationCallOrder[0]);

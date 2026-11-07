@@ -224,3 +224,33 @@ describe("Documento 99 en la importación: mismas reglas que la carga manual", (
         expect(pv.rows[0].model?.counterpartyDocNumber).toBe("0");
     });
 });
+
+describe("Factura A anulada con nota de crédito A, sólo con importe exento (datos sintéticos)", () => {
+    it("se guarda lo que informa el archivo (exento), sin recalcular IVA; el par se compensa en exento y no genera débito", () => {
+        const fc = emitido("2027-10-14", 1, 7, "12345,67", {}, { exempt: "12345,67", netTotal: "0,00", vat: "0,00" });
+        const nc = emitido("2027-10-14", 3, 2, "12345,67", {}, { exempt: "12345,67", netTotal: "0,00", vat: "0,00" });
+        const p = parseMisComprobantes(utf8([H_EMITIDOS, fc, nc]), "SALES", CLIENT);
+        const pv = buildImportPreview({ ...CTX, period: { month: 10, year: 2027 }, category: "SALES" }, p.vouchers, p.aliquots, {});
+        expect(pv.rows.map((r) => r.status)).toEqual(["OK", "OK"]);
+        for (const r of pv.rows) {
+            expect([r.model?.taxedNetAmount.toFixed(2), r.model?.totalVatAmount.toFixed(2), r.model?.exemptAmount.toFixed(2), r.model?.voucherTotalAmount.toFixed(2), r.model?.vatLines.length])
+                .toEqual(["0.00", "0.00", "12345.67", "12345.67", 0]);
+            // Sin código de operación en la descarga: no se inventa (la exportación lo pedirá).
+            expect(r.model?.operationCode).toBeNull();
+        }
+        const t = pv.reconciliation.importable.CONSOLIDATED;
+        expect([t.count, t.taxedNet.toFixed(2), t.vat.toFixed(2), t.exempt.toFixed(2), t.total.toFixed(2)]).toEqual([2, "0.00", "0.00", "0.00", "0.00"]);
+    });
+});
+
+describe("Importación de ventas frente a un rango de venta global diaria ya cargado", () => {
+    it("un comprobante dentro del rango (mismo tipo y punto de venta) queda para revisar; fuera del rango se importa", () => {
+        const inRange = emitido("2027-10-05", 6, 150, "121,00", { r21: ["100,00", "21,00"] }, { netTotal: "100,00", vat: "21,00" });
+        const outside = emitido("2027-10-05", 6, 181, "121,00", { r21: ["100,00", "21,00"] }, { netTotal: "100,00", vat: "21,00" });
+        const p = parseMisComprobantes(utf8([H_EMITIDOS, inRange, outside]), "SALES", CLIENT);
+        const rangeOf = (code: number, pos: number, n: number) => (code === 6 && pos === 4 && n >= 100 && n <= 180 ? { from: 100, to: 180 } : undefined);
+        const pv = buildImportPreview({ ...CTX, category: "SALES", rangeOf }, p.vouchers, p.aliquots, {});
+        expect(pv.rows.map((r) => r.status)).toEqual(["REVIEW", "OK"]);
+        expect(pv.rows[0].messages.join()).toMatch(/dentro del rango de venta global diaria 100–180/);
+    });
+});

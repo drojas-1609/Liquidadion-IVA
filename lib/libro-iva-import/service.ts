@@ -4,6 +4,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import defaultPrisma from "../prisma";
 import { DEFAULT_PERIOD_VAT_SETTINGS, legacyColumnsFor, type InvoiceModelData, type PeriodVatSettingsLike } from "../invoice-model";
 import { deletedImportHashes, importKeyHash } from "../invoice-import-deletion";
+import { lockClientForUpdate } from "../client-lock";
 import { ConflictError, NotFoundError, ValidationError } from "../auth/errors";
 import { parseLidFile, type LidCategory } from "./format";
 import { buildImportPreview, voucherKey, type ImportPreview, type ImportSource, type SectionTotals } from "./build";
@@ -85,6 +86,29 @@ async function editedImportKeys(db: Pick<PrismaClient, "invoice" | "auditLog"> |
     })));
 }
 
+/** Rangos de venta global diaria del cliente (número hasta mayor que el número). */
+async function salesRanges(db: Pick<PrismaClient, "invoice"> | Prisma.TransactionClient, scope: ImportScope) {
+    const rows = await db.invoice.findMany({
+        where: { organizationId: scope.organizationId, clientId: scope.clientId, category: "SALES", numberTo: { not: null }, voucherCode: { not: null } },
+        select: { voucherCode: true, pointOfSale: true, number: true, numberTo: true },
+    });
+    return rows.filter((r) => (r.numberTo as number) > r.number).map((r) => ({ voucherCode: r.voucherCode as number, pointOfSale: r.pointOfSale, from: r.number, to: r.numberTo as number }));
+}
+
+/**
+ * Bajo el bloqueo del período: en ventas, bloqueo de la fila Client (serializa
+ * con las altas manuales de rangos de otros períodos) y relectura de los
+ * rangos: si una fila del plan cayó dentro de un rango cargado después de la
+ * vista previa, 409 (vista previa vencida).
+ */
+export async function assertNoSalesRangeConflictsUnderLock(tx: Prisma.TransactionClient, scope: ImportScope, plan: ConfirmPlan): Promise<void> {
+    if (plan.category !== "SALES") return;
+    if (!(await lockClientForUpdate(tx, scope.clientId, scope.organizationId))) throw new NotFoundError();
+    const ranges = await salesRanges(tx, scope);
+    const hit = plan.rows.some((r) => ranges.some((g) => g.voucherCode === r.model.voucherCode && g.pointOfSale === r.model.pointOfSale && g.from <= r.model.number && r.model.number <= g.to));
+    if (hit) throw new ConflictError(STALE_PREVIEW_MESSAGE);
+}
+
 export interface PreviewResult {
     preview: ImportPreview;
     reimportDeleted: boolean;
@@ -107,12 +131,14 @@ export async function previewImport(scope: ImportScope, files: ImportFiles, db: 
     });
     const settings: PeriodVatSettingsLike = settingsRow ?? DEFAULT_PERIOD_VAT_SETTINGS;
     const deleted = await deletedImportHashes(db, scope, files.category);
+    const ranges = files.category === "SALES" ? await salesRanges(db, scope) : [];
     const ctx = {
         category: files.category, period, settings,
         existingKeys: await existingKeys(db, scope, files.category),
         editedKeys: await editedImportKeys(db, scope, files.category),
         deletedLookup: (key: string) => deleted.get(importKeyHash(key)),
         reimportDeleted: files.reimportDeleted === true,
+        rangeOf: (code: number, pos: number, n: number) => ranges.find((r) => r.voucherCode === code && r.pointOfSale === pos && r.from <= n && n <= r.to),
     };
     const format: ImportSource = files.format ?? "LID_TXT";
     let preview: ImportPreview;

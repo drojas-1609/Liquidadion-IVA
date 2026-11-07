@@ -174,7 +174,8 @@ const del = (expected: string | null = T0, id = INV) =>
 
 const current = () => (world.invoices ?? []).find((i) => i.id === INV);
 const linesOf = (id = INV) => (world.invoiceVatLines ?? []).filter((l) => l.invoiceId === id);
-const lockTargets = () => rec.locks.map((l) => `${/FROM "Invoice"/.test(l.sql) ? "Invoice" : "Period"}:${l.values[0]}`);
+/** Locks de Period e Invoice; el de Client (rangos de ventas, después de ambos) se prueba aparte. */
+const lockTargets = () => rec.locks.filter((l) => !/FROM "Client"/.test(l.sql)).map((l) => `${/FROM "Invoice"/.test(l.sql) ? "Invoice" : "Period"}:${l.values[0]}`);
 
 const expectNoUpdate = () => {
   expect(db.invoice.update).not.toHaveBeenCalled();
