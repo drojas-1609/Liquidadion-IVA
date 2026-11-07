@@ -56,8 +56,8 @@ CLEAN_ENV=(env -i PATH="$PATH" HOME="$HOME" CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPD
 # Migraciones posteriores al DEV actual (todavía no aplicadas en DEV): quedan fuera
 # de las bases "tipo DEV" y del precheck del runner, que verifica la lista exacta
 # de DEV (scripts/arca/homologation-runner.ts EXPECTED_MIGRATIONS).
-# Hoy ninguna.
-NOT_IN_DEV='^$'
+# Hoy: la de importados eliminados (PR #34), hasta aplicarla en DEV.
+NOT_IN_DEV='^20261108120000_invoice_import_deletions$'
 # Última migración aplicada en DEV: runner_prev representa el DEV anterior a ella.
 LAST_IN_DEV='^20261107120000_vat_export_close_versions$'
 
@@ -94,7 +94,7 @@ SHADOW="postgresql://postgres@127.0.0.1:${PORT}/prisma_shadow"
     --to-schema-datamodel prisma/schema.prisma --shadow-database-url "$SHADOW" --exit-code >/dev/null ) \
   && echo "schema.prisma == migraciones: sin diferencias" || die "schema.prisma y las migraciones difieren"
 
-( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" PR17_LOCAL_PG_DEVLIKE_URL="$DEVLIKE" PR17_LOCAL_PG_RUNNER_PREV_URL="$RUNNER_PREV" PR17_LOCAL_PG_RUNNER_URL="$RUNNER_CUR" npx --no-install vitest run --no-file-parallelism tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts tests/integration/arca-production-pg.test.ts tests/integration/arca-devlike-pg.test.ts tests/integration/arca-runner-precheck-pg.test.ts tests/integration/users-permissions-pg.test.ts tests/integration/period-totals-pg.test.ts tests/integration/vat-position-pg.test.ts tests/integration/vat-export-close-pg.test.ts tests/integration/arca-downloads-import-pg.test.ts tests/integration/libro-iva-import-pg.test.ts tests/integration/libro-iva-import-volume-pg.test.ts )
+( cd "$REPO" && "${CLEAN_ENV[@]}" PR17_LOCAL_PG_URL="$URL" PR17_LOCAL_PG_DEVLIKE_URL="$DEVLIKE" PR17_LOCAL_PG_RUNNER_PREV_URL="$RUNNER_PREV" PR17_LOCAL_PG_RUNNER_URL="$RUNNER_CUR" npx --no-install vitest run --no-file-parallelism tests/integration/client-profile-pg.test.ts tests/integration/arca-wsaa-pg.test.ts tests/integration/arca-production-pg.test.ts tests/integration/arca-devlike-pg.test.ts tests/integration/arca-runner-precheck-pg.test.ts tests/integration/users-permissions-pg.test.ts tests/integration/period-totals-pg.test.ts tests/integration/vat-position-pg.test.ts tests/integration/vat-export-close-pg.test.ts tests/integration/arca-downloads-import-pg.test.ts tests/integration/imported-invoice-edit-pg.test.ts tests/integration/libro-iva-import-pg.test.ts tests/integration/libro-iva-import-volume-pg.test.ts )
 
 # Ensayo de la prueba DEV de usuarias sintéticas (tests/dev-smoke) contra el clúster local,
 # DESPUÉS de las pruebas anteriores: sus datos hacen de "estudio real" que no debe cambiar.

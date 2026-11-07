@@ -31,6 +31,7 @@ const EXPECTED = {
   "app/api/invoices/route.ts": { models: ["Invoice"], serializer: "serializeInvoice" },
   // PATCH devuelve el Invoice corregido serializado; DELETE responde 204 sin cuerpo.
   "app/api/invoices/[id]/route.ts": { models: ["Invoice"], serializer: "serializeInvoice" },
+  "app/api/invoices/[id]/detail/route.ts": { models: ["Invoice"], serializer: "serializeInvoice" },
   "app/api/taxes/route.ts": { models: ["TaxRecord"], serializer: "serializeTaxRecord" },
   // PATCH devuelve el TaxRecord corregido serializado; DELETE responde 204 sin cuerpo.
   "app/api/taxes/[id]/route.ts": { models: ["TaxRecord"], serializer: "serializeTaxRecord" },

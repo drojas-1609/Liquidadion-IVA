@@ -31,9 +31,14 @@ interface PreviewRow {
     taxedNet: string | null;
     vat: string | null;
     total: string | null;
+    /** AAAA-MM-DD en que se eliminó de la app (null si no). */
+    deletedOn: string | null;
 }
 interface Preview {
     token: string;
+    /** Filas de comprobantes importados que se eliminaron de la app. */
+    deletedCount: number;
+    reimportDeleted: boolean;
     periodOpen: boolean;
     turivaFile: boolean;
     fileErrors: string[];
@@ -153,6 +158,8 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     const [aliquots, setAliquots] = useState<File | null>(null);
     const [preview, setPreview] = useState<Preview | null>(null);
     const [acceptPartial, setAcceptPartial] = useState(false);
+    // Volver a importar los importados eliminados de la app: confirmación expresa (por defecto quedan para revisar).
+    const [reimportDeleted, setReimportDeleted] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const [done, setDone] = useState<string>("");
@@ -264,7 +271,8 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
         setTracking(op);
     }
 
-    async function send(kind: "preview" | "confirm") {
+    async function send(kind: "preview" | "confirm", overrides: { reimportDeleted?: boolean } = {}) {
+        const reimport = overrides.reimportDeleted ?? reimportDeleted;
         if (inFlight.current || !vouchers || (format === "LID_TXT" && !aliquots)) return;
         inFlight.current = true;
         setBusy(true);
@@ -274,7 +282,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
         if (kind === "confirm") setUnconfirmed(null);
         let op: PendingOp | null = null;
         try {
-            const body: Record<string, unknown> = { clientId, category, format, vouchersFile: await toBase64(vouchers) };
+            const body: Record<string, unknown> = { clientId, category, format, vouchersFile: await toBase64(vouchers), reimportDeleted: reimport };
             if (format === "LID_TXT" && aliquots) body.aliquotsFile = await toBase64(aliquots);
             if (kind === "confirm" && preview) {
                 // Mismo operationId si se reintenta lo mismo después de un corte: si ya se aplicó, la API devuelve ese resultado.
@@ -359,14 +367,14 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 </p>
                 <div style={{ display: "flex", gap: "var(--spacing-md)", flexWrap: "wrap", alignItems: "flex-end" }}>
                     <label>Formato<br />
-                        <select value={format} onChange={(e) => { setFormat(e.target.value as Format); setPreview(null); setVouchers(null); setAliquots(null); }} disabled={busy}>
+                        <select value={format} onChange={(e) => { setFormat(e.target.value as Format); setPreview(null); setReimportDeleted(false); setVouchers(null); setAliquots(null); }} disabled={busy}>
                             <option value="LID_TXT">Libro IVA Digital (par de TXT)</option>
                             <option value="PORTAL_CSV">Descarga de Portal IVA (ZIP o CSV)</option>
                             <option value="MIS_COMPROBANTES">Mis Comprobantes (ZIP o CSV)</option>
                         </select>
                     </label>
                     <label>Libro<br />
-                        <select value={category} onChange={(e) => { setCategory(e.target.value as Category); setPreview(null); }} disabled={busy}>
+                        <select value={category} onChange={(e) => { setCategory(e.target.value as Category); setPreview(null); setReimportDeleted(false); }} disabled={busy}>
                             <option value="SALES">Ventas</option>
                             <option value="PURCHASES">Compras</option>
                         </select>
@@ -374,15 +382,15 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                     {format === "LID_TXT" ? (
                         <>
                             <label>Comprobantes (CBTE)<br />
-                                <input key="cbte" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); }} />
+                                <input key="cbte" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
                             </label>
                             <label>Alícuotas<br />
-                                <input key="ali" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setAliquots(e.target.files?.[0] ?? null); setPreview(null); }} />
+                                <input key="ali" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setAliquots(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
                             </label>
                         </>
                     ) : (
                         <label>{format === "PORTAL_CSV" ? "Descarga de Portal IVA" : "Consulta de Mis Comprobantes"}<br />
-                            <input key="portal" type="file" accept=".zip,.csv,application/zip,text/csv" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); }} />
+                            <input key="portal" type="file" accept=".zip,.csv,application/zip,text/csv" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
                         </label>
                     )}
                     <button type="button" className="btn btn-primary" disabled={busy || !vouchers || (format === "LID_TXT" && !aliquots)} onClick={() => send("preview")}>
@@ -490,6 +498,22 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                         {counts.REVIEW > 0 && <>; quedan para revisar <strong>{counts.REVIEW}</strong> con IVA <strong>{preview.reconciliation.notImported.REVIEW.vat}</strong></>}
                         {counts.ERROR > 0 && <>; con error <strong>{counts.ERROR}</strong></>}.
                     </p>
+                    {(preview.deletedCount > 0 || reimportDeleted) && (
+                        <label style={{ display: "block", marginBottom: "var(--spacing-sm)" }}>
+                            <input
+                                type="checkbox"
+                                checked={reimportDeleted}
+                                disabled={busy}
+                                onChange={(e) => {
+                                    const next = e.target.checked;
+                                    setReimportDeleted(next);
+                                    // La elección cambia qué se importa: se vuelve a generar la vista previa.
+                                    void send("preview", { reimportDeleted: next });
+                                }}
+                            />{" "}
+                            Volver a importar los comprobantes eliminados de la app ({preview.deletedCount}). Sin esta marca quedan para revisar y no se importan.
+                        </label>
+                    )}
                     {partial && (
                         <label style={{ display: "block", marginBottom: "var(--spacing-sm)" }}>
                             <input type="checkbox" checked={acceptPartial} onChange={(e) => setAcceptPartial(e.target.checked)} /> Importar sólo las {counts.OK} filas «Se importa»; las de «Revisar» y «Error» quedan fuera.

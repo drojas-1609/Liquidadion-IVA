@@ -75,8 +75,19 @@ describe("invoiceScope / invoiceDeletability", () => {
     ["IMPORT + sin código + dos líneas", { source: "IMPORT", voucherCode: null, vatRateCodes: [5, 4] }, "IMPORTED"],
     ["source nulo + dos líneas", { source: null, vatRateCodes: [5, 4] }, "LEGACY"],
   ] as const)("%s -> %s (precedencia IMPORTED > LEGACY > MULTI_RATE)", (_l, over, reason) => {
+    // Alcance del formulario MANUAL (una alícuota): los importados van al formulario detallado.
     expect(invoiceScope(row(over))).toEqual({ ok: false, reason });
-    expect(invoiceDeletability(row(over))).toEqual({ ok: false, reason });
+  });
+  it.each([
+    ["IMPORT", { source: "IMPORT" }, { ok: true }],
+    ["dos líneas", { vatRateCodes: [5, 4] }, { ok: true }],
+    ["IMPORT con varias alícuotas", { source: "IMPORT", vatRateCodes: [5, 4, 6] }, { ok: true }],
+    ["IMPORT sin código", { source: "IMPORT", voucherCode: null }, { ok: false, reason: "LEGACY" }],
+    ["source nulo", { source: null }, { ok: false, reason: "LEGACY" }],
+    ["source desconocido", { source: "OTHER" }, { ok: false, reason: "LEGACY" }],
+    ["sin código", { voucherCode: null }, { ok: false, reason: "LEGACY" }],
+  ] as const)("baja: %s -> %j (manuales e importados; las heredadas no)", (_l, over, expected) => {
+    expect(invoiceDeletability(row(over))).toEqual(expected);
   });
   it("eliminabilidad NO exige datos imprescindibles", () => {
     expect(invoiceDeletability(row({ counterpartyName: null, voucherDate: null, taxedNetAmount: null }))).toEqual({ ok: true });
@@ -297,14 +308,32 @@ describe("invoiceRowActions — rol + editabilidad / eliminabilidad", () => {
     expect(invoiceRowActions("ACCOUNTANT", r)).toEqual({ canEdit: false, canDelete: false });
   });
 
-  it.each([
-    ["importada", { source: "IMPORT" }],
-    ["heredada", { source: null }],
-    ["varias alícuotas", { vatRateCodes: [5, 4] }],
-  ])("fila %s -> ninguna acción para ningún rol", (_l, over) => {
-    for (const role of ["OWNER", "ADMIN", "ACCOUNTANT", "VIEWER"] as const) {
-      expect(invoiceRowActions(role, row(over as Partial<EditableInvoiceRow>))).toEqual({ canEdit: false, canDelete: false });
+  it("fila heredada -> ninguna acción para ningún rol", () => {
+    for (const role of ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR", "VIEWER"] as const) {
+      expect(invoiceRowActions(role, row({ source: null }))).toEqual({ canEdit: false, canDelete: false });
     }
+  });
+
+  it.each([
+    ["OWNER", true, true],
+    ["ADMIN", true, true],
+    ["ACCOUNTANT", true, false],
+    ["OPERATOR", true, false],
+    ["VIEWER", false, false],
+  ] as const)("fila IMPORTADA con varias alícuotas: %s -> editar %s (formulario detallado), eliminar %s (sin ampliar la baja al Operador)", (role, canEdit, canDelete) => {
+    const imported = { ...row({ source: "IMPORT", vatRateCodes: [5, 4] }), totalVatAmount: D("315"), voucherTotalAmount: D("2315") };
+    expect(invoiceRowActions(role, imported)).toEqual({ canEdit, canDelete });
+  });
+
+  it("importada sin el modelo completo (sin documento) -> no se edita; sí se elimina (OWNER/ADMIN)", () => {
+    const r = row({ source: "IMPORT", counterpartyDocNumber: null });
+    expect(invoiceRowActions("OWNER", r)).toEqual({ canEdit: false, canDelete: true });
+    expect(invoiceRowActions("OPERATOR", r)).toEqual({ canEdit: false, canDelete: false });
+  });
+
+  it("MANUAL con varias alícuotas (no la arma el alta manual) -> sin edición; baja para OWNER/ADMIN", () => {
+    expect(invoiceRowActions("OWNER", row({ vatRateCodes: [5, 4] }))).toEqual({ canEdit: false, canDelete: true });
+    expect(invoiceRowActions("ACCOUNTANT", row({ vatRateCodes: [5, 4] }))).toEqual({ canEdit: false, canDelete: false });
   });
 
   it("excepción antigua (condición nula) sigue siendo editable", () => {

@@ -97,6 +97,8 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "vouchersFileSha256",
     "aliquotsFileSha256",
     "operationId",
+    // Comprobantes eliminados de la app que el usuario confirmó volver a importar.
+    "reimportedDeletedCount",
   ],
   // Sólo el identificador de la operación, el libro, el formato y el código del error.
   "invoice.import.failed": ["operationId", "attemptId", "periodId", "category", "format", "code", "httpStatus"],
@@ -157,8 +159,11 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
     "numberBefore",
     "numberAfter",
     "changedFields",
+    // Procedencia del comprobante (MANUAL / IMPORT): se conserva al corregirlo.
+    "source",
   ],
-  "invoice.delete": ["periodId", "category", "voucherCode", "pointOfSale", "number"],
+  // source: MANUAL / IMPORT. Un IMPORT eliminado deja además InvoiceImportDeletion (sin datos de la contraparte).
+  "invoice.delete": ["periodId", "category", "voucherCode", "pointOfSale", "number", "source"],
   // SÓLO el código de resultado. NUNCA el CUIT consultado, la respuesta de ARCA, tokens ni credenciales.
   "arca.cuit_lookup": ["result"],
   // Corrección de retenciones/percepciones. `typeBefore` sale de la fila

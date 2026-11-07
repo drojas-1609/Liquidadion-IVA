@@ -225,8 +225,10 @@ describe.skipIf(!raw)("presentación de IVA: clasificación, cierre versionado y
         expect((await CREATE_TAX(req("/api/taxes", "POST", { ...ret, amount: "1.00" }))).status).toBe(409);
         const inv = await db.invoice.findUniqueOrThrow({ where: { id: ids.purchase }, select: { updatedAt: true } });
         const del = await DELETE_INVOICE(new Request(`http://localhost/api/invoices/${ids.purchase}?expectedUpdatedAt=${encodeURIComponent(inv.updatedAt.toISOString())}`, { method: "DELETE" }), { params: Promise.resolve({ id: ids.purchase }) });
-        // Importado: la API no lo borra (422); y la FK RESTRICT impide borrarlo por fuera mientras tenga la percepción.
-        expect(del.status).toBe(422);
+        // Importado con una percepción tomada de él: la API no lo borra (409, primero hay que
+        // quitar la percepción); y la FK RESTRICT impide borrarlo por fuera mientras la tenga.
+        expect(del.status).toBe(409);
+        expect(JSON.stringify(await del.json())).toMatch(/percepción registrada a partir de él/);
         await expect(db.$transaction(async (tx) => {
             await tx.invoiceVatLine.deleteMany({ where: { invoiceId: ids.purchase } });
             await tx.invoice.delete({ where: { id: ids.purchase } });

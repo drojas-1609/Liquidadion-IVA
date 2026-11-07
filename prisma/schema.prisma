@@ -25,21 +25,22 @@ model Profile {
   // invitación sobrevive al borrado de quien invitó; la autoría queda en AuditLog).
   sentInvitations OrganizationInvitation[] @relation("InvitationInvitedBy")
 
-  createdClients              Client[]                    @relation("ClientCreatedBy")
-  updatedClients              Client[]                    @relation("ClientUpdatedBy")
-  createdPeriods              Period[]                    @relation("PeriodCreatedBy")
-  updatedPeriods              Period[]                    @relation("PeriodUpdatedBy")
-  closedPeriods               Period[]                    @relation("PeriodClosedBy")
-  createdInvoices             Invoice[]                   @relation("InvoiceCreatedBy")
-  updatedInvoices             Invoice[]                   @relation("InvoiceUpdatedBy")
-  createdTaxRecords           TaxRecord[]                 @relation("TaxRecordCreatedBy")
-  updatedTaxRecords           TaxRecord[]                 @relation("TaxRecordUpdatedBy")
-  createdPeriodVatSettings    PeriodVatSettings[]         @relation("PeriodVatSettingsCreatedBy")
-  updatedPeriodVatSettings    PeriodVatSettings[]         @relation("PeriodVatSettingsUpdatedBy")
-  createdVatCreditAdjustments PeriodVatCreditAdjustment[] @relation("VatCreditAdjustmentCreatedBy")
-  updatedVatCreditAdjustments PeriodVatCreditAdjustment[] @relation("VatCreditAdjustmentUpdatedBy")
-  closedLiquidationVersions     PeriodLiquidationVersion[] @relation("LiquidationVersionClosedBy")
-  supersededLiquidationVersions PeriodLiquidationVersion[] @relation("LiquidationVersionSupersededBy")
+  createdClients                Client[]                    @relation("ClientCreatedBy")
+  updatedClients                Client[]                    @relation("ClientUpdatedBy")
+  createdPeriods                Period[]                    @relation("PeriodCreatedBy")
+  updatedPeriods                Period[]                    @relation("PeriodUpdatedBy")
+  closedPeriods                 Period[]                    @relation("PeriodClosedBy")
+  createdInvoices               Invoice[]                   @relation("InvoiceCreatedBy")
+  updatedInvoices               Invoice[]                   @relation("InvoiceUpdatedBy")
+  createdTaxRecords             TaxRecord[]                 @relation("TaxRecordCreatedBy")
+  updatedTaxRecords             TaxRecord[]                 @relation("TaxRecordUpdatedBy")
+  createdPeriodVatSettings      PeriodVatSettings[]         @relation("PeriodVatSettingsCreatedBy")
+  updatedPeriodVatSettings      PeriodVatSettings[]         @relation("PeriodVatSettingsUpdatedBy")
+  createdVatCreditAdjustments   PeriodVatCreditAdjustment[] @relation("VatCreditAdjustmentCreatedBy")
+  updatedVatCreditAdjustments   PeriodVatCreditAdjustment[] @relation("VatCreditAdjustmentUpdatedBy")
+  closedLiquidationVersions     PeriodLiquidationVersion[]  @relation("LiquidationVersionClosedBy")
+  supersededLiquidationVersions PeriodLiquidationVersion[]  @relation("LiquidationVersionSupersededBy")
+  invoiceImportDeletions        InvoiceImportDeletion[]     @relation("InvoiceImportDeletionDeletedBy")
 
   // Tarea 3B: actor de la traza de auditoría. onDelete: SetNull (el historial
   // sobrevive al borrado del Profile).
@@ -231,9 +232,10 @@ model Client {
   createdBy      Profile?     @relation("ClientCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy      Profile?     @relation("ClientUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
-  periods      Period[]
+  periods         Period[]
+  importDeletions InvoiceImportDeletion[]
   // Usuarias con alcance SELECTED que pueden ver este cliente.
-  memberAccess MembershipClient[]
+  memberAccess    MembershipClient[]
 
   @@unique([organizationId, cuit])
   // Tarea 3B: habilita que (id, organizationId) sea destino de FK compuesta
@@ -426,19 +428,19 @@ model Invoice {
   // nunca se infieren sin fundamento. CHECK en la base: las de ventas sólo en
   // ventas y las de compras sólo en compras (migración 20261107120000).
   /// Ventas: código de actividad ARCA (6 dígitos) de la operación.
-  activityCode                 String?                @db.VarChar(6)
+  activityCode          String?                @db.VarChar(6)
   /// Ventas: tipo de operación de la parte GRAVADA (1 o 2 de la apertura). La
   /// parte exenta o no gravada va siempre al tipo 3 (excepto exportaciones).
-  saleOperationType            SaleOperationType?
+  saleOperationType     SaleOperationType?
   /// Ventas: tipo de sujeto comprador de la apertura. Se puede derivar de la
   /// condición frente al IVA oficial de la contraparte (lib/vat-export/classification).
-  buyerType                    BuyerType?
+  buyerType             BuyerType?
   /// Compras: concepto del crédito fiscal (apertura de crédito fiscal).
-  purchaseCreditConcept        PurchaseCreditConcept?
+  purchaseCreditConcept PurchaseCreditConcept?
   /// Ventas: operación de dación en pago del Decreto 1145/09 (sólo
   /// beneficiarios del régimen). false = no lo es. Su débito va además a la
   /// columna "Débito Fiscal O.D.P." de la apertura.
-  dationInPayment              Boolean                @default(false)
+  dationInPayment       Boolean                @default(false)
 
   // Tarea 3B: relación COMPUESTA. Una Invoice sólo puede referenciar un Period
   // de la MISMA organización.
@@ -447,7 +449,7 @@ model Invoice {
   // NULL (filas del código anterior) PostgreSQL no la evalúa (MATCH SIMPLE).
   periodClient Period? @relation("InvoicePeriodClient", fields: [periodId, clientId, organizationId], references: [id, clientId, organizationId], onUpdate: Cascade, onDelete: Restrict)
 
-  vatLines InvoiceVatLine[]
+  vatLines         InvoiceVatLine[]
   /// Percepción registrada como TaxRecord a partir de este comprobante (a lo
   /// sumo una: índice único parcial). Evita contarla dos veces.
   linkedTaxRecords TaxRecord[]
@@ -660,28 +662,28 @@ model TaxRecord {
   // ── Detalle para el F.2051 (NULL en registros anteriores: se completa para
   // exportar). Diseño: F2051-IVA-especificacion-de-importaciones.pdf (12/11/2025).
   /// Retención, percepción o percepción aduanera. Sólo para tipos de IVA.
-  nature           TaxRecordNature?
+  nature            TaxRecordNature?
   /// Retenciones: impuesto del certificado (767 o 216 según corresponda).
-  taxCode          Int?
+  taxCode           Int?
   /// Código de régimen del certificado o de la percepción.
-  regimeCode       Int?
+  regimeCode        Int?
   /// CUIT del agente (11 dígitos). No aplica a percepciones aduaneras.
-  agentCuit        String?          @db.VarChar(11)
+  agentCuit         String?          @db.VarChar(11)
   /// CUIT intermediario (contribuyente cesionario), opcional.
-  intermediaryCuit String?          @db.VarChar(11)
+  intermediaryCuit  String?          @db.VarChar(11)
   /// Tipo de comprobante de la tabla del F.2051 (no la del Libro IVA Digital).
-  voucherTypeCode  Int?
+  voucherTypeCode   Int?
   /// Número del comprobante con el formato de esa tabla.
-  voucherNumber    String?          @db.VarChar(20)
+  voucherNumber     String?          @db.VarChar(20)
   /// Número de certificado de retención.
-  certificateNumber String?         @db.VarChar(40)
+  certificateNumber String?          @db.VarChar(40)
   /// Percepción aduanera: liquidación o despacho 99-999-XXXX-999999-X.
-  customsDocument  String?          @db.VarChar(24)
+  customsDocument   String?          @db.VarChar(24)
   /// Percepción tomada de un comprobante de compra (campo de percepciones de
   /// IVA): a lo sumo un TaxRecord por comprobante. RESTRICT: el comprobante no
   /// se borra mientras tenga la percepción vinculada.
-  invoiceId        String?
-  invoice          Invoice?         @relation(fields: [invoiceId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
+  invoiceId         String?
+  invoice           Invoice?         @relation(fields: [invoiceId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
 
   // Tarea 3B: relación COMPUESTA. Un TaxRecord sólo puede referenciar un Period
   // de la MISMA organización.
@@ -714,6 +716,32 @@ model TaxRecord {
 ///    líneas, retenciones y configuración) para verificarlo al descargar.
 /// Índice único parcial (sólo SQL): a lo sumo una vigente (supersededAt NULL)
 /// por período. RESTRICT: un período con versiones no se borra en cascada.
+/// Comprobante IMPORTADO eliminado de la aplicación (migración
+/// 20261108120000_invoice_import_deletions). Una nueva importación con la misma
+/// clave queda para revisar, salvo confirmación expresa. Sin datos de la
+/// contraparte: `keyHash` = SHA-256 de la clave de duplicidad de la importación.
+/// Eliminarlo de la app no anula el comprobante en ARCA.
+model InvoiceImportDeletion {
+  id             String   @id @default(cuid())
+  organizationId String
+  clientId       String
+  category       String
+  keyHash        String   @db.Char(64)
+  voucherCode    Int
+  pointOfSale    Int
+  number         Int
+  /// Período donde estaba el comprobante (sin FK: el período puede eliminarse después).
+  periodId       String
+  deletedAt      DateTime @default(now())
+  deletedById    String?  @db.Uuid
+
+  client    Client   @relation(fields: [clientId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
+  deletedBy Profile? @relation("InvoiceImportDeletionDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, clientId, keyHash])
+  @@index([clientId, organizationId])
+}
+
 model PeriodLiquidationVersion {
   id             String    @id @default(cuid())
   organizationId String

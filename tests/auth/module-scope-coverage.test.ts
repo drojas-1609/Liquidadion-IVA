@@ -91,6 +91,7 @@ describe("Usuarios del estudio — cobertura de módulos y alcance", () => {
       "app/api/periods/[id]/vat-settings/route.ts",
       "app/api/invoices/route.ts",
       "app/api/invoices/[id]/route.ts",
+      "app/api/invoices/[id]/detail/route.ts",
       "app/api/taxes/route.ts",
       "app/api/taxes/[id]/route.ts",
       "app/api/periods/route.ts",

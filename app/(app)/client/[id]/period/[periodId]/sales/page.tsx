@@ -110,6 +110,7 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
                                                     label={`${view.voucherLabel} ${number}`}
                                                     editHref={actions.canEdit ? invoiceEditHref("SALES", id, periodId, invoice.id) : null}
                                                     canDelete={actions.canDelete}
+                                                    imported={invoice.source === "IMPORT"}
                                                 />}
                                             </td>
                                         )}

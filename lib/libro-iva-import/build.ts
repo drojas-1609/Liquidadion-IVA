@@ -57,6 +57,8 @@ export interface ImportRow {
     section: LidSection | null;
     /** Clave de duplicidad (sin datos personales en el texto expuesto: sólo para comparar). */
     key: string | null;
+    /** AAAA-MM-DD en que se eliminó de la app un importado con esta clave (null si no). */
+    deletedOn: string | null;
     /** Modelo listo para escribir; sólo filas sin ERROR. */
     model: InvoiceModelData | null;
     /** Total informado en el archivo (campo "Importe total de la operación"). */
@@ -142,6 +144,12 @@ export interface PreviewContext {
     settings: PeriodVatSettingsLike;
     /** Claves de comprobantes ya cargados para el cliente (todas sus categorías/períodos). */
     existingKeys: ReadonlySet<string>;
+    /** Claves ya cargadas que se modificaron en la app después de importarlas (sólo para el mensaje). */
+    editedKeys?: ReadonlySet<string>;
+    /** Importados eliminados de la app: fecha de eliminación por clave (lib/invoice-import-deletion). */
+    deletedLookup?: (key: string) => { deletedOn: string } | undefined;
+    /** Confirmación expresa de volver a importar los eliminados (si no, quedan para revisar). */
+    reimportDeleted?: boolean;
     /**
      * Origen de los registros: el par TXT del Libro IVA Digital (por defecto) o
      * la descarga de comprobantes del período de Portal IVA (portal-csv.ts), que
@@ -165,7 +173,8 @@ export interface PreviewExtras {
     rowNotes?: ReadonlyMap<number, string[]>;
 }
 
-const OPERATION_CODES = new Set(["A", "C", "D", "E", "N", "T", "X", "Z"]);
+/** Códigos de operación (Libro IVA Digital, Tablas del Sistema). */
+export const OPERATION_CODES: ReadonlySet<string> = new Set(["A", "C", "D", "E", "N", "T", "X", "Z"]);
 const VAT_TOLERANCE = D("0.01");
 
 /** Clave de duplicidad: misma composición que duplicateVoucherWhere (lib/invoice-rules). */
@@ -241,7 +250,7 @@ interface RowDraft {
 function draft(line: number): RowDraft {
     const row: ImportRow = {
         line, aliquotLines: [], status: "OK", messages: [], warnings: [], notes: [], voucherCode: null, pointOfSale: null, number: null,
-        date: null, docType: null, docNumber: null, name: null, section: null, key: null, model: null, informedTotal: null,
+        date: null, docType: null, docNumber: null, name: null, section: null, key: null, deletedOn: null, model: null, informedTotal: null,
     };
     return {
         row,
@@ -544,8 +553,23 @@ export function buildImportPreview(ctx: PreviewContext, vouchers: ParsedFile, al
     // Los motivos de revisión se conservan como detalle. Un ERROR sigue siendo ERROR.
     for (const r of rows) {
         if (r.status !== "ERROR" && r.key !== null && ctx.existingKeys.has(r.key)) {
-            r.messages.unshift("ya cargado para este cliente: se omite");
+            // Nunca se sobrescribe lo cargado: tampoco las correcciones hechas en la app.
+            r.messages.unshift(ctx.editedKeys?.has(r.key)
+                ? "ya cargado para este cliente y modificado en la app después de importarlo: se omite (la importación no sobrescribe los cambios)"
+                : "ya cargado para este cliente: se omite");
             r.status = "DUPLICATE";
+            continue;
+        }
+        // Importado y después eliminado de la app: no se vuelve a cargar en silencio.
+        const deleted = r.status !== "ERROR" && r.key !== null ? ctx.deletedLookup?.(r.key) : undefined;
+        if (deleted) {
+            r.deletedOn = deleted.deletedOn;
+            if (ctx.reimportDeleted) {
+                r.notes.push(`se había eliminado de la app el ${deleted.deletedOn}: se vuelve a importar por confirmación expresa`);
+            } else {
+                r.messages.push(`se eliminó de la app el ${deleted.deletedOn}: no se vuelve a importar salvo que marques «Volver a importar los comprobantes eliminados»`);
+                if (RANK.REVIEW > RANK[r.status]) r.status = "REVIEW";
+            }
         }
     }
     rows.sort((a, b) => a.line - b.line);

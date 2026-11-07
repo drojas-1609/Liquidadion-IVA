@@ -258,6 +258,7 @@ export interface DbMock {
   periodVatSettings: { findUnique: Fn; create: Fn; update: Fn };
   periodVatCreditAdjustment: { findMany: Fn; deleteMany: Fn; upsert: Fn };
   periodLiquidationVersion: { findFirst: Fn; create: Fn; update: Fn; count: Fn };
+  invoiceImportDeletion: { upsert: Fn; findMany: Fn; deleteMany: Fn };
   clientJurisdiction: { findMany: Fn; deleteMany: Fn; createMany: Fn };
   clientActivity: { findMany: Fn; deleteMany: Fn; create: Fn };
   clientActivityRate: { findMany: Fn; deleteMany: Fn; createMany: Fn };
@@ -287,6 +288,12 @@ export function freshDbMock(): DbMock {
     periodVatSettings: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     periodVatCreditAdjustment: { findMany: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn() },
     periodLiquidationVersion: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
+    // Registro de importados eliminados: sin estado en el harness (las pruebas reales van en PostgreSQL).
+    invoiceImportDeletion: {
+      upsert: vi.fn(async ({ create }: { create: unknown }) => create),
+      findMany: vi.fn(async () => []),
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
     clientJurisdiction: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     clientActivity: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
     clientActivityRate: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },

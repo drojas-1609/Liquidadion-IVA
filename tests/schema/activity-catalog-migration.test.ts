@@ -38,7 +38,7 @@ const schema = readFileSync(repo + "prisma/schema.prisma", "utf8");
 describe(`migración ${MIGRATION} — revisión estática`, () => {
   it("es la última y no cambia las aplicadas (checksums de PROD)", () => {
     const dirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-    expect(dirs).toEqual([...Object.keys(APPLIED_SHA256), MIGRATION, "20261028120000_arca_wsaa_ticket_cache", "20261102120000_arca_production_controls", "20261104120000_studio_users_permissions", "20261104230000_add_operator_role", "20261106120000_vat_credit_adjustments", "20261107120000_vat_export_close_versions"]);
+    expect(dirs).toEqual([...Object.keys(APPLIED_SHA256), MIGRATION, "20261028120000_arca_wsaa_ticket_cache", "20261102120000_arca_production_controls", "20261104120000_studio_users_permissions", "20261104230000_add_operator_role", "20261106120000_vat_credit_adjustments", "20261107120000_vat_export_close_versions", "20261108120000_invoice_import_deletions"]);
     for (const [name, sha] of Object.entries(APPLIED_SHA256)) {
       expect(createHash("sha256").update(readFileSync(migrationsDir + name + "/migration.sql")).digest("hex"), name).toBe(sha);
     }

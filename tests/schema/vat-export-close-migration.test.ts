@@ -22,10 +22,11 @@ const code = sql
   .trim();
 
 describe(`migración ${MIGRATION} — revisión estática`, () => {
-  it("es la última y sigue a la de ajustes al crédito fiscal sin cambiarla", () => {
+  it("sigue a la de ajustes al crédito fiscal sin cambiarla; sólo la sigue la de importados eliminados", () => {
     const dirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-    expect(dirs.at(-1)).toBe(MIGRATION);
-    expect(dirs.at(-2)).toBe(PREVIOUS);
+    expect(dirs.at(-1)).toBe("20261108120000_invoice_import_deletions");
+    expect(dirs.at(-2)).toBe(MIGRATION);
+    expect(dirs.at(-3)).toBe(PREVIOUS);
     expect(createHash("sha256").update(readFileSync(migrationsDir + PREVIOUS + "/migration.sql")).digest("hex")).toBe(PREVIOUS_SHA256);
   });
 
