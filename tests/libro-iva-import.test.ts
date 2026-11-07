@@ -165,10 +165,11 @@ describe("vista previa: vínculo comprobante–alícuotas, errores por fila y co
         expect(r.rows.map((x) => x.status)).toEqual(["OK", "OK"]);
     });
     it("datos faltantes o ambiguos quedan para revisión: código no admitido, moneda extranjera, rango agrupado, despacho", () => {
-        const p = salesPreview([sale({ code: 81, number: 1, aliquotCount: 1 }), sale({ number: 2, currency: "DOL", exchangeRate: "1000000000" }), sale({ number: 3, numberTo: 9 })],
-            [sAli({ code: 81, number: 1 }), sAli({ number: 2 }), sAli({ number: 3 })]);
+        // 082 (Tique Factura B) sigue fuera del catálogo.
+        const p = salesPreview([sale({ code: 82, number: 1, aliquotCount: 1 }), sale({ number: 2, currency: "DOL", exchangeRate: "1000000000" }), sale({ number: 3, numberTo: 9 })],
+            [sAli({ code: 82, number: 1 }), sAli({ number: 2 }), sAli({ number: 3 })]);
         expect(p.rows.map((r) => r.status)).toEqual(["REVIEW", "REVIEW", "REVIEW"]);
-        expect(p.rows[0].messages[0]).toMatch(/081 no admitido/);
+        expect(p.rows[0].messages[0]).toMatch(/082 no admitido/);
         const q = purchasesPreview([purchase({ customsDispatch: "26001IC04000001A" })], [pAli()]);
         expect(q.rows[0].status).toBe("REVIEW");
     });

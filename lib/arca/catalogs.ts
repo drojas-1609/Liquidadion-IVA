@@ -57,6 +57,17 @@ export const SOURCE_ARCA_COMPROBANTES: OfficialSource = {
 };
 
 /** RG 1415/2003 (texto consolidado y versiones anteriores): arts. 15, 16, 17; Anexo II A e). */
+/**
+ * RG 3561/2013 (controladores fiscales), Anexo II, campo 12 "Precio unitario":
+ * el "Tique Factura 'A'" va "neto de impuestos", junto con la "Factura 'A'"; en
+ * la clase B y en el "Tique" no se discrimina el IVA.
+ */
+export const SOURCE_RG_3561_ANEXO_II: OfficialSource = {
+    document: "Resolución General 3561/2013 – Anexo II (Artículos 12, 19, 23 y 27), campo 12",
+    url: "https://biblioteca.afip.gob.ar/pdfp/RG3561_A2_COMPLETO.pdf",
+    retrievedAt: "2026-11-06",
+};
+
 export const SOURCE_RG_1415: OfficialSource = {
     document: "Resolución General 1415/2003",
     url: "https://biblioteca.afip.gob.ar/search/query/norma.aspx?p=t:RAG|n:1415|o:3|a:2003|f:07/01/2003",
@@ -182,6 +193,11 @@ export interface VoucherTypeEntry {
  * a la fase de importación: requiere modelar corredor y comisión.
  * 019–021 (exportación) y 051–053 se agregan sin etiqueta heredada: sólo los
  * admite el contrato nuevo, con la matriz de lib/arca/voucher-matrix.ts.
+ * 081 "TIQUE FACTURA A CONTROLADORES FISCALES": clase A con el IVA discriminado
+ * (SOURCE_RG_3561_ANEXO_II), se liquida como una factura A. Sin etiqueta
+ * heredada y sin fila en la matriz de carga manual: entra por la importación del
+ * Libro IVA Digital / Portal IVA. 082 (Tique Factura B) y 083 (Tique) no se
+ * agregan en esta etapa.
  */
 export const VOUCHER_TYPES: readonly VoucherTypeEntry[] = [
     { code: 1, label: "FACTURAS A", letter: "A", kind: "INVOICE", legacyLabel: "FC A", source: SOURCE_LID_TABLAS },
@@ -199,6 +215,7 @@ export const VOUCHER_TYPES: readonly VoucherTypeEntry[] = [
     { code: 51, label: "FACTURAS M", letter: "M", kind: "INVOICE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 52, label: "NOTAS DE DEBITO M", letter: "M", kind: "DEBIT_NOTE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 53, label: "NOTAS DE CREDITO M", letter: "M", kind: "CREDIT_NOTE", legacyLabel: null, source: SOURCE_LID_TABLAS },
+    { code: 81, label: "TIQUE FACTURA A CONTROLADORES FISCALES", letter: "A", kind: "INVOICE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 195, label: "FACTURA CLASE “T”", letter: "T", kind: "INVOICE", legacyLabel: "FC T", source: SOURCE_LID_TABLAS },
     { code: 196, label: "NOTA DE DÉBITO CLASE “T”", letter: "T", kind: "DEBIT_NOTE", legacyLabel: "ND T", source: SOURCE_LID_TABLAS },
     { code: 197, label: "NOTA DE CRÉDITO CLASE “T”", letter: "T", kind: "CREDIT_NOTE", legacyLabel: "NC T", source: SOURCE_LID_TABLAS },
