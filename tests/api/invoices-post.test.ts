@@ -199,7 +199,7 @@ describe("POST /api/invoices — contrato v2", () => {
     expect(rec.created.invoice).toMatchObject({ pointOfSale: 99999, number: 2147483647 });
   });
 
-  it.each([[63], [999], [4]])("voucherCode %s (063 o fuera del catálogo) -> 422 voucherCode sin acceso al período", async (voucherCode) => {
+  it.each([[63], [64], [999], [4]])("voucherCode %s (063 sólo por importación, o fuera del catálogo) -> 422 voucherCode sin acceso al período", async (voucherCode) => {
     const res = await post(jbody({ ...valid, voucherCode }));
     expect(res.status).toBe(422);
     expect((await res.json()).field).toBe("voucherCode");

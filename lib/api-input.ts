@@ -8,7 +8,7 @@ import { LEGACY_INITIAL_IIBB_RATE } from "./legacy-iibb-rate";
 import { normalizeContactEmail, normalizeContactPhone, validateIibbProfile, type IibbProfileData } from "./client-profile";
 import { isValidPeriodMonth, isValidPeriodYear, periodYearRange } from "./period";
 import type { InvoiceCategory, InvoiceModelData } from "./invoice-model";
-import { VAT_CONDITIONS, VOUCHER_TYPES, type VoucherVariant } from "./arca/catalogs";
+import { IMPORT_ONLY_VOUCHER_CODES, IMPORT_ONLY_VOUCHER_MESSAGE, VAT_CONDITIONS, VOUCHER_TYPES, type VoucherVariant } from "./arca/catalogs";
 import { isTaxRecordType, type TaxRecordType } from "./tax-types";
 
 /**
@@ -188,6 +188,7 @@ export function buildInvoiceInputV2(body: unknown): InputResult<InvoiceV2Data> {
   if (!VOUCHER_TYPES.some((v) => v.code === voucherCode)) {
     return fail("voucherCode", "tipo de comprobante fuera del catálogo oficial");
   }
+  if (IMPORT_ONLY_VOUCHER_CODES.has(voucherCode)) return fail("voucherCode", IMPORT_ONLY_VOUCHER_MESSAGE);
 
   let voucherVariant: VoucherVariant | null = null;
   if (b.voucherVariant !== undefined && b.voucherVariant !== null) {

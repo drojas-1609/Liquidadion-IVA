@@ -1,6 +1,6 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
-import { VOUCHER_TYPES } from "../arca/catalogs";
+import { VOUCHER_LIQUIDACIONES_A, VOUCHER_TYPES } from "../arca/catalogs";
 import { purchaseHasNoVatBreakdown } from "../invoice-model";
 import { needsZeroRateRecord } from "./classification";
 import { ExportFormatError, encodeAnsi, lidAmount, lidDate, lidExchangeRate, lidNumber, lidText } from "./text";
@@ -21,8 +21,9 @@ import type { ExportFile, ExportInvoice, ExportSettings, OmittedFile } from "./t
  *  - crédito fiscal computable (compras, campo 21): igual al IVA liquidado sin
  *    prorrateo; el computable por comprobante con asignación directa; ceros con
  *    prorrateo global;
- *  - despacho, CUIT y denominación del emisor/corredor e IVA comisión: ceros /
- *    blancos (importaciones y liquidaciones no se modelan en esta etapa);
+ *  - despacho: ceros (importaciones no se modelan en esta etapa);
+ *  - CUIT y denominación del emisor/corredor e IVA comisión: ceros / blancos,
+ *    salvo el 063 sin intermediario (CUIT y denominación del informante);
  *  - fecha de vencimiento de pago (ventas): ceros (sólo obligatoria en 017/018).
  * El archivo se codifica en ISO 8859-1 con un registro por línea (CRLF).
  */
@@ -140,7 +141,28 @@ export function salesAliquotRecord(inv: ExportInvoice, row: AliquotRow): string 
     return rec;
 }
 
-export function purchaseVoucherRecord(inv: ExportInvoice, rows: AliquotRow[], settings: ExportSettings, turiva: boolean): string {
+/** Informante (el cliente del período): campo 23 del 063 sin intermediario. */
+export interface LidInformant {
+    cuit: string;
+    name: string;
+}
+
+/**
+ * Campos 23–25 (CUIT y denominación del emisor/corredor, IVA comisión).
+ * Especificaciones, Libro Compras: se informan para 033, 058, 059, 060 y 063;
+ * si no interviene un tercero, la CUIT del informante. La app sólo admite el
+ * 063 sin intermediario (la importación deja para revisión los que traen
+ * corredor o comisión): CUIT y denominación del informante, IVA comisión 0.
+ * Para el resto: ceros / espacios.
+ */
+function brokerFields(inv: ExportInvoice, informant: LidInformant | undefined): string {
+    if (inv.voucherCode !== VOUCHER_LIQUIDACIONES_A) return "0".repeat(11) + " ".repeat(30) + lidAmount(ZERO);
+    const digits = (informant?.cuit ?? "").replace(/\D/g, "");
+    if (!informant || digits.length !== 11) throw new ExportFormatError("063 (Liquidaciones A): falta la CUIT del informante para el campo emisor/corredor");
+    return digits + lidText(informant.name, 30) + lidAmount(ZERO);
+}
+
+export function purchaseVoucherRecord(inv: ExportInvoice, rows: AliquotRow[], settings: ExportSettings, turiva: boolean, informant?: LidInformant): string {
     const rec =
         lidDate(inv.voucherDate!) +
         lidNumber(inv.voucherCode!, 3) +
@@ -164,9 +186,7 @@ export function purchaseVoucherRecord(inv: ExportInvoice, rows: AliquotRow[], se
         operationCodeField(inv, rows) +
         lidAmount(computableField(inv, settings)) +
         lidAmount(z(inv.otherTaxesAmount)) +
-        "0".repeat(11) + // CUIT emisor / corredor
-        " ".repeat(30) + // denominación emisor / corredor
-        lidAmount(ZERO) + // IVA comisión
+        brokerFields(inv, informant) + // CUIT y denominación emisor / corredor, IVA comisión
         (turiva ? lidAmount(z(inv.turivaRefundAmount)) : "");
     const expected = turiva ? 340 : 325;
     if (rec.length !== expected) throw new ExportFormatError(`registro de compras de ${rec.length} posiciones (se esperaban ${expected})`);
@@ -196,7 +216,7 @@ export interface LidWriteResult {
  * archivo sin registros no se incluye (se informa como omitido): ARCA no
  * documenta la importación de archivos vacíos.
  */
-export function writeLidFiles(invoices: ExportInvoice[], settings: ExportSettings): LidWriteResult {
+export function writeLidFiles(invoices: ExportInvoice[], settings: ExportSettings, informant?: LidInformant): LidWriteResult {
     const files: ExportFile[] = [];
     const omitted: OmittedFile[] = [];
     for (const category of ["SALES", "PURCHASES"] as const) {
@@ -212,7 +232,7 @@ export function writeLidFiles(invoices: ExportInvoice[], settings: ExportSetting
                     vouchers.push(salesVoucherRecord(inv, rows, turiva));
                     for (const r of rows) aliquots.push(salesAliquotRecord(inv, r));
                 } else {
-                    vouchers.push(purchaseVoucherRecord(inv, rows, settings, turiva));
+                    vouchers.push(purchaseVoucherRecord(inv, rows, settings, turiva, informant));
                     for (const r of rows) aliquots.push(purchaseAliquotRecord(inv, r));
                 }
             }

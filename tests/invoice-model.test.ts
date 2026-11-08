@@ -26,7 +26,7 @@ import {
   type VoucherAmounts,
   type VatLineData,
 } from "@/lib/invoice-model";
-import { VOUCHER_TYPES } from "@/lib/arca/catalogs";
+import { IMPORT_ONLY_VOUCHER_CODES, VOUCHER_TYPES } from "@/lib/arca/catalogs";
 
 const D = (v: string | number) => new Prisma.Decimal(v);
 const f2 = (d: Prisma.Decimal) => d.toFixed(2);
@@ -77,7 +77,7 @@ describe("voucherSign — ÚNICA regla de signo contable", () => {
   });
 
   it("código fuera del catálogo -> lanza (nunca asume un signo)", () => {
-    for (const code of [0, 4, 63, 201, 999, Number.NaN]) {
+    for (const code of [0, 4, 64, 201, 999, Number.NaN]) {
       expect(() => voucherSign(code), String(code)).toThrow(UnknownCatalogCodeError);
     }
   });
@@ -485,7 +485,8 @@ describe("isoDate — fecha @db.Date sin corrimiento por zona horaria", () => {
 
 describe("modelFromVoucher — núcleo del alta manual por código oficial", () => {
   it("todo código A/B/C del catálogo, en ventas y compras, con varios netos y alícuotas: modelo positivo con signo por código", () => {
-    const ABC = VOUCHER_TYPES.filter((v) => ["A", "B", "C"].includes(v.letter));
+    // Los códigos sólo por importación (063) no tienen alta manual: se prueban aparte.
+    const ABC = VOUCHER_TYPES.filter((v) => ["A", "B", "C"].includes(v.letter) && !IMPORT_ONLY_VOUCHER_CODES.has(v.code));
     for (const v of ABC) {
       for (const category of ["SALES", "PURCHASES"] as const) {
         const noVat = category === "PURCHASES" && (v.letter === "B" || v.letter === "C");
@@ -506,7 +507,7 @@ describe("modelFromVoucher — núcleo del alta manual por código oficial", () 
     }
   });
 
-  it("063 y códigos fuera del catálogo -> error voucherCode", () => {
+  it("063 (sólo por importación) y códigos fuera del catálogo -> error voucherCode", () => {
     for (const code of [63, 0, 4, 201, 999]) {
       const r = modelFromVoucher(voucherInput({ voucherCode: code }));
       expect(r, String(code)).toMatchObject({ ok: false, field: "voucherCode" });

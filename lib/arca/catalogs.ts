@@ -189,8 +189,15 @@ export interface VoucherTypeEntry {
 /**
  * Tabla 3 "Tipo de Comprobante" (Tablas del Sistema). Subconjunto mínimo.
  * Clase "T" (195/196/197): comprobantes de TurIVA (pestañas "TURIVA" de Compras
- * y "Ventas por TURIVA", Especificaciones). El 063 (LIQUIDACIONES A) se difiere
- * a la fase de importación: requiere modelar corredor y comisión.
+ * y "Ventas por TURIVA", Especificaciones).
+ * 063 "LIQUIDACIONES A": clase A (denominación de la Tabla 3), suma como una
+ * factura. Sólo COMPRAS y sólo SIN intermediario: Especificaciones, Libro
+ * Compras, campo 23 "CUIT Emisor / Corredor" (se informa para 033, 058, 059,
+ * 060 y 063; si no interviene un tercero, la CUIT del informante) y campo 25
+ * "IVA Comisión". Con corredor o comisión queda para revisión (no se modelan).
+ * Sin etiqueta heredada ni fila en la matriz de carga manual: entra por la
+ * importación (lib/libro-iva-import/build.ts) y se exporta con la CUIT del
+ * informante en el campo 23 (lib/vat-export/lid-writer.ts).
  * 019–021 (exportación) y 051–053 se agregan sin etiqueta heredada: sólo los
  * admite el contrato nuevo, con la matriz de lib/arca/voucher-matrix.ts.
  * 081 "TIQUE FACTURA A CONTROLADORES FISCALES": clase A con el IVA discriminado
@@ -215,11 +222,22 @@ export const VOUCHER_TYPES: readonly VoucherTypeEntry[] = [
     { code: 51, label: "FACTURAS M", letter: "M", kind: "INVOICE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 52, label: "NOTAS DE DEBITO M", letter: "M", kind: "DEBIT_NOTE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 53, label: "NOTAS DE CREDITO M", letter: "M", kind: "CREDIT_NOTE", legacyLabel: null, source: SOURCE_LID_TABLAS },
+    { code: 63, label: "LIQUIDACIONES A", letter: "A", kind: "INVOICE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 81, label: "TIQUE FACTURA A CONTROLADORES FISCALES", letter: "A", kind: "INVOICE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 195, label: "FACTURA CLASE “T”", letter: "T", kind: "INVOICE", legacyLabel: "FC T", source: SOURCE_LID_TABLAS },
     { code: 196, label: "NOTA DE DÉBITO CLASE “T”", letter: "T", kind: "DEBIT_NOTE", legacyLabel: "ND T", source: SOURCE_LID_TABLAS },
     { code: 197, label: "NOTA DE CRÉDITO CLASE “T”", letter: "T", kind: "CREDIT_NOTE", legacyLabel: "NC T", source: SOURCE_LID_TABLAS },
 ];
+
+/** 063 "LIQUIDACIONES A" (ver VOUCHER_TYPES): sólo compras, sin intermediario. */
+export const VOUCHER_LIQUIDACIONES_A = 63;
+
+/**
+ * Códigos del catálogo que sólo entran por la importación (sin carga manual en
+ * esta etapa): el alta manual y el contrato de la API los rechazan.
+ */
+export const IMPORT_ONLY_VOUCHER_CODES: ReadonlySet<number> = new Set([VOUCHER_LIQUIDACIONES_A]);
+export const IMPORT_ONLY_VOUCHER_MESSAGE = "063 (Liquidaciones A) sólo entra por la importación: no tiene carga manual en esta etapa";
 
 // ── Tipos de documento ────────────────────────────────────────────────────
 

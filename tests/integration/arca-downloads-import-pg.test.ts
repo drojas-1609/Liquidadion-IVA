@@ -56,18 +56,18 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
     });
     afterAll(async () => { await db?.$disconnect(); });
 
-    it("Mis Comprobantes (recibidos) por la importación: tipos no admitidos para revisar; segunda carga, ya cargados", async () => {
+    it("Mis Comprobantes (recibidos) por la importación: 063 sin intermediario se importa; tipos no admitidos (064) para revisar; segunda carga, ya cargados", async () => {
         H.sub = OWNER;
-        const body = { clientId: "c_dl", category: "PURCHASES", format: "MIS_COMPROBANTES", vouchersFile: b64([H_RECIBIDOS, recibido(31), recibido(9, 63)].join("\n") + "\n") };
+        const body = { clientId: "c_dl", category: "PURCHASES", format: "MIS_COMPROBANTES", vouchersFile: b64([H_RECIBIDOS, recibido(31), recibido(8, 63), recibido(9, 64)].join("\n") + "\n") };
         const req = () => new Request(`http://localhost/api/periods/${period}/libro-iva-import/preview`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         const pv = await json(await PREVIEW(req(), ctx(period)));
-        expect((pv.reconciliation as { statusCounts: Record<string, number> }).statusCounts).toEqual({ OK: 1, DUPLICATE: 0, REVIEW: 1, ERROR: 0 });
+        expect((pv.reconciliation as { statusCounts: Record<string, number> }).statusCounts).toEqual({ OK: 2, DUPLICATE: 0, REVIEW: 1, ERROR: 0 });
         const c = await CONFIRM(new Request(`http://localhost/x`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, token: pv.token, acceptPartial: true, operationId: randomUUID() }) }), ctx(period));
         expect(c.status).toBe(201);
-        const inv = await db.invoice.findMany({ where: { periodId: period }, select: { voucherCode: true, totalVatAmount: true, directComputableVatCreditAmount: true, source: true } });
-        expect(inv.map((i) => [i.voucherCode, i.totalVatAmount?.toFixed(2), i.directComputableVatCreditAmount?.toFixed(2), i.source])).toEqual([[1, "210.00", "210.00", "IMPORT"]]);
+        const inv = await db.invoice.findMany({ where: { periodId: period }, orderBy: { voucherCode: "asc" }, select: { voucherCode: true, totalVatAmount: true, directComputableVatCreditAmount: true, source: true } });
+        expect(inv.map((i) => [i.voucherCode, i.totalVatAmount?.toFixed(2), i.directComputableVatCreditAmount?.toFixed(2), i.source])).toEqual([[1, "210.00", "210.00", "IMPORT"], [63, "210.00", "210.00", "IMPORT"]]);
         const again = await json(await PREVIEW(req(), ctx(period)));
-        expect((again.reconciliation as { statusCounts: Record<string, number> }).statusCounts.DUPLICATE).toBe(1);
+        expect((again.reconciliation as { statusCounts: Record<string, number> }).statusCounts.DUPLICATE).toBe(2);
         const audit = await db.auditLog.findFirst({ where: { action: "invoice.import", targetId: period } });
         expect((audit?.metadata as Record<string, unknown>).format).toBe("MIS_COMPROBANTES");
     });
