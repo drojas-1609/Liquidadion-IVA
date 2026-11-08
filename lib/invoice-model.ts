@@ -4,6 +4,8 @@ import { D, ZERO, sum, roundMoney, computeVatAmount } from "./decimal";
 import {
     VAT_RATES,
     VOUCHER_TYPES,
+    IMPORT_ONLY_VOUCHER_CODES,
+    IMPORT_ONLY_VOUCHER_MESSAGE,
     DOC_TYPE_CUIT,
     CURRENCY_PESOS,
     RULE_PURCHASES_BC_NO_VAT_LINES,
@@ -382,6 +384,7 @@ export interface VoucherModelInput {
 export function modelFromVoucher(input: VoucherModelInput): ManualModelResult {
     const vt = VOUCHER_TYPES.find((v) => v.code === input.voucherCode);
     if (!vt) return { ok: false, field: "voucherCode", error: "tipo de comprobante fuera del catálogo oficial" };
+    if (IMPORT_ONLY_VOUCHER_CODES.has(vt.code)) return { ok: false, field: "voucherCode", error: IMPORT_ONLY_VOUCHER_MESSAGE };
     const expectedSection: LidSection = vt.letter === "T" ? "TURIVA" : "GENERAL";
     if (input.lidSection !== expectedSection) {
         return {

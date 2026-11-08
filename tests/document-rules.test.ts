@@ -110,7 +110,7 @@ describe("allowedDocTypes — tabla 2B", () => {
   it("condiciones desconocidas o código fuera del catálogo -> nada", () => {
     expect(allowedDocTypes("SALES", null, 1, 1)).toEqual([]);
     expect(allowedDocTypes("SALES", 1, null, 1)).toEqual([]);
-    expect(allowedDocTypes("SALES", 1, 1, 63)).toEqual([]);
+    expect(allowedDocTypes("SALES", 1, 1, 64)).toEqual([]);
   });
 });
 
@@ -236,7 +236,7 @@ describe("allowedDocumentRule / pendingDocumentRules — metadata normativa sin 
     expect(allowedDocumentRule("SALES", 1, 5, 6, 87)).toBeNull();
     expect(allowedDocumentRule("SALES", null, 1, 1, 80)).toBeNull();
     expect(allowedDocumentRule("SALES", 1, null, 1, 80)).toBeNull();
-    expect(allowedDocumentRule("SALES", 1, 1, 63, 80)).toBeNull();
+    expect(allowedDocumentRule("SALES", 1, 1, 64, 80)).toBeNull();
   });
 
   it("filas PENDING aplicables: clave fiscal extranjera de exportación (el 99 ya no está pendiente)", () => {
@@ -251,12 +251,12 @@ describe("allowedDocTypes, allowedDocumentRule, pendingDocumentRules y checkCoun
   const REAL: Record<number, string> = { ...NUMBER_FOR, 87: "12345678" };
   const CUIT_PAIS = "50000000016";
 
-  it("barrido: direcciones × condiciones (incl. null) × códigos (incl. 063) × documentos (incl. 87)", () => {
+  it("barrido: direcciones × condiciones (incl. null) × códigos (incl. 064) × documentos (incl. 87)", () => {
     let checked = 0;
     for (const direction of ["SALES", "PURCHASES"] as const) {
       for (const client of [null, 1, 4, 6]) {
         for (const cp of [null, ...VAT_CONDITIONS.map((c) => c.code)]) {
-          for (const code of [...VOUCHER_TYPES.map((v) => v.code), 63]) {
+          for (const code of [...VOUCHER_TYPES.map((v) => v.code), 64]) {
             const offered = allowedDocTypes(direction, client, cp, code);
             const pending = pendingDocumentRules(direction, client, cp, code);
             for (const docType of [...DOCUMENT_TYPES.map((d) => d.code), 87]) {

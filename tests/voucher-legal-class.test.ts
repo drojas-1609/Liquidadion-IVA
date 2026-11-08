@@ -56,6 +56,6 @@ describe("derivedVoucherClass — otros códigos", () => {
   });
 
   it("código fuera del catálogo -> lanza", () => {
-    expect(() => derivedVoucherClass(63, "2026-01-01")).toThrow();
+    expect(() => derivedVoucherClass(64, "2026-01-01")).toThrow();
   });
 });

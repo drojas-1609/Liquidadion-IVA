@@ -97,10 +97,11 @@ Detalle de la descarga de Portal IVA:
 
 | Caso | Motivo |
 |---|---|
-| Códigos fuera del catálogo vigente (063, tiques 081–083, 033, etc.), documentos fuera del catálogo | No hay regla cargada para importarlos |
+| Códigos fuera del catálogo vigente (tiques 082–083, 033, 064, 068, etc.), documentos fuera del catálogo | No hay regla cargada para importarlos |
+| 063 (Liquidaciones A) en ventas, en la pestaña TURIVA, o en compras con un corredor distinto del informante o con IVA comisión | El 063 sólo se admite en compras y sin intermediario |
 | Rango agrupado («número hasta» distinto) | No se modela en esta etapa |
 | Moneda distinta de PES, o PES con tipo de cambio distinto de 1 | El modelo guarda pesos: hay que confirmar la conversión |
-| Despacho de importación, emisor/corredor o IVA comisión | Importaciones y liquidaciones son otra etapa |
+| Despacho de importación, emisor/corredor o IVA comisión (salvo el 063 sin intermediario) | Importaciones y liquidaciones con corredor son otra etapa |
 | Total que no cierra con sus componentes, o IVA que difiere en más de 0,01 del calculado por línea | Se muestra la diferencia |
 | Alícuota 0 % sin código de operación, o la misma alícuota repetida en un comprobante | Dato ambiguo |
 | Venta B sin detalle de alícuotas | No se puede determinar el débito |
@@ -165,3 +166,15 @@ Cada confirmación registra en los logs de la función una línea `[libro-iva-im
 - `tests/integration/libro-iva-import-pg.test.ts` (6 casos, por las rutas reales contra PostgreSQL local): organización, cliente y rol, varias alícuotas, fila inválida, segunda carga, cierre entre vista previa y confirmación, carga concurrente y TurIVA. Se ejecuta con `scripts/pg-local-regression.sh`.
 - `tests/integration/libro-iva-import-volume-pg.test.ts` (opcional, `LID_VOLUME=1`): 7.500 ventas y 6.000 compras, confirmación completa y segunda carga entera como «ya cargado».
 - Los archivos de prueba son sintéticos (`tests/helpers/libro-iva-synth.ts`); ningún dato es real.
+
+## 063 — Liquidaciones A (compras sin intermediario)
+
+- **Catálogo:** Libro IVA Digital – Tablas del Sistema, Tabla 3: 063 «LIQUIDACIONES A». Clase A, suma como una factura y discrimina IVA: el crédito computable es directo, igual que en una factura A.
+- **Importación:** Mis Comprobantes Recibidos, la descarga de Portal IVA y el TXT del Libro IVA Digital, sólo en **compras**.
+  - Sin datos de corredor (las descargas no los informan): la fila queda OK, con una nota que avisa que el Libro IVA Digital informará la CUIT del informante como emisor/corredor.
+  - En el TXT, con la CUIT del informante en el campo 23 y el IVA comisión en cero: OK.
+  - Con otra CUIT en el campo 23, con IVA comisión, en ventas o en la pestaña TURIVA: queda para revisión.
+- **Exportación:** campos 23–25 del registro de compras con la CUIT y la denominación del informante, e IVA comisión en cero. Fuente: Especificaciones (revisión 30/07/2025), Libro Compras, campo 23: se informa para 033, 058, 059, 060 y 063; si no interviene un tercero, la CUIT del informante.
+- **Sin carga manual:** el alta manual y el contrato de la API lo rechazan; entra sólo por la importación.
+- **Sin migración:** la base no restringe los códigos de comprobante.
+- **Fuera de esta etapa:** 064 (Liquidaciones B), 068 (Liquidación C) y el 018 (Liquidación de Servicios Públicos Clase B).

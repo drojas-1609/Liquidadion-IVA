@@ -112,7 +112,7 @@ Se omiten los archivos vacíos porque ARCA no documenta la importación de un ar
 - cantidad de alícuotas 0 para compras B y C;
 - código de operación sólo con alícuota 0 (si no, «0»);
 - una operación sin IVA lleva una alícuota 0003 con neto 0;
-- despacho, emisor/corredor e IVA comisión en ceros o blancos;
+- despacho, emisor/corredor e IVA comisión en ceros o blancos, salvo el 063 (Liquidaciones A) sin intermediario: CUIT y denominación del informante, IVA comisión en cero (Especificaciones, Libro Compras, campo 23);
 - el mismo orden de comprobantes en la cabecera y en las alícuotas.
 
 ## Conceptos que se cargan a mano en el Portal IVA

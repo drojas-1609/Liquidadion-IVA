@@ -225,7 +225,7 @@ describe("buildInvoiceInputV2 — forma del contrato v2", () => {
     for (const body of [null, 5, "x", [v2]]) expect(buildInvoiceInputV2(body)).toMatchObject({ ok: false, field: "body" });
   });
 
-  it.each([[63], [4], [999], [0], ["1"], [1.5], [null]])("voucherCode %s fuera del catálogo o no numérico -> 422 voucherCode", (voucherCode) => {
+  it.each([[63], [64], [4], [999], [0], ["1"], [1.5], [null]])("voucherCode %s sólo por importación, fuera del catálogo o no numérico -> 422 voucherCode", (voucherCode) => {
     expect(buildInvoiceInputV2({ ...v2, voucherCode })).toMatchObject({ ok: false, field: "voucherCode" });
   });
 

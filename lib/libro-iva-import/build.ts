@@ -16,7 +16,7 @@ import {
     type VoucherAmounts,
 } from "../invoice-model";
 import { checkVoucherDate, type InvoiceWarning } from "../invoice-rules";
-import { DOCUMENT_TYPES, VAT_RATES, VOUCHER_TYPES, CURRENCY_PESOS } from "../arca/catalogs";
+import { DOCUMENT_TYPES, VAT_RATES, VOUCHER_TYPES, VOUCHER_LIQUIDACIONES_A, CURRENCY_PESOS } from "../arca/catalogs";
 import { normalizeImportedDocNumber } from "../arca/document-rules";
 import { UNIDENTIFIED_DOC_TYPE, unidentifiedExportProblem } from "../arca/unidentified-buyer";
 import { VOUCHER_INT_MAX } from "../api-input";
@@ -160,6 +160,12 @@ export interface PreviewContext {
      * reintegro TurIVA.
      */
     source?: ImportSource;
+    /**
+     * CUIT del informante (el cliente), sólo dígitos. Un 063 cuyo campo 23
+     * "CUIT Emisor / Corredor" es esta CUIT no tiene intermediario
+     * (Especificaciones, Libro Compras, campo 23).
+     */
+    informantCuit?: string;
 }
 
 export type ImportSource = "LID_TXT" | "PORTAL_CSV" | "MIS_COMPROBANTES";
@@ -329,7 +335,9 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
         if (vt.letter === "T") d.raise("REVIEW", `${download} no informa el reintegro TurIVA: importar este comprobante con el TXT de TurIVA`);
     } else if (vt) {
         if (vt.letter === "T" && !turivaFile) d.raise("ERROR", "los comprobantes clase T (195–197) van en el archivo de TurIVA");
-        if (vt.letter !== "T" && turivaFile) d.raise("ERROR", "el archivo de TurIVA sólo admite comprobantes clase T (195–197)");
+        // Especificaciones: la pestaña TURIVA de Compras admite también el 063; la app no lo modela ahí.
+        if (vt.code === VOUCHER_LIQUIDACIONES_A && turivaFile) d.raise("REVIEW", "063 (Liquidaciones A) en la pestaña TURIVA: no se admite en esta etapa");
+        else if (vt.letter !== "T" && turivaFile) d.raise("ERROR", "el archivo de TurIVA sólo admite comprobantes clase T (195–197)");
     }
     if (section === "TURIVA" && ctx.settings.turivaIncluded !== true) d.raise("ERROR", TURIVA_NOT_INCLUDED_MESSAGE);
 
@@ -348,7 +356,21 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     if (category === "PURCHASES") {
         const dispatch = str(v.customsDispatch).trim();
         if (dispatch !== "" && !/^0+$/.test(dispatch)) d.raise("REVIEW", "despacho de importación informado: las importaciones se cargan en otra etapa");
-        if (!/^0+$/.test(str(v.brokerCuit)) || !dec(v.commissionVat).isZero()) d.raise("REVIEW", "emisor/corredor o IVA comisión informados: no se modelan en esta etapa");
+        const broker = str(v.brokerCuit).replace(/^0+/, "");
+        const commission = dec(v.commissionVat);
+        if (voucherCode === VOUCHER_LIQUIDACIONES_A) {
+            // Campo 23: para el 063 se informa el emisor/corredor; sin tercero, la CUIT del informante.
+            const own = (ctx.informantCuit ?? "").replace(/^0+/, "");
+            if ((broker !== "" && broker !== own) || !commission.isZero()) {
+                d.raise("REVIEW", "063 (Liquidaciones A) con intermediario o IVA comisión: el corredor y la comisión no se modelan en esta etapa");
+            } else if (broker === "") {
+                row.notes.push("063 (Liquidaciones A) sin intermediario: el Libro IVA Digital informará la CUIT del informante como emisor/corredor y el IVA comisión en cero");
+            }
+        } else if (broker !== "" || !commission.isZero()) {
+            d.raise("REVIEW", "emisor/corredor o IVA comisión informados: no se modelan en esta etapa");
+        }
+    } else if (voucherCode === VOUCHER_LIQUIDACIONES_A) {
+        d.raise("REVIEW", "063 (Liquidaciones A) sólo se admite en compras en esta etapa");
     }
 
     // Importes de cabecera.

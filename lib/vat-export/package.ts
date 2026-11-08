@@ -137,7 +137,7 @@ export function buildPackage(input: PackageInput): PackageResult {
         }
     };
 
-    const lid = attempt("Libro IVA Digital", ["LIBRO_IVA_DIGITAL_*.txt"], () => writeLidFiles(input.invoices, input.settings));
+    const lid = attempt("Libro IVA Digital", ["LIBRO_IVA_DIGITAL_*.txt"], () => writeLidFiles(input.invoices, input.settings, { cuit: identity.clientCuit, name: identity.clientName }));
     if (lid) {
         files.push(...lid.files);
         omitted.push(...lid.omitted);

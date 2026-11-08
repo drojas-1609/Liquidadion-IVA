@@ -139,6 +139,7 @@ export async function previewImport(scope: ImportScope, files: ImportFiles, db: 
         deletedLookup: (key: string) => deleted.get(importKeyHash(key)),
         reimportDeleted: files.reimportDeleted === true,
         rangeOf: (code: number, pos: number, n: number) => ranges.find((r) => r.voucherCode === code && r.pointOfSale === pos && r.from <= n && n <= r.to),
+        informantCuit: period.client.cuit.replace(/\D/g, ""),
     };
     const format: ImportSource = files.format ?? "LID_TXT";
     let preview: ImportPreview;
