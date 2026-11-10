@@ -133,44 +133,47 @@ export async function replaceIibbProfile(
             })),
         });
     }
-    for (const a of profile.activities) {
-        const created = await tx.clientActivity.create({
-            data: {
+    if (profile.activities.length === 0) return;
+    // Dos consultas en total (actividades y alícuotas), no una por actividad: la
+    // transacción del PATCH corre con una base remota y cada ida y vuelta cuenta.
+    const created = await tx.clientActivity.createManyAndReturn({
+        data: profile.activities.map((a) => ({
+            clientId,
+            organizationId,
+            nomenclator: a.nomenclator,
+            nomenclatorJurisdiction: a.nomenclatorJurisdiction,
+            nomenclatorReference: a.nomenclatorReference,
+            code: a.code,
+            description: a.description,
+            origin: a.origin,
+            catalogId: a.catalogId,
+            catalogVersion: a.catalogVersion,
+        })),
+        select: { id: true, nomenclator: true, nomenclatorJurisdiction: true, code: true },
+    });
+    const idByKey = new Map(created.map((c) => [activityKey(c), c.id]));
+    const rates = profile.activities.flatMap((a) => {
+        const activityId = idByKey.get(activityKey(a));
+        if (!activityId) throw new Error("actividad no creada tras la validación");
+        return a.rates.map((r) => {
+            let rate: Prisma.Decimal | null = null;
+            if (r.rate !== null) {
+                const parsed = parseRate(r.rate);
+                // validateIibbProfile ya aplicó las mismas reglas; esto no debería fallar.
+                if (!parsed.ok) throw new Error("alícuota inválida tras la validación");
+                rate = parsed.value;
+            }
+            return {
                 clientId,
                 organizationId,
-                nomenclator: a.nomenclator,
-                nomenclatorJurisdiction: a.nomenclatorJurisdiction,
-                nomenclatorReference: a.nomenclatorReference,
-                code: a.code,
-                description: a.description,
-                origin: a.origin,
-                catalogId: a.catalogId,
-                catalogVersion: a.catalogVersion,
-            },
-            select: { id: true },
+                activityId,
+                jurisdictionCode: r.jurisdiction,
+                rate,
+                treatment: r.treatment,
+                rateOrigin: r.origin,
+                ruleRef: r.ruleRef,
+            };
         });
-        if (a.rates.length > 0) {
-            await tx.clientActivityRate.createMany({
-                data: a.rates.map((r) => {
-                    let rate: Prisma.Decimal | null = null;
-                    if (r.rate !== null) {
-                        const parsed = parseRate(r.rate);
-                        // validateIibbProfile ya aplicó las mismas reglas; esto no debería fallar.
-                        if (!parsed.ok) throw new Error("alícuota inválida tras la validación");
-                        rate = parsed.value;
-                    }
-                    return {
-                        clientId,
-                        organizationId,
-                        activityId: created.id,
-                        jurisdictionCode: r.jurisdiction,
-                        rate,
-                        treatment: r.treatment,
-                        rateOrigin: r.origin,
-                        ruleRef: r.ruleRef,
-                    };
-                }),
-            });
-        }
-    }
+    });
+    if (rates.length > 0) await tx.clientActivityRate.createMany({ data: rates });
 }

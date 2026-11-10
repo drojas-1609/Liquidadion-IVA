@@ -153,7 +153,10 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 metadata: { changedFields: changed.join(","), condition: client.condition, iibbRegistration: client.iibbRegistration },
             });
             return client;
-        });
+        // Límite propio (no es un escritor del período, lib/period-lock.ts): el reemplazo
+        // de la ficha IIBB hace varias escrituras contra la base remota y el valor por
+        // defecto de Prisma (5 s) se agotaba en producción («Error interno»).
+        }, { maxWait: 5000, timeout: 15000 });
         return NextResponse.json(serializeClient(updated));
     } catch (err) {
         // La fila desapareció entre la lectura y la escritura.

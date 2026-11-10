@@ -146,8 +146,8 @@ describe("protocolo: bloqueo por organización y cliente antes de leer o escribi
         for (const m of [db.client.findFirst, db.clientJurisdiction.findMany, db.client.update, db.clientActivityRate.deleteMany, db.auditLog.create]) {
             expect(m.mock.invocationCallOrder[0]).toBeGreaterThan(lockOrder);
         }
-        // Opciones por defecto de Prisma: las { maxWait: 5000, timeout: 10000 } están reservadas a los writers del período.
-        expect(rec.txOptions).toEqual([undefined]);
+        // Límite propio de la ficha (las { maxWait: 5000, timeout: 10000 } siguen reservadas a los writers del período).
+        expect(rec.txOptions).toEqual([{ maxWait: 5000, timeout: 15000 }]);
     });
 
     it("cliente de OTRA organización con su versión correcta -> 404 idéntico a inexistente; la versión no se revela", async () => {
