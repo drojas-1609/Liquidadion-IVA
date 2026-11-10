@@ -248,4 +248,59 @@ describe.skipIf(!URL_LOCAL)("PostgreSQL local: ficha IIBB, cascadas y protocolo 
         // Jurisdicción de c_a1 en la organización B.
         await expect(db.clientJurisdiction.create({ data: { clientId: "c_a1", organizationId: "org_b", jurisdictionCode: "913" } })).rejects.toMatchObject({ code: "P2003" });
     });
+
+    it("ARCA del catálogo (CLAE F.883) sin alícuotas se agrega a una ficha con actividades NAES: 200 y queda guardada", async () => {
+        const v = await versionOf("c_a1");
+        const arca = (code: string, description: string) => ({
+            nomenclator: "ARCA", nomenclatorJurisdiction: "", nomenclatorReference: "RG AFIP 3537/2013", code, description,
+            origin: "CATALOG", catalogId: "clae-rg-afip-3537-2013", catalogVersion: "F. 883 – RG 3537/2013 (951 actividades)", rates: [],
+        });
+        const base = profileV0();
+        const body = {
+            iibb: { ...base, activities: [...base.activities, arca("692000", "Servicios de contabilidad, auditoría y asesoría fiscal")], confirmRemovedJurisdictions: [], confirmRemovedActivities: [] },
+            expectedUpdatedAt: v,
+        };
+        const res = await patch("c_a1", body);
+        const text = await res.text();
+        expect(res.status, text).toBe(200);
+        const saved = await db.clientActivity.findMany({ where: { clientId: "c_a1", nomenclator: "ARCA" }, orderBy: { code: "asc" } });
+        expect(saved.map((a) => [a.code, a.origin])).toEqual([["692000", "CATALOG"], ["702092", "MANUAL"]]);
+    });
+
+    it("forma de PROD: NAES manuales con alícuotas sin origen (920 y 901 en 0) + 3 ARCA del catálogo: 200", async () => {
+        await db.clientActivityRate.deleteMany({ where: { clientId: "c_a1" } });
+        await db.clientActivity.deleteMany({ where: { clientId: "c_a1" } });
+        await db.clientJurisdiction.deleteMany({ where: { clientId: "c_a1" } });
+        await db.clientJurisdiction.createMany({ data: [{ clientId: "c_a1", organizationId: "org_a", jurisdictionCode: "901", isHeadquarters: true }, { clientId: "c_a1", organizationId: "org_a", jurisdictionCode: "920" }] });
+        const mk = async (code: string, description: string, rates: [string, string][]) => {
+            const a = await db.clientActivity.create({ data: { clientId: "c_a1", organizationId: "org_a", nomenclator: "NAES", code, description } });
+            await db.clientActivityRate.createMany({ data: rates.map(([j, r]) => ({ clientId: "c_a1", organizationId: "org_a", activityId: a.id, jurisdictionCode: j, rate: new Prisma.Decimal(r) })) });
+        };
+        await mk("682091", "Servicios inmobiliarios sintéticos", [["920", "3"]]);
+        await mk("692000", "Servicios contables sintéticos", [["901", "0"], ["920", "3"]]);
+        await mk("702092", "Servicios de dirección sintéticos", [["901", "3"], ["920", "3"]]);
+        const v = await versionOf("c_a1");
+        const rate = (j: string, r: string) => ({ jurisdiction: j, rate: r, treatment: "RATE", origin: null, ruleRef: null });
+        const naes = (code: string, description: string, rates: ReturnType<typeof rate>[]) => ({ nomenclator: "NAES", nomenclatorJurisdiction: "", nomenclatorReference: null, code, description, origin: "MANUAL", catalogId: null, catalogVersion: null, rates });
+        const arca = (code: string, description: string) => ({ nomenclator: "ARCA", nomenclatorJurisdiction: "", nomenclatorReference: "RG AFIP 3537/2013", code, description, origin: "CATALOG", catalogId: "clae-rg-afip-3537-2013", catalogVersion: "F. 883 – RG 3537/2013 (951 actividades)", rates: [] });
+        const res = await patch("c_a1", {
+            name: "Cliente A1", cuit: "30-44444444-0", condition: "Responsable Inscripto", address: "Calle sintética 1", phone: "+54 11 5555-0100", contactEmail: "contacto@estudio.test",
+            iibb: {
+                registration: "CONVENIO_MULTILATERAL", jurisdictions: [{ code: "901", headquarters: true }, { code: "920", headquarters: false }],
+                activities: [
+                    naes("682091", "Servicios inmobiliarios sintéticos", [rate("920", "3")]),
+                    naes("692000", "Servicios contables sintéticos", [rate("901", "0"), rate("920", "3")]),
+                    naes("702092", "Servicios de dirección sintéticos", [rate("901", "3"), rate("920", "3")]),
+                    arca("692000", "Servicios de contabilidad, auditoría y asesoría fiscal"),
+                    arca("702092", "Servicios de asesoramiento, dirección y gestión empresarial realizados por integrantes de cuerpos de dirección en sociedades excepto las anónimas"),
+                    arca("682091", "Servicios prestados por inmobiliarias"),
+                ],
+                confirmRemovedJurisdictions: [], confirmRemovedActivities: [],
+            },
+            expectedUpdatedAt: v,
+        });
+        const text = await res.text();
+        expect(res.status, text).toBe(200);
+        expect(await db.clientActivity.count({ where: { clientId: "c_a1", nomenclator: "ARCA", origin: "CATALOG" } })).toBe(3);
+    });
 });

@@ -260,7 +260,7 @@ export interface DbMock {
   periodLiquidationVersion: { findFirst: Fn; create: Fn; update: Fn; count: Fn };
   invoiceImportDeletion: { upsert: Fn; findMany: Fn; deleteMany: Fn };
   clientJurisdiction: { findMany: Fn; deleteMany: Fn; createMany: Fn };
-  clientActivity: { findMany: Fn; deleteMany: Fn; create: Fn };
+  clientActivity: { findMany: Fn; deleteMany: Fn; create: Fn; createManyAndReturn: Fn };
   clientActivityRate: { findMany: Fn; deleteMany: Fn; createMany: Fn };
   $transaction: Fn;
   /** Simula lockPeriodForWrite (lock_timeout + FOR UPDATE de Period) y los FOR UPDATE de Invoice y TaxRecord; no hay locks reales. */
@@ -295,7 +295,7 @@ export function freshDbMock(): DbMock {
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
     clientJurisdiction: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
-    clientActivity: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn() },
+    clientActivity: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn(), createManyAndReturn: vi.fn() },
     clientActivityRate: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     $transaction: vi.fn(),
     $queryRaw: vi.fn(),
@@ -936,6 +936,17 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     const row = { id: mkId("ca"), ...activityDefaults, ...data };
     world.clientActivities!.push(row);
     return { id: row.id };
+  });
+  // createManyAndReturn: las mismas reglas que create, todas o ninguna (como una sentencia INSERT).
+  db.clientActivity.createManyAndReturn.mockImplementation(async ({ data, select }: AnyArgs) => {
+    const rows: Record<string, any>[] = (data as Record<string, any>[]).map((d) => ({ id: mkId("ca"), ...activityDefaults, ...d }));
+    for (const [i, d] of rows.entries()) {
+      if (!clientExists(d.clientId, d.organizationId)) throw fkError();
+      const same = (r: Record<string, any>) => r.clientId === d.clientId && r.nomenclator === d.nomenclator && r.nomenclatorJurisdiction === d.nomenclatorJurisdiction && r.code === d.code;
+      if (world.clientActivities!.some(same) || rows.slice(0, i).some(same)) throw uniqueError();
+    }
+    world.clientActivities!.push(...rows);
+    return rows.map((r) => (select ? Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, r[k]])) : r));
   });
   db.clientActivityRate.createMany.mockImplementation(async ({ data }: AnyArgs) => {
     for (const d of data) {
