@@ -1,0 +1,83 @@
+.fields {
+  min-inline-size: 0;
+  border: 0;
+  padding: 0;
+}
+
+.section {
+  display: grid;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-lg);
+}
+
+.section h3 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.balance,
+.amounts {
+  display: grid;
+  gap: var(--spacing-sm);
+}
+
+.balance {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.5fr);
+  align-items: center;
+}
+
+.adjustment {
+  min-inline-size: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-md);
+}
+
+.adjustment legend {
+  font-weight: 600;
+  padding-inline: var(--spacing-xs);
+}
+
+.amounts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+}
+
+.amounts > *,
+.reference {
+  display: grid;
+  gap: var(--spacing-xs);
+  font-size: 0.875rem;
+}
+
+.reference {
+  margin-top: var(--spacing-sm);
+}
+
+.fields input {
+  width: 100%;
+  min-width: 0;
+}
+
+.fields input[inputmode="decimal"],
+.amounts output {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.amounts output {
+  display: block;
+  padding: var(--spacing-sm);
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .balance,
+  .amounts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .amounts output {
+    text-align: left;
+  }
+}
