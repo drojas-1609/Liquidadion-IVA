@@ -56,15 +56,14 @@ CLEAN_ENV=(env -i PATH="$PATH" HOME="$HOME" CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPD
 # Migraciones posteriores al DEV actual (todavía no aplicadas en DEV): quedan fuera
 # de las bases "tipo DEV" y del precheck del runner, que verifica la lista exacta
 # de DEV (scripts/arca/homologation-runner.ts EXPECTED_MIGRATIONS).
-# Hoy ninguna.
-NOT_IN_DEV='^$'
+NOT_IN_DEV='^(20261110190000_supplier_purchase_account|20261111100000_arca_sync)$'
 # Última migración aplicada en DEV: runner_prev representa el DEV anterior a ella.
 LAST_IN_DEV='^20261108120000_invoice_import_deletions$'
 
 # Base con el esquema del DEV actual: todas las migraciones salvo la de controles de producción.
 "${PG_BIN}/psql" "$URL" -X -qAt -c "CREATE DATABASE devlike" >/dev/null
 DEVLIKE="postgresql://postgres@127.0.0.1:${PORT}/devlike"
-for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v '^20261102120000_arca_production_controls$' | grep -v "$NOT_IN_DEV" | sort); do
+for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v '^20261102120000_arca_production_controls$' | grep -Ev "$NOT_IN_DEV" | sort); do
   "${PG_BIN}/psql" "$DEVLIKE" -X -q -v ON_ERROR_STOP=1 -f "$REPO/prisma/migrations/$m/migration.sql" >/dev/null || die "falló $m en devlike"
 done
 
@@ -73,11 +72,11 @@ done
 # defecto sobre tablas y secuencias como los que puede heredar un objeto en Supabase.
 RUNNER_PRISMA="$TMP/runner-prisma"
 mkdir -p "$RUNNER_PRISMA/migrations"; cp "$REPO/prisma/schema.prisma" "$RUNNER_PRISMA/"; cp "$REPO/prisma/migrations/migration_lock.toml" "$RUNNER_PRISMA/migrations/"
-for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v "$LAST_IN_DEV" | grep -v "$NOT_IN_DEV"); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_PRISMA/migrations/"; done
+for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v "$LAST_IN_DEV" | grep -Ev "$NOT_IN_DEV"); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_PRISMA/migrations/"; done
 # runner_cur = el DEV actual (las 16), también sin las migraciones posteriores.
 RUNNER_CUR_PRISMA="$TMP/runner-cur-prisma"
 mkdir -p "$RUNNER_CUR_PRISMA/migrations"; cp "$REPO/prisma/schema.prisma" "$RUNNER_CUR_PRISMA/"; cp "$REPO/prisma/migrations/migration_lock.toml" "$RUNNER_CUR_PRISMA/migrations/"
-for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -v "$NOT_IN_DEV"); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_CUR_PRISMA/migrations/"; done
+for m in $(cd "$REPO/prisma/migrations" && ls -d */ | tr -d / | grep -Ev "$NOT_IN_DEV"); do cp -R "$REPO/prisma/migrations/$m" "$RUNNER_CUR_PRISMA/migrations/"; done
 for db in runner_prev runner_cur; do
   "${PG_BIN}/psql" "$URL" -X -qAt -c "CREATE DATABASE $db" >/dev/null
   "${PG_BIN}/psql" "postgresql://postgres@127.0.0.1:${PORT}/$db" -X -q -v ON_ERROR_STOP=1 -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;' >/dev/null

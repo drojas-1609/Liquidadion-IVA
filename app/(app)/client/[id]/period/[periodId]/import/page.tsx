@@ -1,13 +1,14 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
-import { ROLES_CREATE } from "@/lib/auth/roles";
+import { ROLES_CONFIG, ROLES_CREATE } from "@/lib/auth/roles";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { formatPeriodLabel } from "@/lib/period";
 import { isPeriodClosed } from "@/lib/period-status";
 import { PeriodClosedNotice } from "../_components/period-closed-notice";
 import { LibroIvaImport } from "./libro-iva-import";
+import { ArcaSyncPanel } from "./arca-sync-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
             select: { month: true, year: true, vatSettings: { select: { turivaIncluded: true, creditProrationMode: true } } },
         });
         if (!period) throw new NotFoundError();
-        return period;
+        return { ...period, canSchedule: ROLES_CONFIG.includes(access.role) };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
     if (guard.data === null) return <PeriodClosedNotice clientId={id} periodId={periodId} />;
@@ -38,6 +39,7 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
             <h1 style={{ fontSize: "2rem", fontWeight: "bold", marginBottom: "var(--spacing-md)" }}>
                 Importar Libro IVA Digital · {formatPeriodLabel(period)}
             </h1>
+            <ArcaSyncPanel periodId={periodId} canSchedule={period.canSchedule} />
             <LibroIvaImport
                 clientId={id}
                 periodId={periodId}

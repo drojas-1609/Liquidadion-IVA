@@ -108,6 +108,32 @@ describe.skipIf(!raw)("importación Libro IVA Digital por las rutas, en PostgreS
     });
     afterAll(async () => { await db?.$disconnect(); });
 
+    it("aplica la cuenta aprobada por empresa y proveedor al importar una compra", async () => {
+        const account = "Servicios informáticos";
+        await db.supplierPurchaseAccount.create({
+            data: { organizationId: ORG_A, clientId: "c_lid_a", supplierCuit: SELLER, account },
+        });
+        try {
+            for (const [periodId, clientId, expected] of [
+                [periodA, "c_lid_a", account],
+                [periodB, "c_lid_b", null],
+            ] as const) {
+                const actor = periodId === periodA ? ACCOUNTANT : OTHER_ORG;
+                const files = purchaseFiles(8261);
+                const preview = await call(PREVIEW, actor, periodId, clientId, files);
+                expect(preview.status).toBe(200);
+                expect((await call(CONFIRM, actor, periodId, clientId, files, { token: preview.body.token })).status).toBe(201);
+                const invoice = await db.invoice.findFirstOrThrow({ where: { periodId, number: 8261 } });
+                expect(invoice.purchaseAccount).toBe(expected);
+                expect(invoice.purchaseCreditConcept).toBeNull();
+                await db.invoice.delete({ where: { id: invoice.id } });
+                await db.auditLog.deleteMany({ where: { targetId: periodId, action: "invoice.import" } });
+            }
+        } finally {
+            await db.supplierPurchaseAccount.deleteMany({ where: { organizationId: ORG_A, clientId: "c_lid_a", supplierCuit: SELLER } });
+        }
+    });
+
     it("organización, cliente y rol: otro cliente u otra organización 404; VIEWER 403", async () => {
         expect((await call(PREVIEW, ACCOUNTANT, periodA, "c_lid_a2", salesFiles())).status).toBe(404);
         expect((await call(PREVIEW, ACCOUNTANT, periodB, "c_lid_b", salesFiles())).status).toBe(404);

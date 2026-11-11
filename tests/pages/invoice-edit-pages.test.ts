@@ -162,7 +162,15 @@ const EDIT_PAGES = [
 ] as const;
 
 describe.each(EDIT_PAGES)("página de edición (%s)", (_name, Page, direction, ownId, otherCategoryId) => {
-  const call = (invoiceId: string = ownId, id = "c_a", periodId = "p_a") => Page({ params: Promise.resolve({ id, periodId, invoiceId }) });
+  const call = async (invoiceId: string = ownId, id = "c_a", periodId = "p_a") => {
+    const page = await Page({ params: Promise.resolve({ id, periodId, invoiceId }) });
+    const forms = [...findAll(page, InvoiceForm), ...findAll(page, ImportedInvoiceForm)];
+    if (forms.length) {
+      expect(forms).toHaveLength(1);
+      return forms[0];
+    }
+    return page;
+  };
 
   it.each([
     ["OWNER", SUB_OWNER_A],

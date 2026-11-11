@@ -1,3 +1,4 @@
+import { supplierAccountCuit } from "@/lib/supplier-purchase-account";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
@@ -90,6 +91,20 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
             // Ventas: rangos de venta global diaria cargados después de la vista previa.
             await assertNoSalesRangeConflictsUnderLock(tx, scope, plan);
             timing.mark("lock");
+            if (files.category === "PURCHASES") {
+                const suppliers = data.invoices.map((invoice) => supplierAccountCuit(invoice.counterpartyDocType ?? null, invoice.counterpartyDocNumber ?? null));
+                const supplierCuits = [...new Set(suppliers.filter((cuit): cuit is string => cuit !== null))];
+                if (supplierCuits.length > 0) {
+                    const rules = await tx.supplierPurchaseAccount.findMany({
+                        where: { organizationId, clientId: scope.clientId, supplierCuit: { in: supplierCuits } },
+                        select: { supplierCuit: true, account: true },
+                    });
+                    const accounts = new Map(rules.map((rule) => [rule.supplierCuit, rule.account]));
+                    data.invoices.forEach((invoice, index) => {
+                        invoice.purchaseAccount = accounts.get(suppliers[index] ?? "") ?? null;
+                    });
+                }
+            }
             await tx.invoice.createMany({ data: data.invoices });
             if (data.vatLines.length > 0) await tx.invoiceVatLine.createMany({ data: data.vatLines });
             timing.mark("write");
