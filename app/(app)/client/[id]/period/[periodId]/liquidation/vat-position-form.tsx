@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import styles from "./vat-position-form.module.css";
 
 /**
  * Datos de la posición de IVA que carga el estudio, con los nombres del F.2051 y
@@ -38,7 +39,6 @@ function ratio(contributions: string, computable: string): string {
     return `${((k / c) * 100).toFixed(2).replace(".", ",")} %`;
 }
 
-const input: React.CSSProperties = { width: "100%", textAlign: "right" };
 
 export function VatPositionForm({ periodId, canEdit, previousTechnicalBalance, previousTechnicalBalanceReference, previousFreeBalance, previousFreeBalanceReference, rows }: Props) {
     const router = useRouter();
@@ -110,39 +110,47 @@ export function VatPositionForm({ periodId, canEdit, previousTechnicalBalance, p
                 según el régimen que corresponda; el porcentaje se muestra sólo como control.
             </p>
 
-            <fieldset disabled={!canEdit || loading} style={{ border: "none", padding: 0 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)", gap: "var(--spacing-sm)", alignItems: "end", marginBottom: "var(--spacing-md)" }}>
-                    <label htmlFor="vp-prev">Saldo técnico a favor del contribuyente del período anterior</label>
-                    <input id="vp-prev" inputMode="decimal" value={prev} onChange={(e) => setPrev(e.target.value)} style={input} />
-                    <input aria-label="Referencia del saldo anterior" placeholder="Referencia (DJ anterior)" value={prevRef} maxLength={120} onChange={(e) => setPrevRef(e.target.value)} />
-                    <label htmlFor="vp-free">Saldo a favor de libre disponibilidad del período anterior (neto de usos)</label>
-                    <input id="vp-free" inputMode="decimal" value={free} onChange={(e) => setFree(e.target.value)} style={input} />
-                    <input aria-label="Referencia del saldo de libre disponibilidad" placeholder="Referencia (DJ anterior)" value={freeRef} maxLength={120} onChange={(e) => setFreeRef(e.target.value)} />
-                </div>
+            <fieldset disabled={!canEdit || loading} className={styles.fields}>
+                <section aria-labelledby="vp-balances" className={styles.section}>
+                    <h3 id="vp-balances">Saldos del período anterior</h3>
+                    <div className={styles.balance}>
+                        <label htmlFor="vp-prev">Saldo técnico a favor del contribuyente</label>
+                        <input id="vp-prev" className="input" inputMode="decimal" value={prev} onChange={(e) => setPrev(e.target.value)} />
+                        <input className="input" aria-label="Referencia del saldo anterior" placeholder="Referencia (DJ anterior)" value={prevRef} maxLength={120} onChange={(e) => setPrevRef(e.target.value)} />
+                    </div>
+                    <div className={styles.balance}>
+                        <label htmlFor="vp-free">Saldo a favor de libre disponibilidad (neto de usos)</label>
+                        <input id="vp-free" className="input" inputMode="decimal" value={free} onChange={(e) => setFree(e.target.value)} />
+                        <input className="input" aria-label="Referencia del saldo de libre disponibilidad" placeholder="Referencia (DJ anterior)" value={freeRef} maxLength={120} onChange={(e) => setFreeRef(e.target.value)} />
+                    </div>
+                </section>
 
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                        <tr>
-                            <th style={{ textAlign: "left" }}>Concepto</th>
-                            <th style={{ textAlign: "right" }}>Crédito Fiscal</th>
-                            <th style={{ textAlign: "right" }}>Crédito Fiscal Computable</th>
-                            <th style={{ textAlign: "right" }}>%</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {values.map((r, i) => (
-                            <tr key={r.regime}>
-                                <td style={{ padding: "var(--spacing-xs) 0" }}>
-                                    {r.label}
-                                    <input aria-label={`Referencia ${r.label}`} placeholder="Referencia (F.931)" value={r.reference} maxLength={120} onChange={(e) => update(i, { reference: e.target.value })} style={{ display: "block", width: "100%", marginTop: "var(--spacing-xs)" }} />
-                                </td>
-                                <td><input aria-label={`Crédito fiscal ${r.label}`} inputMode="decimal" value={r.contributionsAmount} onChange={(e) => update(i, { contributionsAmount: e.target.value })} style={input} /></td>
-                                <td><input aria-label={`Crédito fiscal computable ${r.label}`} inputMode="decimal" value={r.computableAmount} onChange={(e) => update(i, { computableAmount: e.target.value })} style={input} /></td>
-                                <td style={{ textAlign: "right", color: "var(--secondary)" }}>{ratio(r.contributionsAmount, r.computableAmount)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                <section aria-labelledby="vp-adjustments" className={styles.section}>
+                    <h3 id="vp-adjustments">Ajustes al crédito fiscal</h3>
+                    {values.map((r, i) => (
+                        <fieldset key={r.regime} className={styles.adjustment}>
+                            <legend>{r.label}</legend>
+                            <div className={styles.amounts}>
+                                <label>
+                                    Crédito fiscal
+                                    <input className="input" inputMode="decimal" value={r.contributionsAmount} onChange={(e) => update(i, { contributionsAmount: e.target.value })} />
+                                </label>
+                                <label>
+                                    Crédito fiscal computable
+                                    <input className="input" inputMode="decimal" value={r.computableAmount} onChange={(e) => update(i, { computableAmount: e.target.value })} />
+                                </label>
+                                <div>
+                                    <span>Porcentaje de control</span>
+                                    <output>{ratio(r.contributionsAmount, r.computableAmount) || "—"}</output>
+                                </div>
+                            </div>
+                            <label className={styles.reference}>
+                                Referencia (F.931)
+                                <input className="input" value={r.reference} maxLength={120} onChange={(e) => update(i, { reference: e.target.value })} />
+                            </label>
+                        </fieldset>
+                    ))}
+                </section>
                 <p style={{ color: "var(--secondary)", fontSize: "0.8125rem", marginTop: "var(--spacing-sm)" }}>
                     Art. 91 Ley 27.467 (radiodifusión, señales y editoras): se computa antes que los demás créditos y hasta el
                     débito fiscal del período, sin generar saldo a favor. Anexo I Ley 27.541: se suma al crédito fiscal.
