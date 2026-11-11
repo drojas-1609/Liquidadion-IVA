@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
+export const ARCA_WORKER_PATH = "/_arca-sync/worker";
+
 export function syncAuthorized(authorization: string | null) {
     const secret = process.env.ARCA_SYNC_CONNECTOR_TOKEN;
     if (!secret || secret.length < 32 || !authorization?.startsWith("Bearer ")) return false;

@@ -1,5 +1,5 @@
 import prisma from "../prisma";
-import { syncCredentials, syncOrigin } from "./auth";
+import { ARCA_WORKER_PATH, syncCredentials, syncOrigin } from "./auth";
 import { Prisma, type Role } from "@prisma/client";
 import { effectivePermissions, modulesAllow } from "../auth/permissions";
 import { ROLES_CONFIG, ROLES_CREATE } from "../auth/roles";
@@ -13,7 +13,7 @@ export function connectorConfig() {
     const origin = syncOrigin();
     const token = process.env.ARCA_SYNC_CONNECTOR_TOKEN;
     return origin && token && token.length >= 32 && process.env.ARCA_SYNC_CREDENTIALS
-        ? { url: new URL("/.netlify/functions/arca-download-background", origin), token } : null;
+        ? { url: new URL(ARCA_WORKER_PATH, origin), token } : null;
 }
 
 async function canImport(profileId: string, organizationId: string, clientId: string, roles: readonly Role[]) {
@@ -63,7 +63,7 @@ export async function startManualSync(periodId: string, organizationId: string, 
     if (pending) {
         await prisma.arcaSyncTask.updateMany({
             where: { periodId, runKey: pending.runKey, status: { in: RETRYABLE } },
-            data: { status: "PENDING", actorProfileId, leaseUntil: null },
+            data: { status: "PENDING", actorProfileId, leaseUntil: null, errorCode: null },
         });
         return;
     }
@@ -126,7 +126,10 @@ export async function runNextSyncTask(periodId?: string) {
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.token}` },
             body: JSON.stringify({ taskId: task.id, lease: leaseUntil.toISOString() }),
         });
-        if (response.status !== 202) throw new Error("DISPATCH_FAILED");
+        if (response.status !== 202) {
+            console.warn("[arca-sync] dispatch status", response.status);
+            throw new Error("DISPATCH_FAILED");
+        }
     } catch {
         await prisma.arcaSyncTask.updateMany({
             where: { id: task.id, status: "RUNNING", leaseUntil },
