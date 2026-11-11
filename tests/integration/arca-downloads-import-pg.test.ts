@@ -12,6 +12,12 @@ vi.mock("@/lib/prisma", () => ({
     },
 }));
 
+vi.mock("next/server", async (original) => ({
+    ...await original<typeof import("next/server")>(),
+    after: vi.fn(),
+}));
+
+import { POST as SYNC_CALLBACK } from "@/app/api/internal/arca-sync/route";
 import { POST as PREVIEW } from "@/app/api/periods/[id]/libro-iva-import/preview/route";
 import { POST as CONFIRM } from "@/app/api/periods/[id]/libro-iva-import/confirm/route";
 import { POST as TAX_IMPORT } from "@/app/api/periods/[id]/tax-import/route";
@@ -159,6 +165,43 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
             taxCode: 767, regimeCode: 499, agentCuit: cuit("3044444444"), voucherTypeCode: 6, voucherNumber: "000000000777", certificateNumber: "2027009999",
         }) }));
         expect(otherAgent.status).toBe(201);
+    });
+
+    it("la tarea automática autentica el envío, reutiliza el importador y conserva duplicados y pendientes", async () => {
+        const target = await db.period.create({ data: { clientId: "c_dl", organizationId: ORG, month: 10, year: 2028 } });
+        const lease = new Date(Date.now() + 60000);
+        const task = await db.arcaSyncTask.create({ data: {
+            clientId: "c_dl", periodId: target.id, organizationId: ORG, actorProfileId: OWNER, runKey: "smoke-sync",
+            source: "PURCHASES", status: "RUNNING", leaseUntil: lease,
+        } });
+        const token = "t".repeat(48);
+        vi.stubEnv("ARCA_SYNC_CONNECTOR_TOKEN", token);
+        try {
+            H.sub = null;
+            const file = b64([H_RECIBIDOS, recibido(101).replace("2027-", "2028-"), recibido(102, 64).replace("2027-", "2028-")].join("\n") + "\n");
+            const callback = (auth: string, taskId = task.id) => SYNC_CALLBACK(new Request("http://localhost/api/internal/arca-sync", {
+                method: "POST", headers: { Authorization: auth, "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "import", taskId, lease: lease.toISOString(), files: [{ format: "MIS_COMPROBANTES", file }] }),
+            }));
+            expect((await callback("Bearer invalid")).status).toBe(401);
+            expect((await callback(`Bearer ${token}`)).status).toBe(200);
+            expect((await callback(`Bearer ${token}`)).status).toBe(409);
+            expect(await db.arcaSyncTask.findUnique({ where: { id: task.id } })).toMatchObject({
+                status: "REVIEW", downloaded: 2, imported: 1, duplicates: 0, pending: 1, leaseUntil: null,
+            });
+            expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(1);
+            const retry = await db.arcaSyncTask.create({ data: {
+                clientId: "c_dl", periodId: target.id, organizationId: ORG, actorProfileId: OWNER, runKey: "smoke-retry",
+                source: "PURCHASES", status: "RUNNING", leaseUntil: lease,
+            } });
+            expect((await callback(`Bearer ${token}`, retry.id)).status).toBe(200);
+            expect(await db.arcaSyncTask.findUnique({ where: { id: retry.id } })).toMatchObject({
+                imported: 0, duplicates: 1, pending: 1,
+            });
+            expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(1);
+        } finally {
+            vi.unstubAllEnvs();
+        }
     });
 
     it("período cerrado: la confirmación se rechaza sin escribir", async () => {

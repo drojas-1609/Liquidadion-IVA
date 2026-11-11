@@ -232,6 +232,8 @@ model Client {
   createdBy      Profile?     @relation("ClientCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy      Profile?     @relation("ClientUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
+  arcaSyncSchedule ArcaSyncSchedule?
+  supplierAccounts SupplierPurchaseAccount[]
   periods         Period[]
   importDeletions InvoiceImportDeletion[]
   // Usuarias con alcance SELECTED que pueden ver este cliente.
@@ -272,6 +274,7 @@ model Period {
   taxRecords           TaxRecord[]
   /// Versiones cerradas de la liquidación (historial de cierres).
   liquidationVersions  PeriodLiquidationVersion[]
+  arcaSyncTasks        ArcaSyncTask[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -358,6 +361,7 @@ model Invoice {
 
   // ── Modelo contable (Fase A, M1: nullable hasta M2) ──────────────────────
   clientId                          String?
+  purchaseAccount                   String?        @db.VarChar(120)
   source                            InvoiceSource?
   /// Código oficial de tipo de comprobante (ARCA). Define el signo contable.
   voucherCode                       Int?
@@ -971,4 +975,54 @@ model ArcaLookupQuotaEvent {
   at  DateTime @db.Timestamptz(3)
 
   @@index([key, at])
+}
+
+model SupplierPurchaseAccount {
+  organizationId String
+  clientId       String
+  supplierCuit   String   @db.Char(11)
+  account        String   @db.VarChar(120)
+  updatedAt      DateTime @updatedAt
+
+  client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@id([organizationId, clientId, supplierCuit])
+  @@index([clientId, organizationId])
+}
+
+model ArcaSyncSchedule {
+  clientId       String @id
+  organizationId String
+  actorProfileId String @db.Uuid
+  enabled        Boolean @default(false)
+  extraDays      Int[] @default([])
+
+  client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([clientId, organizationId])
+}
+
+model ArcaSyncTask {
+  clientId       String
+  id             String @id @default(cuid())
+  periodId       String
+  organizationId String
+  actorProfileId String @db.Uuid
+  runKey         String
+  source         String
+  status         String @default("PENDING")
+  downloaded     Int?
+  imported       Int?
+  duplicates     Int?
+  pending        Int @default(0)
+  errorCode      String?
+  issues         Json @default("[]")
+  leaseUntil     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([periodId, runKey, source])
+  @@index([status, updatedAt])
 }

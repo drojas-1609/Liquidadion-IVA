@@ -5,6 +5,7 @@ import { resolveProxySession } from "@/lib/supabase/proxy-session";
 import { isSupabaseConfigError } from "@/lib/supabase/env";
 import { isPublicPath } from "@/lib/auth/proxy-matcher";
 import { sanitizeNext } from "@/lib/auth/origin";
+import { syncAuthorized } from "@/lib/arca-sync/auth";
 import { applySecurityHeaders } from "@/lib/security-headers";
 
 /**
@@ -47,6 +48,12 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // En el ensayo local sólo se permite consulta: ningún POST de negocio ni Server Action.
   if(process.env.ARCA_LOCAL_HOMO==='1'&&!localHomoRequestAllowed(request.method,pathname,request.headers.get('host')??'')){
     return jsonDeny(403,'LOCAL_HOMO_READ_ONLY','Prueba local: guardar y modificar datos está deshabilitado.');
+  }
+
+  if (pathname === "/api/internal/arca-sync") {
+    return syncAuthorized(request.headers.get("authorization"))
+      ? NextResponse.next()
+      : jsonDeny(401, "UNAUTHENTICATED", "No autenticado.");
   }
 
   // Defensa en profundidad por si el matcher deja pasar una ruta pública.

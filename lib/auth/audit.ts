@@ -51,6 +51,7 @@ export const AUDIT_ACTIONS = [
   "taxrecord.import",
   // Clasificaciones para la presentación, por lote (PATCH /api/periods/[id]/invoice-classification).
   "invoice.classification_change",
+  "invoice.purchase_account_change",
   // Descarga del paquete de presentación de IVA (borrador o versión cerrada).
   "vat.package.export",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
@@ -124,6 +125,7 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   // Conteos por estado y huella del archivo. NUNCA importes, CUIT ni números de comprobante.
   "taxrecord.import": ["periodId", "kind", "layout", "importedCount", "duplicateCount", "reviewCount", "errorCount", "fileSha256"],
   // Por lote: cantidad de comprobantes y NOMBRES de los campos cambiados.
+  "invoice.purchase_account_change": ["periodId", "savedSupplierRule"],
   "invoice.classification_change": ["periodId", "category", "count", "changedFields"],
   // Modo (DRAFT/FINAL), versión y huella del ZIP entregado. Sin importes.
   "vat.package.export": ["periodId", "clientId", "month", "year", "mode", "version", "packageSha256"],

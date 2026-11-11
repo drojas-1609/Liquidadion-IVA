@@ -1,4 +1,5 @@
 import "server-only";
+import { currentSyncIdentity } from "@/lib/arca-sync/identity";
 import {localHomoRequestAllowed} from "@/lib/arca-padron/preview-gate";
 
 import { NextResponse } from "next/server";
@@ -74,7 +75,8 @@ export async function requireAuthenticatedProfile(
   opts: { db?: AuthzDb } = {},
 ): Promise<ProfileIdentity> {
   const db = opts.db ?? defaultDb();
-  const claims = await getAuthClaims();
+  const sync = currentSyncIdentity();
+  const claims = sync ? { sub: sync.profileId, email: undefined } : await getAuthClaims();
   if (!claims) throw new UnauthenticatedError();
 
   const profile = await db.profile.findUnique({
@@ -150,6 +152,11 @@ export async function resolveActiveOrganization(
   opts: { db?: AuthzDb } = {},
 ): Promise<ActiveOrg> {
   const db = opts.db ?? defaultDb();
+  const sync = currentSyncIdentity();
+  if (sync) {
+    if (sync.profileId !== profileId) throw new ForbiddenError();
+    return requireOrganizationRole(profileId, sync.organizationId, ["OWNER", "ADMIN", "ACCOUNTANT", "OPERATOR"], { db, module: "IVA" });
+  }
   const memberships = (await db.membership.findMany({
     where: { profileId, status: "ACTIVE" },
     select: MEMBERSHIP_SELECT,
@@ -322,6 +329,8 @@ export async function requirePeriodAccess(
   opts: { db?: AuthzDb; expectClientId?: string } = {},
 ): Promise<PeriodAccess> {
   const db = opts.db ?? defaultDb();
+  const sync = currentSyncIdentity();
+  if (sync && (sync.profileId !== profileId || sync.periodId !== periodId)) throw new ForbiddenError();
   const period = await db.period.findUnique({
     where: { id: periodId },
     select: { id: true, clientId: true, organizationId: true, status: true },
