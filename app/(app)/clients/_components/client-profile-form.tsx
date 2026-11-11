@@ -162,7 +162,7 @@ function rowFromActivity(a: ClientProfileActivity, uid: number): ActivityRow {
     };
 }
 
-export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; initial: ClientProfileInitial }) {
+export function ClientProfileForm({ mode, initial, canManageArca = false, arcaConfigured = false }: { mode: "create" | "edit"; initial: ClientProfileInitial; canManageArca?: boolean; arcaConfigured?: boolean }) {
     const router = useRouter();
     const baseId = useId();
     const nextUid = useRef(initial.activities.length + 1);
@@ -489,6 +489,10 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
         setFocusRequest((n) => n + 1);
     }
 
+    const [configureArca, setConfigureArca] = useState(false);
+    const [loginCuit, setLoginCuit] = useState("");
+    const [fiscalPassword, setFiscalPassword] = useState("");
+
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
         if (stale) return; // formulario obsoleto: nunca se reenvía
@@ -529,7 +533,8 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
         const { name, cuit, condition, address, phone, contactEmail } = fields;
         const legacyRate = fields.defaultIibbRate.trim();
         const legacyChanged = legacyRate !== initial.defaultIibbRate;
-        const payload = { name, cuit, condition, address, phone, contactEmail, iibb, ...(legacyChanged ? { defaultIibbRate: legacyRate } : {}) };
+        const payload = { name, cuit, condition, address, phone, contactEmail, iibb,
+            ...(configureArca && canManageArca ? { arcaCredential: { loginCuit: loginCuit.trim() || cuit, password: fiscalPassword } } : {}), ...(legacyChanged ? { defaultIibbRate: legacyRate } : {}) };
         setLoading(true);
         try {
             const result =
@@ -681,6 +686,26 @@ export function ClientProfileForm({ mode, initial }: { mode: "create" | "edit"; 
                         <p id={id("contactEmail-hint")} style={HINT}>Dato de contacto confirmado por el estudio. No es el domicilio fiscal electrónico.</p>
                     </div>
                 </div>
+
+                {canManageArca && <fieldset style={SECTION}>
+                    <legend>Acceso a ARCA</legend>
+                    <label>
+                        <input type="checkbox" checked={configureArca} onChange={(event) => {
+                            setConfigureArca(event.target.checked);
+                            if (!event.target.checked) setFiscalPassword("");
+                        }} />
+                        {" "}{arcaConfigured ? "Actualizar acceso y clave fiscal" : "Guardar acceso y clave fiscal"}
+                    </label>
+                    {configureArca && <>
+                        <label htmlFor={id("arca-login")} style={LABEL}>CUIT de ingreso del administrador</label>
+                        <input id={id("arca-login")} className="input" inputMode="numeric" value={loginCuit}
+                            onChange={(event) => setLoginCuit(event.target.value)} />
+                        <p style={HINT}>Para empresas, ingresá el CUIT del administrador autorizado a representar a la empresa en ARCA. Para acceso propio, dejalo vacío.</p>
+                        <label htmlFor={id("arca-password")} style={LABEL}>Clave fiscal</label>
+                        <input id={id("arca-password")} className="input" type="password" autoComplete="new-password"
+                            value={fiscalPassword} onChange={(event) => setFiscalPassword(event.target.value)} />
+                    </>}
+                </fieldset>}
 
                 {/* Ingresos Brutos */}
                 <div style={SECTION}>

@@ -1,4 +1,5 @@
 import prisma from "../prisma";
+import { credentialKey } from "./credential-crypto";
 import { ARCA_WORKER_PATH, syncCredentials, syncOrigin } from "./auth";
 import { Prisma, type Role } from "@prisma/client";
 import { effectivePermissions, modulesAllow } from "../auth/permissions";
@@ -12,7 +13,7 @@ const sourceOrder = new Map<string, number>(ARCA_SYNC_SOURCES.map((source, index
 export function connectorConfig() {
     const origin = syncOrigin();
     const token = process.env.ARCA_SYNC_CONNECTOR_TOKEN;
-    return origin && token && token.length >= 32 && process.env.ARCA_SYNC_CREDENTIALS
+    return origin && token && token.length >= 32 && (process.env.ARCA_SYNC_CREDENTIALS || credentialKey())
         ? { url: new URL(ARCA_WORKER_PATH, origin), token } : null;
 }
 
@@ -31,20 +32,27 @@ async function canImport(profileId: string, organizationId: string, clientId: st
     }));
 }
 
+function hasClientCredential(client: { id: string; cuit: string; arcaCredentials: { targetCuit: string }[] }) {
+    const cuit = client.cuit.replace(/\D/g, "");
+    return client.arcaCredentials.length
+        ? Boolean(credentialKey() && client.arcaCredentials.some((row) => row.targetCuit === cuit))
+        : Boolean(syncCredentials(cuit, client.id));
+}
+
 export async function getSyncStatus(periodId: string, clientId: string) {
     const [schedule, latest, client] = await Promise.all([
         prisma.arcaSyncSchedule.findUnique({ where: { clientId }, select: { enabled: true, extraDays: true } }),
         prisma.arcaSyncTask.findFirst({
             where: { periodId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { runKey: true },
         }),
-        prisma.client.findUnique({ where: { id: clientId }, select: { cuit: true } }),
+        prisma.client.findUnique({ where: { id: clientId }, select: { id: true, cuit: true, arcaCredentials: { select: { targetCuit: true } } } }),
     ]);
     const tasks = latest ? await prisma.arcaSyncTask.findMany({
         where: { periodId, runKey: latest.runKey },
         select: { source: true, status: true, downloaded: true, imported: true, duplicates: true, pending: true, errorCode: true, issues: true, updatedAt: true },
     }) : [];
     tasks.sort((a, b) => sourceOrder.get(a.source)! - sourceOrder.get(b.source)!);
-    return { schedule, configured: Boolean(connectorConfig() && client && syncCredentials(client.cuit.replace(/\D/g, ""))), tasks };
+    return { schedule, configured: Boolean(connectorConfig() && client && hasClientCredential(client)), tasks };
 }
 
 export async function enqueueSync(periodId: string, organizationId: string, actorProfileId: string, runKey: string) {
@@ -76,13 +84,13 @@ export async function enqueueScheduledSyncs(now: Date) {
     if (!connectorConfig()) return;
     const date = scheduleDate(now);
     const schedules = await prisma.arcaSyncSchedule.findMany({
-        where: { enabled: true }, include: { client: { select: { cuit: true, periods: {
+        where: { enabled: true }, include: { client: { select: { id: true, cuit: true, arcaCredentials: { select: { targetCuit: true } }, periods: {
             where: { month: date.month, year: date.year, status: "OPEN" }, select: { id: true }, take: 1,
         } } } },
     });
     for (const schedule of schedules) {
         const period = schedule.client.periods[0];
-        if (!period || !isScheduledDay(date, schedule.extraDays) || !syncCredentials(schedule.client.cuit.replace(/\D/g, ""))) continue;
+        if (!period || !isScheduledDay(date, schedule.extraDays) || !hasClientCredential(schedule.client)) continue;
         if (await canImport(schedule.actorProfileId, schedule.organizationId, schedule.clientId, ROLES_CONFIG)) {
             await enqueueSync(period.id, schedule.organizationId, schedule.actorProfileId, date.key);
         }

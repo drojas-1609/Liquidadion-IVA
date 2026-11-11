@@ -64,6 +64,7 @@ export function normalizeContactPhone(raw: unknown): { ok: true; value: string }
 
 /** Etiqueta legible de los campos nuevos de la ficha (errores de la API); null si no es uno de ellos. */
 export function profileFieldLabel(field: string): string | null {
+    if (field === "arcaCredential") return "Acceso a ARCA";
     if (field === "phone") return "Teléfono";
     if (field === "contactEmail") return "Email de contacto";
     if (field === "iibb" || field.startsWith("iibb.")) return "Ingresos Brutos";

@@ -17,7 +17,11 @@ Una respuesta explícita de ARCA sin resultados se registra como vacía. Una des
 
 ## Despliegue y acceso
 
-Aplicar las migraciones de cuentas por proveedor e importación programada antes de publicar. Configurar `ARCA_SYNC_APP_ORIGIN`, `ARCA_SYNC_CONNECTOR_TOKEN` y `ARCA_SYNC_CREDENTIALS` en el contexto y el alcance Functions que correspondan. El token interno necesita al menos 32 caracteres. Las credenciales se configuran como secreto de Netlify, en un objeto JSON con la forma `{"CUIT":{"cuit":"CUIT","password":"…" }}`. El conector sólo acepta el acceso del mismo CUIT para esta primera versión. Las credenciales de otros clientes se incorporan cuando cada titular autorice su acceso.
+Aplicar las migraciones antes de publicar. Configurar `ARCA_SYNC_APP_ORIGIN`, `ARCA_SYNC_CONNECTOR_TOKEN` y `ARCA_CLIENT_CREDENTIAL_KEY` en Functions para el entorno correspondiente. La clave de cifrado debe tener 32 bytes aleatorios en hexadecimal. El token interno necesita al menos 32 caracteres.
+
+Desde **Nuevo Cliente** o **Editar Cliente**, Propietario y Administración pueden guardar o reemplazar el acceso a ARCA. Para una empresa, se indica el CUIT y la clave fiscal del administrador autorizado, y el conector selecciona el CUIT de la ficha en cada servicio. Si ARCA no confirma el CUIT representado, esa fuente queda marcada con una falla de representación.
+
+La clave fiscal se cifra con AES-256-GCM y queda asociada a la organización, ficha y CUIT. El formulario siempre recibe el campo de clave vacío. Para conservar el acceso anterior de Netlify, mantener `ARCA_SYNC_CREDENTIALS` y configurar `ARCA_SYNC_LEGACY_CLIENT_ID` con el ID de la ficha que ya lo usaba. Cuando esa ficha guarda un acceso cifrado, se usa el acceso de la ficha.
 
 La función programada revisa el calendario y recupera tareas interrumpidas. La función en segundo plano abre ARCA, descarga un archivo y lo envía al importador existente mediante una ruta interna autenticada. Esa ruta verifica el período, el vencimiento de la tarea, el permiso de quien la inició y los archivos antes de escribir. El importador vuelve a validar duplicados y registra la auditoría con sus reglas habituales.
 

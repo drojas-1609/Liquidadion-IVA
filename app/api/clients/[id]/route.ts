@@ -1,3 +1,4 @@
+import { parseClientCredential, saveClientCredential } from "@/lib/arca-sync/client-credential";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
@@ -69,7 +70,8 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
     await assertClientInScope(access, id);
 
     const body = await parseJsonBody(request);
-    const parsed = buildClientUpdateInput(body);
+    const credential = parseClientCredential(body, access.role);
+    const parsed = buildClientUpdateInput(body, { allowCredentialOnly: Boolean(credential) });
     if (!parsed.ok) throw new ValidationError(parsed.error, parsed.field);
 
     try {
@@ -134,6 +136,7 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 }
             }
 
+            if (credential) changed.push("arcaCredential");
             if (changed.length === 0) return current; // sin cambios: ni escritura ni AuditLog
 
             const client = await tx.client.update({
@@ -141,6 +144,7 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 // La versión avanza siempre, también si sólo cambió la ficha IIBB.
                 data: { ...data, updatedById: profileId, updatedAt: nextClientVersion(locked.updatedAt, Date.now()) },
             });
+            if (credential) await saveClientCredential(tx, client, credential);
             if (replaceProfile && iibb) await replaceIibbProfile(tx, { clientId: id, organizationId, profile: iibb });
             await recordAudit(tx, {
                 organizationId,

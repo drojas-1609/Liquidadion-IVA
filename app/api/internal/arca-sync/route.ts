@@ -46,7 +46,12 @@ export const POST = withApiAuthz(async (request: Request) => {
             return response({ error: "ACCESS_REVOKED" }, 403);
         }
         if (body.action === "task") {
+            const storedCredential = await prisma.arcaClientCredential.findUnique({
+                where: { clientId_organizationId: { clientId: task.period.clientId, organizationId: task.organizationId } },
+                select: { envelope: true, targetCuit: true },
+            });
             return response({
+                storedCredential, clientId: task.period.clientId, organizationId: task.organizationId,
                 cuit: task.period.client.cuit.replace(/\D/g, ""), year: task.period.year, month: task.period.month,
                 source: task.source, periodId: task.periodId,
             });
@@ -54,7 +59,7 @@ export const POST = withApiAuthz(async (request: Request) => {
         if (body.action === "finish") {
             const permitted = ["EMPTY", "AUTH_REQUIRED", "FAILED"];
             if (!permitted.includes(body.status)) return response({ error: "INVALID_STATUS" }, 400);
-            const allowedErrors = ["ARCA_SESSION", "ARCA_DOWNLOAD", "ARCA_FORMAT", "CREDENTIALS_MISSING", "VERIFICATION_REQUIRED"];
+            const allowedErrors = ["ARCA_SESSION", "ARCA_DOWNLOAD", "ARCA_FORMAT", "CREDENTIALS_MISSING", "VERIFICATION_REQUIRED", "REPRESENTATION_REQUIRED"];
             await prisma.arcaSyncTask.updateMany({
                 where: { id: task.id, status: "RUNNING", leaseUntil: lease },
                 data: {
@@ -68,6 +73,9 @@ export const POST = withApiAuthz(async (request: Request) => {
         }
         if (body.action !== "import" || !Array.isArray(body.files) || body.files.length < 1 || body.files.length > 4) {
             return response({ error: "INVALID_FILES" }, 400);
+        }
+        if (body.targetCuit !== task.period.client.cuit.replace(/\D/g, "")) {
+            throw new Error("ARCA_IMPORT");
         }
         let downloaded = 0;
         let imported = 0;

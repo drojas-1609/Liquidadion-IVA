@@ -22,7 +22,8 @@ export function syncOrigin() {
     }
 }
 
-export function syncCredentials(cuit: string): { cuit: string; password: string } | null {
+export function syncCredentials(cuit: string, clientId?: string): { cuit: string; password: string } | null {
+    if (!clientId || clientId !== process.env.ARCA_SYNC_LEGACY_CLIENT_ID) return null;
     try {
         const config = JSON.parse(process.env.ARCA_SYNC_CREDENTIALS ?? "{}") as Record<string, unknown>;
         const entry = config[cuit] as { cuit?: unknown; password?: unknown } | undefined;

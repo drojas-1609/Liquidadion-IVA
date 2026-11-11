@@ -39,8 +39,8 @@ describe(`migración ${MIGRATION} — revisión estática`, () => {
     // Posteriores, revisadas en su propio test (tests/schema/*).
     const LATER = ["20261027120000_activity_catalog_rate_origin", "20261028120000_arca_wsaa_ticket_cache", "20261102120000_arca_production_controls", "20261104120000_studio_users_permissions", "20261104230000_add_operator_role", "20261106120000_vat_credit_adjustments", "20261107120000_vat_export_close_versions", "20261108120000_invoice_import_deletions"];
     const allDirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-        expect(allDirs.slice(-2)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync"]);
-        const dirs = allDirs.slice(0, -2);
+        expect(allDirs.slice(-3)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential"]);
+        const dirs = allDirs.slice(0, -3);
     expect(dirs).toEqual([...Object.keys(PRIOR_SHA256), MIGRATION, ...LATER]);
     const own = createHash("sha256").update(readFileSync(migrationsDir + MIGRATION + "/migration.sql")).digest("hex");
     expect(own).toBe("9a8be750cc3f6e73b508b02b3087678c4d201c461181558db4cd7b1d07e71293");

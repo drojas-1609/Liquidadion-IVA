@@ -21,8 +21,8 @@ const code = sql.split("\n").map((l) => l.replace(/--.*$/, "")).join(" ").replac
 describe(`migración ${MIGRATION} — revisión estática`, () => {
     it("sigue a la migración ARCA previa sin cambiarla; sólo la siguen migraciones posteriores conocidas", () => {
         const allDirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-        expect(allDirs.slice(-2)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync"]);
-        const dirs = allDirs.slice(0, -2);
+        expect(allDirs.slice(-3)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential"]);
+        const dirs = allDirs.slice(0, -3);
         // Posteriores, revisadas en su propio test (tests/schema/*).
         const LATER = ["20261104120000_studio_users_permissions", "20261104230000_add_operator_role", "20261106120000_vat_credit_adjustments", "20261107120000_vat_export_close_versions", "20261108120000_invoice_import_deletions"];
         expect(dirs.slice(-1 - LATER.length)).toEqual([MIGRATION, ...LATER]);

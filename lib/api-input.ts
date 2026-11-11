@@ -610,7 +610,7 @@ export type ClientUpdateData = ClientUpdateFields & {
  * cliente que vio el formulario) es obligatorio, con la misma regla estricta que
  * comprobantes y períodos: ausente o inválido -> 422.
  */
-export function buildClientUpdateInput(body: unknown): InputResult<ClientUpdateData> {
+export function buildClientUpdateInput(body: unknown, options: { allowCredentialOnly?: boolean } = {}): InputResult<ClientUpdateData> {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return fail("body", "cuerpo inválido");
   }
@@ -665,7 +665,7 @@ export function buildClientUpdateInput(body: unknown): InputResult<ClientUpdateD
     data.iibb = iibb.value;
   }
 
-  if (Object.keys(data).length === 0) return fail("body", "no hay campos para actualizar");
+  if (Object.keys(data).length === 0 && !options.allowCredentialOnly) return fail("body", "no hay campos para actualizar");
   const expected = parseExpectedUpdatedAt(b.expectedUpdatedAt);
   if (!expected.ok) return fail("expectedUpdatedAt", CLIENT_EXPECTED_UPDATED_AT_ERROR);
   return { ok: true, data: { ...data, expectedUpdatedAt: expected.data } };

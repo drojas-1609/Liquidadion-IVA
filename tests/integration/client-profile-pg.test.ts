@@ -31,6 +31,9 @@ vi.mock("@/lib/prisma", () => ({
 }));
 vi.mock("@/lib/auth/claims", () => ({ getAuthClaims: async () => H.claims.value }));
 
+import { POST } from "@/app/api/clients/route";
+import { openCredential } from "@/lib/arca-sync/credential-crypto";
+import { cuit } from "../helpers/libro-iva-synth";
 import { DELETE, PATCH } from "@/app/api/clients/[id]/route";
 
 const P_A = "aaaaaaaa-0000-4000-8000-0000000000a1";
@@ -121,6 +124,47 @@ describe.skipIf(!URL_LOCAL)("PostgreSQL local: ficha IIBB, cascadas y protocolo 
             { params: Promise.resolve({ id }) },
         );
     const versionOf = async (id: string) => (await db.client.findUniqueOrThrow({ where: { id } })).updatedAt.toISOString();
+    it("alta y cambio de clave fiscal de una empresa sin devolver la clave en la ficha", async () => {
+        const key = Buffer.alloc(32, 7);
+        vi.stubEnv("ARCA_CLIENT_CREDENTIAL_KEY", key.toString("hex"));
+        try {
+            const loginCuit = cuit("2070000003");
+            const targetCuit = cuit("3071111111");
+            const first = "clave inicial sintética";
+            const next = "clave nueva sintética";
+            const response = await POST(new Request("http://localhost/api/clients", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    name: "Empresa sintética", cuit: targetCuit, condition: "Responsable Inscripto",
+                    phone: "+54 11 5555-0100", contactEmail: "empresa@example.invalid",
+                    arcaCredential: { loginCuit, password: first },
+                }),
+            }));
+            expect(response.status).toBe(201);
+            const body = await response.text();
+            expect(body).not.toContain(first);
+            expect(body).not.toContain("envelope");
+            const { id } = JSON.parse(body) as { id: string };
+            const scope = { clientId: id, organizationId: "org_a", targetCuit };
+            const stored = () => db.arcaClientCredential.findUniqueOrThrow({
+                where: { clientId_organizationId: { clientId: id, organizationId: "org_a" } },
+            });
+            expect(openCredential((await stored()).envelope, scope, key)).toEqual({ cuit: loginCuit, password: first });
+
+            const version = await versionOf(id);
+            const updated = await patch(id, { expectedUpdatedAt: version, arcaCredential: { loginCuit, password: next } });
+            expect(updated.status).toBe(200);
+            expect(await updated.text()).not.toContain(next);
+            expect(openCredential((await stored()).envelope, scope, key)).toEqual({ cuit: loginCuit, password: next });
+            expect((await patch(id, { expectedUpdatedAt: version, arcaCredential: { loginCuit, password: first } })).status).toBe(409);
+            expect(openCredential((await stored()).envelope, scope, key).password).toBe(next);
+            expect(JSON.stringify(await db.auditLog.findMany({ where: { targetId: id } }))).not.toContain(next);
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
     const profileV0 = () => ({
         registration: "CONVENIO_MULTILATERAL",
         jurisdictions: [{ code: "901", headquarters: true }, { code: "902" }, { code: "921" }],
