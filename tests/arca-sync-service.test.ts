@@ -36,6 +36,7 @@ describe("importación programada de ARCA", () => {
         vi.stubGlobal("fetch", fetcher);
         await expect(runNextSyncTask("period")).resolves.toBe(true);
         expect(fetcher).toHaveBeenCalledOnce();
+        expect(fetcher.mock.calls[0][0].pathname).toBe("/_arca-sync/worker");
         expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
             taskId: "task-a", lease: expect.any(String),
         });
@@ -51,7 +52,7 @@ describe("importación programada de ARCA", () => {
         expect(prisma.arcaSyncTask.createMany).not.toHaveBeenCalled();
         expect(prisma.arcaSyncTask.updateMany).toHaveBeenCalledWith({
             where: { periodId: "period", runKey: "existing", status: { in: ["FAILED", "AUTH_REQUIRED"] } },
-            data: { status: "PENDING", actorProfileId: "profile", leaseUntil: null },
+            data: { status: "PENDING", actorProfileId: "profile", leaseUntil: null, errorCode: null },
         });
     });
 });

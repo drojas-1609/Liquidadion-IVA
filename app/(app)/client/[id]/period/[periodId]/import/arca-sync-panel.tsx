@@ -88,7 +88,7 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
         <section className="card" style={{ marginBlock: "var(--spacing-md)" }} aria-label="Importación automática de ARCA">
             <h2>Importación automática de ARCA</h2>
             {status && !status.configured && <p>Falta conectar el servicio de descarga de ARCA.</p>}
-            <button type="button" disabled={!status?.configured || busy || active} onClick={() => void submit("POST")}>Importar ahora</button>
+            <button type="button" disabled={!status?.configured || busy || status.tasks.some((task) => task.status === "RUNNING")} onClick={() => void submit("POST")}>Importar ahora</button>
             {canSchedule && (
                 <form onSubmit={(event) => { event.preventDefault(); void submit("PUT"); }}>
                     <label><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Importar el día 25 de cada mes</label>

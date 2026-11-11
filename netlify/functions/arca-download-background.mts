@@ -1,7 +1,7 @@
 import { syncAuthorized, syncOrigin } from "../../lib/arca-sync/auth";
 import { downloadArca, ArcaBrowserError, type ArcaDownloadTask } from "../../lib/arca-sync/browser";
 
-export const config = { background: true };
+export const config = { background: true, path: "/_arca-sync/worker", method: "POST" };
 
 export default async function arcaDownload(request: Request) {
     if (!syncAuthorized(request.headers.get("authorization"))) return new Response(null, { status: 401 });
@@ -23,6 +23,7 @@ export default async function arcaDownload(request: Request) {
         if (!saved.ok) throw new Error("ARCA_IMPORT_FAILED");
     } catch (error) {
         const code = error instanceof ArcaBrowserError ? error.code : "ARCA_DOWNLOAD";
+        console.warn("[arca-sync] worker failure", { source: task.source, code, error: error instanceof Error ? error.name : "UnknownError" });
         await command("finish", { status: code === "ARCA_SESSION" || code === "VERIFICATION_REQUIRED" ? "AUTH_REQUIRED" : "FAILED", errorCode: code });
     }
     return new Response(null, { status: 204 });

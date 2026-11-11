@@ -5,7 +5,7 @@ import { resolveProxySession } from "@/lib/supabase/proxy-session";
 import { isSupabaseConfigError } from "@/lib/supabase/env";
 import { isPublicPath } from "@/lib/auth/proxy-matcher";
 import { sanitizeNext } from "@/lib/auth/origin";
-import { syncAuthorized } from "@/lib/arca-sync/auth";
+import { ARCA_WORKER_PATH, syncAuthorized } from "@/lib/arca-sync/auth";
 import { applySecurityHeaders } from "@/lib/security-headers";
 
 /**
@@ -50,7 +50,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return jsonDeny(403,'LOCAL_HOMO_READ_ONLY','Prueba local: guardar y modificar datos está deshabilitado.');
   }
 
-  if (pathname === "/api/internal/arca-sync") {
+  if (pathname === "/api/internal/arca-sync" || pathname === ARCA_WORKER_PATH) {
     return syncAuthorized(request.headers.get("authorization"))
       ? NextResponse.next()
       : jsonDeny(401, "UNAUTHENTICATED", "No autenticado.");
