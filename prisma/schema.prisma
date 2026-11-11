@@ -233,6 +233,7 @@ model Client {
   updatedBy      Profile?     @relation("ClientUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   arcaSyncSchedule ArcaSyncSchedule?
+  arcaCredentials ArcaClientCredential[]
   supplierAccounts SupplierPurchaseAccount[]
   periods         Period[]
   importDeletions InvoiceImportDeletion[]
@@ -1025,4 +1026,14 @@ model ArcaSyncTask {
 
   @@unique([periodId, runKey, source])
   @@index([status, updatedAt])
+}
+
+model ArcaClientCredential {
+  clientId       String
+  organizationId String
+  targetCuit     String
+  envelope       String
+  client         Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@id([clientId, organizationId])
 }

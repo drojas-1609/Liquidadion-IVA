@@ -1,10 +1,11 @@
 import { chromium, type Browser, type BrowserContext, type Page, type Download } from "playwright-core";
 import lambdaChromium from "@sparticuz/chromium";
 import { readFile } from "node:fs/promises";
+import { credentialKey, openCredential } from "./credential-crypto";
 import { syncCredentials } from "./auth";
 
 export class ArcaBrowserError extends Error {
-    constructor(readonly code: "ARCA_SESSION" | "ARCA_DOWNLOAD" | "ARCA_FORMAT" | "CREDENTIALS_MISSING" | "VERIFICATION_REQUIRED") {
+    constructor(readonly code: "ARCA_SESSION" | "ARCA_DOWNLOAD" | "ARCA_FORMAT" | "CREDENTIALS_MISSING" | "VERIFICATION_REQUIRED" | "REPRESENTATION_REQUIRED") {
         super(code);
         this.name = "ArcaBrowserError";
     }
@@ -12,6 +13,9 @@ export class ArcaBrowserError extends Error {
 
 export interface ArcaDownloadTask {
     cuit: string;
+    clientId?: string;
+    organizationId?: string;
+    storedCredential?: { targetCuit: string; envelope: string } | null;
     year: number;
     month: number;
     source: "SALES" | "PURCHASES" | "RETENTIONS" | "PERCEPTIONS";
@@ -21,8 +25,21 @@ type Credential = { cuit: string; password: string };
 type ArcaFile = { file: string; format?: "PORTAL_CSV" };
 export type ArcaDownloadResult = { files: ArcaFile[]; empty: boolean };
 
-function credentialFor(cuit: string): Credential {
-    const credential = syncCredentials(cuit);
+function credentialFor(task: ArcaDownloadTask): Credential {
+    if (task.storedCredential) {
+        const key = credentialKey();
+        if (key && task.clientId && task.organizationId && task.storedCredential.targetCuit === task.cuit) {
+            try {
+                return openCredential(task.storedCredential.envelope, {
+                    clientId: task.clientId, organizationId: task.organizationId, targetCuit: task.cuit,
+                }, key);
+            } catch {
+                throw new ArcaBrowserError("CREDENTIALS_MISSING");
+            }
+        }
+        throw new ArcaBrowserError("CREDENTIALS_MISSING");
+    }
+    const credential = syncCredentials(task.cuit, task.clientId);
     if (!credential) throw new ArcaBrowserError("CREDENTIALS_MISSING");
     return credential;
 }
@@ -61,6 +78,66 @@ async function openService(context: BrowserContext, portal: Page, name: string) 
     return page;
 }
 
+// Sólo se elige una representación si ARCA ofrece el CUIT exacto. Cada
+// servicio abre su propia sesión y puede pedir que se vuelva a seleccionarlo.
+async function selectRepresentedClient(page: Page, task: ArcaDownloadTask, loginCuit: string) {
+    if (task.cuit === loginCuit) return;
+    const formatted = `${task.cuit.slice(0, 2)}-${task.cuit.slice(2, 10)}-${task.cuit.slice(10)}`;
+    const exactCuit = new RegExp(`(?:^|[^0-9])(?:${task.cuit}|${formatted})(?:[^0-9]|$)`);
+    const chooser = page.locator("select:visible").filter({ has: page.locator("option").filter({ hasText: exactCuit }) });
+    const roleOption = page.getByRole("option", { name: exactCuit });
+    const representation = page.getByRole("combobox", { name: /represent|contribuyente|cuit/i });
+    const representedAction = page.getByText("Seleccionar representado", { exact: true });
+    const accountMenu = page.locator("#e-navbar-dropdown-toggle");
+    const representedRow = page.getByRole("radio", { name: exactCuit })
+        .or(page.getByRole("button", { name: exactCuit }))
+        .or(page.getByRole("link", { name: exactCuit }));
+    const selection = page.getByRole("button", { name: /^(aceptar|continuar|confirmar|ingresar)$/i });
+    try {
+        await chooser.or(representation).or(roleOption).or(accountMenu).or(representedRow).first().waitFor({ timeout: 15000 });
+        if (await accountMenu.isVisible()) {
+            await accountMenu.click();
+            await representedAction.click();
+        }
+        await chooser.or(representation).or(roleOption).or(representedRow).first().waitFor({ timeout: 15000 });
+        if (await chooser.count() === 1) {
+            const option = chooser.locator("option").filter({ hasText: exactCuit });
+            if (await option.count() !== 1) throw new Error();
+            const label = await option.textContent();
+            if (!label) throw new Error();
+            await chooser.selectOption({ label: label.trim() });
+        } else if (await representedRow.count() === 1) {
+            await representedRow.click();
+        } else {
+            if (await representation.count() === 1) await representation.click();
+            await roleOption.click();
+        }
+        if (await selection.count() === 1 && await selection.isVisible()) await selection.click();
+        await verifySession(page);
+        // Una opción del listado no prueba quién quedó activo. Se requiere
+        // que el servicio muestre el CUIT en su contexto fuera del selector.
+        const active = page.locator("header, nav, [role=banner], h1, h2").filter({ hasText: exactCuit });
+        await active.first().waitFor({ timeout: 15000 });
+        const contexts = await active.evaluateAll((elements) => elements
+            .filter((element) => element.getClientRects().length > 0)
+            .map((element) => {
+                const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+                const visible: string[] = [];
+                while (walker.nextNode()) {
+                    const parent = walker.currentNode.parentElement;
+                    if (!parent?.getClientRects().length || getComputedStyle(parent).visibility !== "visible") continue;
+                    if (parent.closest("select, [role=listbox], [role=option], [role=menu], [hidden], [aria-hidden=true]")) continue;
+                    visible.push(walker.currentNode.textContent ?? "");
+                }
+                return visible.join(" ");
+            }));
+        if (!contexts.some((text) => exactCuit.test(text))) throw new Error();
+    } catch (error) {
+        if (error instanceof ArcaBrowserError) throw error;
+        throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
+    }
+}
+
 async function exportedFile(context: BrowserContext, page: Page, click: () => Promise<unknown>) {
     // Algunos exportadores abren otra pestaña. Capturamos el archivo en ambas.
     let resolveDownload!: (download: Download) => void;
@@ -90,8 +167,9 @@ async function exportedFile(context: BrowserContext, page: Page, click: () => Pr
     }
 }
 
-async function invoiceFiles(context: BrowserContext, portal: Page, task: ArcaDownloadTask): Promise<ArcaDownloadResult> {
+async function invoiceFiles(context: BrowserContext, portal: Page, task: ArcaDownloadTask, loginCuit: string): Promise<ArcaDownloadResult> {
     const page = await openService(context, portal, "Portal IVA");
+    await selectRepresentedClient(page, task, loginCuit);
     await page.getByRole("button", { name: /nueva.declaracion.alt/ }).click();
     const period = `${String(task.month).padStart(2, "0")}/${task.year}`;
     await page.getByRole("combobox").selectOption({ label: period });
@@ -106,8 +184,9 @@ async function invoiceFiles(context: BrowserContext, portal: Page, task: ArcaDow
     return { files: [{ file, format: "PORTAL_CSV" }], empty: false };
 }
 
-async function taxFiles(context: BrowserContext, portal: Page, task: ArcaDownloadTask): Promise<ArcaDownloadResult> {
+async function taxFiles(context: BrowserContext, portal: Page, task: ArcaDownloadTask, loginCuit: string): Promise<ArcaDownloadResult> {
     const page = await openService(context, portal, "Mis Retenciones");
+    await selectRepresentedClient(page, task, loginCuit);
     const files: ArcaFile[] = [];
     const codes = task.source === "RETENTIONS" ? ["216", "767"] : ["767"];
     for (const [index, code] of codes.entries()) {
@@ -143,7 +222,7 @@ async function taxFiles(context: BrowserContext, portal: Page, task: ArcaDownloa
 }
 
 export async function downloadArca(task: ArcaDownloadTask, options: { executablePath?: string } = {}): Promise<ArcaDownloadResult> {
-    const credential = credentialFor(task.cuit);
+    const credential = credentialFor(task);
     let browser: Browser | undefined;
     try {
         browser = await chromium.launch({
@@ -158,8 +237,8 @@ export async function downloadArca(task: ArcaDownloadTask, options: { executable
             try {
                 const portal = await login(context, credential);
                 return task.source === "SALES" || task.source === "PURCHASES"
-                    ? await invoiceFiles(context, portal, task)
-                    : await taxFiles(context, portal, task);
+                    ? await invoiceFiles(context, portal, task, credential.cuit)
+                    : await taxFiles(context, portal, task, credential.cuit);
             } catch (error) {
                 let cause = error;
                 if (!(cause instanceof ArcaBrowserError)) {

@@ -7,7 +7,7 @@ import {
     requireAllClientsScope,
     guardPage,
 } from "@/lib/auth/authz";
-import { ROLES_CLIENT_CREATE } from "@/lib/auth/roles";
+import { ROLES_CLIENT_CREATE, ROLES_CONFIG } from "@/lib/auth/roles";
 import { AccessNotice } from "@/app/_components/access-notice";
 
 export const dynamic = "force-dynamic";
@@ -38,8 +38,8 @@ export default async function NewClientPage() {
         const { organizationId } = await resolveActiveOrganization(profileId);
         const access = await requireOrganizationRole(profileId, organizationId, ROLES_CLIENT_CREATE, { module: "CLIENTS" });
         requireAllClientsScope(access);
-        return true;
+        return ROLES_CONFIG.includes(access.role);
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    return <ClientProfileForm mode="create" initial={EMPTY} />;
+    return <ClientProfileForm mode="create" initial={EMPTY} canManageArca={guard.data} />;
 }

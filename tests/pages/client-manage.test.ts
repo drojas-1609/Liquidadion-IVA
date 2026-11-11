@@ -61,7 +61,7 @@ beforeEach(() => {
     }),
     freshRecorder(),
   );
-  H.db.current = db;
+  H.db.current = Object.assign(db, { arcaClientCredential: { findFirst: vi.fn().mockResolvedValue(null) } });
   H.claims.throw = null;
   H.claims.value = claimsFor(SUB_OWNER_A);
 });

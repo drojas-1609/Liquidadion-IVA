@@ -56,7 +56,7 @@ CLEAN_ENV=(env -i PATH="$PATH" HOME="$HOME" CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPD
 # Migraciones posteriores al DEV actual (todavía no aplicadas en DEV): quedan fuera
 # de las bases "tipo DEV" y del precheck del runner, que verifica la lista exacta
 # de DEV (scripts/arca/homologation-runner.ts EXPECTED_MIGRATIONS).
-NOT_IN_DEV='^(20261110190000_supplier_purchase_account|20261111100000_arca_sync)$'
+NOT_IN_DEV='^(20261110190000_supplier_purchase_account|20261111100000_arca_sync|20261111120000_arca_client_credential)$'
 # Última migración aplicada en DEV: runner_prev representa el DEV anterior a ella.
 LAST_IN_DEV='^20261108120000_invoice_import_deletions$'
 

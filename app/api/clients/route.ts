@@ -1,3 +1,4 @@
+import { parseClientCredential, saveClientCredential } from "@/lib/arca-sync/client-credential";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { buildClientInput } from "@/lib/api-input";
@@ -54,6 +55,7 @@ export const POST = withApiAuthz(async (request: Request) => {
     requireAllClientsScope(access);
 
     const body = await parseJsonBody(request);
+    const credential = parseClientCredential(body, access.role);
     const parsed = buildClientInput(body);
     if (!parsed.ok) throw new ValidationError(parsed.error, parsed.field);
     // Procedencia: actividades "de catálogo" y tasas "sugeridas" deben coincidir
@@ -79,6 +81,7 @@ export const POST = withApiAuthz(async (request: Request) => {
                 updatedById: profileId,
             },
         });
+        if (credential) await saveClientCredential(tx, client, credential);
         // Perfil IIBB informativo (jurisdicciones, actividades, alícuotas): no
         // modifica defaultIibbRate ni el cálculo.
         if (parsed.data.iibb && (parsed.data.iibb.jurisdictions.length > 0 || parsed.data.iibb.activities.length > 0)) {

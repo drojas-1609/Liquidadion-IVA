@@ -9,6 +9,7 @@ const LABELS: Record<string, string> = {
 };
 
 const ERROR_LABELS: Record<string, string> = {
+    REPRESENTATION_REQUIRED: "ARCA no confirmó el CUIT representado. Revisá los permisos del administrador para este servicio.",
     ARCA_SESSION: "Volvé a intentar para renovar la sesión.",
     VERIFICATION_REQUIRED: "ARCA pide una verificación para ingresar.",
     CREDENTIALS_MISSING: "Falta configurar el acceso de este CUIT.",

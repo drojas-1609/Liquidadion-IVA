@@ -19,7 +19,7 @@ export default async function arcaDownload(request: Request) {
     const task = await details.json() as ArcaDownloadTask;
     try {
         const result = await downloadArca(task);
-        const saved = await command(result.empty ? "finish" : "import", result.empty ? { status: "EMPTY" } : { files: result.files });
+        const saved = await command(result.empty ? "finish" : "import", result.empty ? { status: "EMPTY" } : { files: result.files, targetCuit: task.cuit });
         if (!saved.ok) throw new Error("ARCA_IMPORT_FAILED");
     } catch (error) {
         const code = error instanceof ArcaBrowserError ? error.code : "ARCA_DOWNLOAD";

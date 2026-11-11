@@ -181,7 +181,7 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
             const file = b64([H_RECIBIDOS, recibido(101).replace("2027-", "2028-"), recibido(102, 64).replace("2027-", "2028-")].join("\n") + "\n");
             const callback = (auth: string, taskId = task.id) => SYNC_CALLBACK(new Request("http://localhost/api/internal/arca-sync", {
                 method: "POST", headers: { Authorization: auth, "Content-Type": "application/json" },
-                body: JSON.stringify({ action: "import", taskId, lease: lease.toISOString(), files: [{ format: "MIS_COMPROBANTES", file }] }),
+                body: JSON.stringify({ action: "import", targetCuit: CLIENT_CUIT, taskId, lease: lease.toISOString(), files: [{ format: "MIS_COMPROBANTES", file }] }),
             }));
             expect((await callback("Bearer invalid")).status).toBe(401);
             expect((await callback(`Bearer ${token}`)).status).toBe(200);
