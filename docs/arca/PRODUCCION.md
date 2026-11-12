@@ -12,7 +12,7 @@ La consulta en producción exige **todas** estas capas. Si falta cualquiera, o u
 | Ambiente | `NODE_ENV=production` tomado del valor que Next inlinea en el build (no del entorno de runtime), `ARCA_PADRON_ENABLED=true`, `ARCA_PADRON_ENV=produccion` | `production-gate.ts`, `service.ts` |
 | Separación | Ninguna de `ARCA_HOMO_PREVIEW`, `ARCA_HOMO_HASTA`, `ARCA_LOCAL_HOMO`, `ARCA_LOCAL_BIND`; build de homologación ≠ `1` | `production-gate.ts` |
 | Base | `DATABASE_URL`/`DIRECT_URL` y `NEXT_PUBLIC_SUPABASE_URL` del proyecto PROD | `production-gate.ts` |
-| Destinos | Constantes fijas `https://wsaa.afip.gov.ar/ws/services/LoginCms` y `https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5`; sin perfil de transporte de homologación | `production-gate.ts`, `service.ts` |
+| Destinos | Constantes fijas `https://wsaa.afip.gov.ar/ws/services/LoginCms` y `https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5`; sin perfil de transporte de homologación | `production-gate.ts`, `service.ts` |
 | Certificado | Declarados por el operador y con coincidencia exacta: `ARCA_WSAA_CERT_SHA256` (huella del PEM) y `ARCA_WSAA_CERT_CN` (único CN del sujeto). Además: PEM legible, vigencia, `serialNumber=CUIT <11 dígitos válidos>`, pareja con la clave y RSA ≥ 2048 (`cms.ts`); cadena validada por WSAA (manual §10.2) | `productionCertificateCheck`, `config.ts` |
 | Configuración | Variables ARCA completas y válidas (`config.ts`), cupos válidos | `service.ts` |
 | Interruptor | Fila `ArcaPadronControl('global').enabled = true`, leída en cada consulta | `production-switch.ts` |

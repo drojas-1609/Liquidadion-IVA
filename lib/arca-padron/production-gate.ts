@@ -31,7 +31,7 @@ export function declaredCertificateCn(raw: string | undefined): string | null {
 }
 const PROD_REF = "bqqruaikbqculvmtirvy";
 const EXPECTED_ENDPOINTS = {
-    padron: "https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5",
+    padron: "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5",
     wsaa: "https://wsaa.afip.gov.ar/ws/services/LoginCms",
 } as const;
 const HOMO_OR_LOCAL_VARS = ["ARCA_HOMO_PREVIEW", "ARCA_HOMO_HASTA", "ARCA_LOCAL_HOMO", "ARCA_LOCAL_BIND"] as const;
