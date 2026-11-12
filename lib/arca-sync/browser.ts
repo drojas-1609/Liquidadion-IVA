@@ -65,6 +65,13 @@ async function verifySession(page: Page) {
     if (/captcha|verificá que sos|verifica que eres/i.test(text)) throw new ArcaBrowserError("VERIFICATION_REQUIRED");
 }
 
+function serviceSearch(page: Page) {
+    const label = /buscá trámites y servicios/i;
+    return page.getByPlaceholder(label)
+        .or(page.getByRole("searchbox", { name: label }))
+        .or(page.getByRole("textbox", { name: label }));
+}
+
 async function login(context: BrowserContext, credential: Credential) {
     const page = await context.newPage();
     await page.goto("https://auth.afip.gob.ar/contribuyente_/login.xhtml", { waitUntil: "domcontentloaded" });
@@ -74,7 +81,7 @@ async function login(context: BrowserContext, credential: Credential) {
     await page.locator('input[type="password"]').fill(credential.password);
     await page.getByRole("button", { name: "Ingresar", exact: true }).click();
     await page.waitForURL("https://portalcf.cloud.afip.gob.ar/portal/app/**", { timeout: 30000 });
-    await page.getByText("Portal IVA", { exact: true }).first().waitFor({ timeout: 20000 });
+    await serviceSearch(page).first().waitFor({ timeout: 20000 });
     await verifySession(page);
     const heading = await page.locator("body").innerText();
     if (!heading.replace(/\D/g, "").includes(credential.cuit)) throw new ArcaBrowserError("ARCA_SESSION");
@@ -82,9 +89,14 @@ async function login(context: BrowserContext, credential: Credential) {
 }
 
 async function openService(context: BrowserContext, portal: Page, name: string) {
+    const service = portal.getByText(name, { exact: true }).filter({ visible: true }).first();
+    if (!(await service.isVisible())) {
+        await serviceSearch(portal).first().fill(name);
+    }
+    await service.waitFor();
     const [page] = await Promise.all([
         context.waitForEvent("page", { timeout: 20000 }),
-        portal.getByText(name, { exact: true }).first().click(),
+        service.click(),
     ]);
     await page.waitForLoadState("domcontentloaded");
     await verifySession(page);
