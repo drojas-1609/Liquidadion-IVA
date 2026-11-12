@@ -112,6 +112,17 @@ describe("POST /api/arca/cuit-lookup — producción", () => {
         H.outcome = { kind: "LOOKUP", result: { status: "ERROR", code: "STORE_UNAVAILABLE" } };
         expect((await lookup({ cuit: CUIT })).status).toBe(503);
     });
+    it.each(["WSAA_OR_TICKET", "PADRON"] as const)("identifica la etapa %s en la respuesta 502", async (stage) => {
+        H.outcome = { kind: "LOOKUP", result: { status: "ERROR", code: "UNAVAILABLE", stage } };
+        const res = await lookup({ cuit: CUIT });
+        const reference = `ARCA-${stage}-UNAVAILABLE`;
+        expect(res.status).toBe(502);
+        expect((await res.json()).error).toEqual({
+            code: "ARCA_UNAVAILABLE",
+            reference,
+            message: expect.stringContaining(reference),
+        });
+    });
 });
 
 describe("GET /api/arca/lookup-audit", () => {

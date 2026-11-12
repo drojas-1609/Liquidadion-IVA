@@ -32,6 +32,8 @@ import {
  * un código.
  */
 
+type LookupStage = "WSAA_OR_TICKET" | "PADRON";
+
 export type CuitLookupResult =
     | { status: "FOUND"; cuit: string; source: string; consultedAt: string; person: PadronPerson }
     | { status: "NOT_FOUND"; cuit: string }
@@ -39,7 +41,7 @@ export type CuitLookupResult =
     | { status: "INVALID_CUIT"; error: string }
     /** Sin ticket utilizable y todavía no corresponde pedir otro (instante fijo del almacén). */
     | { status: "RETRY_LATER"; retryAfterSeconds: number }
-    | { status: "ERROR"; code: "TIMEOUT" | "UNAVAILABLE" | "AUTH" | "INVALID_RESPONSE" | "STORE_UNAVAILABLE" };
+    | { status: "ERROR"; code: "TIMEOUT" | "UNAVAILABLE" | "AUTH" | "INVALID_RESPONSE" | "STORE_UNAVAILABLE"; stage?: LookupStage };
 
 export interface LookupDeps {
     fetchImpl: typeof fetch;
@@ -120,7 +122,12 @@ export async function lookupCuit(cuitInput: unknown, deps: LookupDeps = defaultL
     if(deps.allowedCuits&&!deps.allowedCuits.includes(idPersona))return {status:"INVALID_CUIT",error:"La prueba de homologación sólo admite el CUIT titular o el ejemplo del manual de ARCA."};
     if(deps.homologationTransport&&config.environment!=="homologacion")return {status:"NOT_CONFIGURED"};
 
-    let stage: "WSAA_OR_TICKET" | "PADRON" = "WSAA_OR_TICKET";
+    let stage: LookupStage = "WSAA_OR_TICKET";
+    const failure = (code: Extract<CuitLookupResult, { status: "ERROR" }>["code"]): CuitLookupResult => ({
+        status: "ERROR",
+        code,
+        ...(deps.production ? { stage } : {}),
+    });
     try {
         const ticket = await ticketFor(deps, config);
         stage = "PADRON";
@@ -136,23 +143,23 @@ export async function lookupCuit(cuitInput: unknown, deps: LookupDeps = defaultL
             // Se conserva el ticket: queda sin uso hasta su vencimiento (no se fuerza otra autenticación).
             if(deps.ticketStore)await deps.ticketStore.reject(ticket).catch(()=>{});
             else deps.ticketCache.clear?.(ticket);
-            return {status:"ERROR",code:"AUTH"};
+            return failure("AUTH");
         }
         if (parsed.kind === "FAULT") {
             if (deps.production) console.warn("[arca-production] lookup failed", { stage, kind: "SOAP_FAULT" });
-            return { status: "ERROR", code: "UNAVAILABLE" };
+            return failure("UNAVAILABLE");
         }
-        if (parsed.kind === "INVALID") return { status: "ERROR", code: "INVALID_RESPONSE" };
+        if (parsed.kind === "INVALID") return failure("INVALID_RESPONSE");
         const consultedAt = new Date(deps.nowMs()).toISOString();
         return { status: "FOUND", cuit: cuit.value, source: PADRON_SOURCE_LABEL, consultedAt, person: parsed.person };
     } catch (err) {
         if (err instanceof LookupFailure) {
             if (deps.production) console.warn("[arca-production] lookup failed", { stage, kind: err.code, ...err.diagnostic });
-            return { status: "ERROR", code: err.code };
+            return failure(err.code);
         }
         if (err instanceof TicketUnavailable) return { status: "RETRY_LATER", retryAfterSeconds: Math.max(1, Math.ceil((err.retryAt - deps.nowMs()) / 1000)) };
-        if (err instanceof TicketStoreFailure) return { status: "ERROR", code: "STORE_UNAVAILABLE" };
+        if (err instanceof TicketStoreFailure) return failure("STORE_UNAVAILABLE");
         if (deps.production) console.warn("[arca-production] lookup failed", { stage, kind: "UNEXPECTED" });
-        return { status: "ERROR", code: "UNAVAILABLE" };
+        return failure("UNAVAILABLE");
     }
 }
