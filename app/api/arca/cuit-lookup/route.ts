@@ -26,9 +26,9 @@ const ERROR_RESPONSES = {
 const CONTROL_UNAVAILABLE = ERROR_RESPONSES.STORE_UNAVAILABLE;
 
 const waitText = (seconds: number) => (seconds < 120 ? `${seconds} segundos` : `${Math.ceil(seconds / 60)} minutos`);
-const errorJson = (status: number, code: string, message: string, retryAfterSeconds?: number) =>
+const errorJson = (status: number, code: string, message: string, retryAfterSeconds?: number, reference?: string) =>
     NextResponse.json(
-        { error: { code, message } },
+        { error: { code, message, ...(reference ? { reference } : {}) } },
         { status, headers: retryAfterSeconds === undefined ? NO_STORE : { ...NO_STORE, "Retry-After": String(retryAfterSeconds) } },
     );
 
@@ -49,7 +49,9 @@ function lookupResponse(result: CuitLookupResult) {
             return errorJson(503, "ARCA_AUTH_PENDING", `La autenticación con ARCA está en espera. Intentá de nuevo en ${waitText(result.retryAfterSeconds)} o completá los datos manualmente.`, result.retryAfterSeconds);
         case "ERROR": {
             const e = ERROR_RESPONSES[result.code];
-            return errorJson(e.status, e.code, e.message);
+            const reference = result.stage ? `ARCA-${result.stage}-${result.code}` : undefined;
+            const message = reference ? `${e.message} Referencia: ${reference}.` : e.message;
+            return errorJson(e.status, e.code, message, undefined, reference);
         }
     }
 }
