@@ -120,8 +120,10 @@ export async function lookupCuit(cuitInput: unknown, deps: LookupDeps = defaultL
     if(deps.allowedCuits&&!deps.allowedCuits.includes(idPersona))return {status:"INVALID_CUIT",error:"La prueba de homologación sólo admite el CUIT titular o el ejemplo del manual de ARCA."};
     if(deps.homologationTransport&&config.environment!=="homologacion")return {status:"NOT_CONFIGURED"};
 
+    let stage: "WSAA_OR_TICKET" | "PADRON" = "WSAA_OR_TICKET";
     try {
         const ticket = await ticketFor(deps, config);
+        stage = "PADRON";
         const xml = await postSoap(
             deps,
             deps.homologationTransport==="afip-wsdl"?PADRON_HOMO_AFIP_ENDPOINT:PADRON_ENDPOINTS[config.environment],
@@ -136,14 +138,21 @@ export async function lookupCuit(cuitInput: unknown, deps: LookupDeps = defaultL
             else deps.ticketCache.clear?.(ticket);
             return {status:"ERROR",code:"AUTH"};
         }
-        if (parsed.kind === "FAULT") return { status: "ERROR", code: "UNAVAILABLE" };
+        if (parsed.kind === "FAULT") {
+            if (deps.production) console.warn("[arca-production] lookup failed", { stage, kind: "SOAP_FAULT" });
+            return { status: "ERROR", code: "UNAVAILABLE" };
+        }
         if (parsed.kind === "INVALID") return { status: "ERROR", code: "INVALID_RESPONSE" };
         const consultedAt = new Date(deps.nowMs()).toISOString();
         return { status: "FOUND", cuit: cuit.value, source: PADRON_SOURCE_LABEL, consultedAt, person: parsed.person };
     } catch (err) {
-        if (err instanceof LookupFailure) return { status: "ERROR", code: err.code };
+        if (err instanceof LookupFailure) {
+            if (deps.production) console.warn("[arca-production] lookup failed", { stage, kind: err.code, ...err.diagnostic });
+            return { status: "ERROR", code: err.code };
+        }
         if (err instanceof TicketUnavailable) return { status: "RETRY_LATER", retryAfterSeconds: Math.max(1, Math.ceil((err.retryAt - deps.nowMs()) / 1000)) };
         if (err instanceof TicketStoreFailure) return { status: "ERROR", code: "STORE_UNAVAILABLE" };
+        if (deps.production) console.warn("[arca-production] lookup failed", { stage, kind: "UNEXPECTED" });
         return { status: "ERROR", code: "UNAVAILABLE" };
     }
 }

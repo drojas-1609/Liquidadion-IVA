@@ -1,6 +1,6 @@
 import { parseXml, soapFault, XML_MAX_BYTES, XmlParseError } from './xml';
 export class LookupFailure extends Error {
-    constructor(readonly code: 'TIMEOUT' | 'UNAVAILABLE' | 'AUTH' | 'INVALID_RESPONSE') { super(code); }
+    constructor(readonly code: 'TIMEOUT' | 'UNAVAILABLE' | 'AUTH' | 'INVALID_RESPONSE', readonly diagnostic?: { httpStatus?: number; networkCode?: string }) { super(code); }
 }
 async function boundedText(res: Response, signal: AbortSignal): Promise<string> {
     const declared = Number(res.headers.get('content-length'));
@@ -63,11 +63,11 @@ export async function postSoap(deps: {
         if (!res.ok) {
             try {
                 if (!soapFault(parseXml(text)))
-                    throw new LookupFailure('UNAVAILABLE');
+                    throw new LookupFailure('UNAVAILABLE', { httpStatus: res.status });
             }
             catch (e) {
                 if (e instanceof XmlParseError)
-                    throw new LookupFailure('UNAVAILABLE');
+                    throw new LookupFailure('UNAVAILABLE', { httpStatus: res.status });
                 throw e;
             }
         }
@@ -78,7 +78,11 @@ export async function postSoap(deps: {
             throw e;
         if (controller.signal.aborted || (e instanceof Error && e.name === 'AbortError'))
             throw new LookupFailure('TIMEOUT');
-        throw new LookupFailure('UNAVAILABLE');
+        const cause = e instanceof Error ? e.cause : undefined;
+        const code = cause && typeof cause === 'object' && 'code' in cause ? cause.code : undefined;
+        const networkCode = typeof code === 'string' && /^(?:E[A-Z0-9_]+|UND_ERR_[A-Z0-9_]+|CERT_[A-Z0-9_]+|UNABLE_TO_[A-Z0-9_]+|SELF_SIGNED_CERT_IN_CHAIN)$/.test(code) && code.length <= 64
+            ? code : undefined;
+        throw new LookupFailure('UNAVAILABLE', { networkCode });
     }
     finally {
         clearTimeout(timer);
