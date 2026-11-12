@@ -59,7 +59,8 @@ export const POST = withApiAuthz(async (request: Request) => {
         if (body.action === "finish") {
             const permitted = ["EMPTY", "AUTH_REQUIRED", "FAILED"];
             if (!permitted.includes(body.status)) return response({ error: "INVALID_STATUS" }, 400);
-            const allowedErrors = ["ARCA_SESSION", "ARCA_DOWNLOAD", "ARCA_FORMAT", "CREDENTIALS_MISSING", "VERIFICATION_REQUIRED", "REPRESENTATION_REQUIRED"];
+            const allowedErrors = ["ARCA_SESSION", "ARCA_DOWNLOAD", "ARCA_FORMAT", "CREDENTIALS_MISSING", "VERIFICATION_REQUIRED", "REPRESENTATION_REQUIRED",
+                "ARCA_TIMEOUT_LOGIN", "ARCA_TIMEOUT_SERVICE", "ARCA_TIMEOUT_REPRESENTATION", "ARCA_TIMEOUT_QUERY", "ARCA_TIMEOUT_EXPORT"];
             await prisma.arcaSyncTask.updateMany({
                 where: { id: task.id, status: "RUNNING", leaseUntil: lease },
                 data: {

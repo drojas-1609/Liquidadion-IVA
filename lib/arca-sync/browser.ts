@@ -4,10 +4,23 @@ import { readFile } from "node:fs/promises";
 import { credentialKey, openCredential } from "./credential-crypto";
 import { syncCredentials } from "./auth";
 
+export type ArcaTimeoutStage = "LOGIN" | "SERVICE" | "REPRESENTATION" | "QUERY" | "EXPORT";
+
 export class ArcaBrowserError extends Error {
-    constructor(readonly code: "ARCA_SESSION" | "ARCA_DOWNLOAD" | "ARCA_FORMAT" | "CREDENTIALS_MISSING" | "VERIFICATION_REQUIRED" | "REPRESENTATION_REQUIRED") {
+    constructor(readonly code: "ARCA_SESSION" | "ARCA_DOWNLOAD" | "ARCA_FORMAT" | "CREDENTIALS_MISSING" | "VERIFICATION_REQUIRED" | "REPRESENTATION_REQUIRED" | `ARCA_TIMEOUT_${ArcaTimeoutStage}`) {
         super(code);
         this.name = "ArcaBrowserError";
+    }
+}
+
+async function atStage<T>(stage: ArcaTimeoutStage, operation: () => Promise<T>): Promise<T> {
+    try {
+        return await operation();
+    } catch (error) {
+        if (error instanceof Error && error.name === "TimeoutError") {
+            throw new ArcaBrowserError(`ARCA_TIMEOUT_${stage}`);
+        }
+        throw error;
     }
 }
 
@@ -151,7 +164,7 @@ async function exportedFile(context: BrowserContext, page: Page, click: () => Pr
         await click();
         const download = await Promise.race([
             downloadPromise,
-            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ArcaBrowserError("ARCA_DOWNLOAD")), 45000); }),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ArcaBrowserError("ARCA_TIMEOUT_EXPORT")), 45000); }),
         ]);
         const failure = await download.failure();
         if (failure) throw new ArcaBrowserError("ARCA_DOWNLOAD");
@@ -168,8 +181,8 @@ async function exportedFile(context: BrowserContext, page: Page, click: () => Pr
 }
 
 async function invoiceFiles(context: BrowserContext, portal: Page, task: ArcaDownloadTask, loginCuit: string): Promise<ArcaDownloadResult> {
-    const page = await openService(context, portal, "Portal IVA");
-    await selectRepresentedClient(page, task, loginCuit);
+    const page = await atStage("SERVICE", () => openService(context, portal, "Portal IVA"));
+    await atStage("REPRESENTATION", () => selectRepresentedClient(page, task, loginCuit));
     await page.getByRole("button", { name: /nueva.declaracion.alt/ }).click();
     const period = `${String(task.month).padStart(2, "0")}/${task.year}`;
     await page.getByRole("combobox").selectOption({ label: period });
@@ -180,13 +193,13 @@ async function invoiceFiles(context: BrowserContext, portal: Page, task: ArcaDow
     await verifySession(page);
     const text = await page.locator("body").innerText();
     if (!text.includes(period)) throw new ArcaBrowserError("ARCA_FORMAT");
-    const file = await exportedFile(context, page, () => page.getByRole("button", { name: "CSV", exact: true }).click());
+    const file = await atStage("EXPORT", () => exportedFile(context, page, () => page.getByRole("button", { name: "CSV", exact: true }).click()));
     return { files: [{ file, format: "PORTAL_CSV" }], empty: false };
 }
 
 async function taxFiles(context: BrowserContext, portal: Page, task: ArcaDownloadTask, loginCuit: string): Promise<ArcaDownloadResult> {
-    const page = await openService(context, portal, "Mis Retenciones");
-    await selectRepresentedClient(page, task, loginCuit);
+    const page = await atStage("SERVICE", () => openService(context, portal, "Mis Retenciones"));
+    await atStage("REPRESENTATION", () => selectRepresentedClient(page, task, loginCuit));
     const files: ArcaFile[] = [];
     const codes = task.source === "RETENTIONS" ? ["216", "767"] : ["767"];
     for (const [index, code] of codes.entries()) {
@@ -211,11 +224,11 @@ async function taxFiles(context: BrowserContext, portal: Page, task: ArcaDownloa
         await verifySession(page);
         if (await noResults.isVisible()) continue;
         // Elegimos el formato de aplicativo, que conserva certificado y régimen.
-        const file = await exportedFile(context, page, async () => {
+        const file = await atStage("EXPORT", () => exportedFile(context, page, async () => {
             await exportButton.click();
             const application = page.getByText(/Exportar para Aplicativo|IVA SIMPLE/i).last();
             if (await application.isVisible()) await application.click();
-        });
+        }));
         files.push({ file });
     }
     return { files, empty: files.length === 0 };
@@ -235,13 +248,13 @@ export async function downloadArca(task: ArcaDownloadTask, options: { executable
             const context = await browser.newContext({ acceptDownloads: true, locale: "es-AR" });
             context.setDefaultTimeout(20000);
             try {
-                const portal = await login(context, credential);
-                return task.source === "SALES" || task.source === "PURCHASES"
-                    ? await invoiceFiles(context, portal, task, credential.cuit)
-                    : await taxFiles(context, portal, task, credential.cuit);
+                const portal = await atStage("LOGIN", () => login(context, credential));
+                return await atStage("QUERY", () => task.source === "SALES" || task.source === "PURCHASES"
+                    ? invoiceFiles(context, portal, task, credential.cuit)
+                    : taxFiles(context, portal, task, credential.cuit));
             } catch (error) {
                 let cause = error;
-                if (!(cause instanceof ArcaBrowserError)) {
+                if (!(cause instanceof ArcaBrowserError) || cause.code.startsWith("ARCA_TIMEOUT_")) {
                     for (const page of context.pages()) {
                         try {
                             await verifySession(page);
