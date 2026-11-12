@@ -16,6 +16,11 @@ const ERROR_LABELS: Record<string, string> = {
     ACCESS_REVOKED: "La cuenta que inició la corrida ya no tiene acceso al período.",
     DISPATCH_FAILED: "No se pudo iniciar el proceso de descarga.",
     ARCA_DOWNLOAD: "ARCA no entregó un archivo descargable.",
+    ARCA_TIMEOUT_LOGIN: "Se agotó el tiempo al iniciar sesión en ARCA.",
+    ARCA_TIMEOUT_SERVICE: "Se agotó el tiempo al abrir el servicio de ARCA.",
+    ARCA_TIMEOUT_REPRESENTATION: "Se agotó el tiempo al seleccionar el CUIT representado.",
+    ARCA_TIMEOUT_QUERY: "Se agotó el tiempo al consultar el período en ARCA.",
+    ARCA_TIMEOUT_EXPORT: "Se agotó el tiempo al descargar el archivo de ARCA.",
     ARCA_FORMAT: "El archivo no coincide con el formato de importación.",
     ARCA_IMPORT: "No se pudo confirmar la importación. Volvé a intentar.",
 };
