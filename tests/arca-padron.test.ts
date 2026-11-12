@@ -70,7 +70,7 @@ describe("padrón ws_sr_constancia_inscripcion — getPersona_v2", () => {
         expect(PADRON_SERVICE).toBe("ws_sr_constancia_inscripcion");
         expect(PADRON_ENDPOINTS).toEqual({
             homologacion: "https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5",
-            produccion: "https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5",
+            produccion: "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5",
         });
     });
     it("request: escapa token/sign y exige CUITs de 11 dígitos", () => {
@@ -297,7 +297,7 @@ describe("servicio lookupCuit (red simulada)", () => {
         expect(await lookupCuit(CUIT, d)).toMatchObject({ status: "FOUND" });
         expect((d.fetchImpl as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toEqual([
             "https://wsaa.afip.gov.ar/ws/services/LoginCms",
-            "https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5",
+            "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5",
         ]);
     });
     it("homologación web rechaza otro CUIT antes de autenticar",async()=>{

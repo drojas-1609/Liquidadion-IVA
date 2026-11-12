@@ -4,7 +4,7 @@
  *
  * Fuente: WSDL oficial publicado por ARCA
  *   homologación: https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5?WSDL
- *   producción:   https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5?WSDL
+ *   producción:   https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5?WSDL
  * (namespace `http://a5.soap.ws.server.puc.sr/`; entrada token, sign,
  * cuitRepresentada, idPersona; salida personaReturn con datosGenerales,
  * datosRegimenGeneral, datosMonotributo, errorConstancia y metadata).
@@ -24,7 +24,7 @@ export const PADRON_SOURCE_LABEL = "ARCA — Padrón Constancia de Inscripción 
 
 export const PADRON_ENDPOINTS = {
     homologacion: "https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5",
-    produccion: "https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5",
+    produccion: "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5",
 } as const;
 export type ArcaEnvironment = keyof typeof PADRON_ENDPOINTS;
 

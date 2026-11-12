@@ -119,7 +119,7 @@ Concurrencia optimista sobre el cliente **completo**: campos generales, contacto
 | | Homologación | Producción |
 |---|---|---|
 | WSAA | `https://wsaahomo.afip.gov.ar/ws/services/LoginCms` | `https://wsaa.afip.gov.ar/ws/services/LoginCms` |
-| Padrón | `https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5` | `https://aws.arca.gob.ar/sr-padron/webservices/personaServiceA5` |
+| Padrón | `https://awshomo.arca.gob.ar/sr-padron/webservices/personaServiceA5` | `https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5` |
 
 **Endpoint: `POST /api/arca/cuit-lookup`.** El cuerpo es `{ "cuit": "..." }`.
 - **Acceso:**
