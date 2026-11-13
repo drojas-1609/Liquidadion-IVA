@@ -24,6 +24,18 @@ async function atStage<T>(stage: ArcaTimeoutStage, operation: () => Promise<T>):
     }
 }
 
+// Sólo registra nombres de pasos controlados por el conector.
+async function traceStep<T>(step: string, operation: () => Promise<T>): Promise<T> {
+    try {
+        return await operation();
+    } catch (error) {
+        if (error instanceof Error && error.name === "TimeoutError") {
+            console.warn(`[arca-sync] timeout step=${step}`);
+        }
+        throw error;
+    }
+}
+
 export interface ArcaDownloadTask {
     cuit: string;
     clientId?: string;
@@ -116,17 +128,17 @@ async function selectRepresentedClient(page: Page, task: ArcaDownloadTask, login
         ).filter({ visible: true });
         if (await active.count() === 1) return;
         const relation = page.locator('[href*="#/changeRelation"]:visible');
-        await relation.click();
-        await page.waitForURL((url) => url.hash.split("?")[0] === "#/changeRelation");
+        await traceStep("portal-open-representation", () => relation.click());
+        await traceStep("portal-wait-chooser", () => page.waitForURL((url) => url.hash.split("?")[0] === "#/changeRelation"));
         const target = page.getByText(
             new RegExp(`\\[\\s*CUIT\\s*:?\\s*(?:${task.cuit}|${formatted})\\s*\\]$`, "i"),
         ).filter({ visible: true });
-        await target.first().waitFor();
+        await traceStep("portal-find-company", () => target.first().waitFor());
         if (await target.count() !== 1) throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
-        await target.click();
-        await page.waitForURL((url) => url.origin === "https://siapweb.cloud.afip.gob.ar"
-            && url.hash.split("?")[0] !== "#/changeRelation");
-        await active.waitFor();
+        await traceStep("portal-select-company", () => target.click());
+        await traceStep("portal-wait-return", () => page.waitForURL((url) => url.origin === "https://siapweb.cloud.afip.gob.ar"
+            && url.hash.split("?")[0] !== "#/changeRelation"));
+        await traceStep("portal-confirm-company", () => active.waitFor());
         await verifySession(page);
         return;
     }
@@ -288,25 +300,25 @@ async function legacyTaxFiles(context: BrowserContext, page: Page, task: ArcaDow
         });
         const tax = row(/^Impuesto retenido\s*:?$/i).locator("select");
         const taxOption = tax.locator("option").filter({ hasText: new RegExp(`^\\s*${code}\\s*-`) });
-        const taxLabel = (await taxOption.textContent())?.trim();
+        const taxLabel = (await traceStep("tax-find-code", () => taxOption.textContent()))?.trim();
         if (!taxLabel) throw new ArcaBrowserError("ARCA_FORMAT");
-        await tax.selectOption({ label: taxLabel });
+        await traceStep("tax-select-code", () => tax.selectOption({ label: taxLabel }));
 
         const kind = task.source === "RETENTIONS" ? "Retención" : "Percepción";
         const radio = row(new RegExp(`^${kind}\\s*:?$`, "i")).getByRole("radio");
         const labelled = page.getByRole("radio", { name: kind, exact: true });
         if (await labelled.count() === 1) {
-            await labelled.check();
+            await traceStep("tax-select-kind", () => labelled.check());
         } else {
             // El formulario anterior presenta los tres radios en orden fijo.
             if (await radio.count() !== 3) throw new ArcaBrowserError("ARCA_FORMAT");
-            await radio.nth(task.source === "RETENTIONS" ? 0 : 1).check();
+            await traceStep("tax-select-kind", () => radio.nth(task.source === "RETENTIONS" ? 0 : 1).check());
         }
         const dates = row(/^Fecha Ret\.\/Perc\.\s*:?$/i).locator('input[type="text"]:visible');
         if (await dates.count() !== 2) throw new ArcaBrowserError("ARCA_FORMAT");
-        await dates.nth(0).fill(startDate.replaceAll("/", ""));
-        await dates.nth(1).fill(endDate.replaceAll("/", ""));
-        await page.getByRole("button", { name: "CONSULTAR", exact: true }).click();
+        await traceStep("tax-fill-start", () => dates.nth(0).fill(startDate.replaceAll("/", "")));
+        await traceStep("tax-fill-end", () => dates.nth(1).fill(endDate.replaceAll("/", "")));
+        await traceStep("tax-submit-query", () => page.getByRole("button", { name: "CONSULTAR", exact: true }).click());
         await verifySession(page);
         if (!isLegacyTaxPage(new URL(page.url()))) throw new ArcaBrowserError("ARCA_FORMAT");
 
