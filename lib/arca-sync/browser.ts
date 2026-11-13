@@ -115,12 +115,14 @@ async function selectRepresentedClient(page: Page, task: ArcaDownloadTask, login
             new RegExp(`^representando a:\\s*.+\\[CUIT (?:${task.cuit}|${formatted})\\]$`, "i"),
         ).filter({ visible: true });
         if (await active.count() === 1) return;
-        await page.locator('a[href$="#/changeRelation"]:visible').click();
-        await page.waitForURL((url) => url.hash === "#/changeRelation");
+        const relation = page.locator('[href*="#/changeRelation"]:visible');
+        await relation.click();
+        await page.waitForURL((url) => url.hash.split("?")[0] === "#/changeRelation");
         await page.getByText("Elegí una persona para ingresar", { exact: true }).waitFor();
         const target = page.getByText(
             new RegExp(`^\\[CUIT (?:${task.cuit}|${formatted})\\]$`, "i"),
         ).filter({ visible: true });
+        await target.first().waitFor();
         if (await target.count() !== 1) throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
         await target.click();
         await page.waitForURL((url) => url.hash.startsWith("#/init"));
@@ -234,18 +236,29 @@ const isLegacyTaxPage = (url: URL) => url.origin === LEGACY_TAX_ORIGIN
 
 async function openLegacyTaxPage(context: BrowserContext, page: Page) {
     if (isLegacyTaxPage(new URL(page.url()))) return page;
+    const isLegacyService = (url: URL) => url.origin === LEGACY_TAX_ORIGIN
+        && url.pathname.startsWith("/misret/");
     const legacy = Promise.any([
-        page.waitForURL(isLegacyTaxPage).then(() => page),
+        page.waitForURL(isLegacyService).then(() => page),
         context.waitForEvent("page").then(async (popup) => {
-            await popup.waitForURL(isLegacyTaxPage);
+            await popup.waitForURL(isLegacyService);
             return popup;
         }),
-    ]);
+    ]).catch((error: AggregateError) => {
+        if (error.errors.every((cause) => cause instanceof Error && cause.name === "TimeoutError")) {
+            throw new ArcaBrowserError("ARCA_TIMEOUT_SERVICE");
+        }
+        throw error;
+    });
     const [result] = await Promise.all([
         legacy,
-        page.getByText("click aquí", { exact: true }).click(),
+        page.getByText(/^(?:click|clic) aqu[ií]$/i).click(),
     ]);
     await verifySession(result);
+    if (!isLegacyTaxPage(new URL(result.url()))) {
+        await result.getByText("Impositivas", { exact: true }).click();
+        await result.waitForURL(isLegacyTaxPage);
+    }
     return result;
 }
 
