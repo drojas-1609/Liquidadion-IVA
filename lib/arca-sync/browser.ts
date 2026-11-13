@@ -109,6 +109,25 @@ async function selectRepresentedClient(page: Page, task: ArcaDownloadTask, login
     if (task.cuit === loginCuit) return;
     const formatted = `${task.cuit.slice(0, 2)}-${task.cuit.slice(2, 10)}-${task.cuit.slice(10)}`;
     const exactCuit = new RegExp(`(?:^|[^0-9])(?:${task.cuit}|${formatted})(?:[^0-9]|$)`);
+    if (new URL(page.url()).origin === "https://siapweb.cloud.afip.gob.ar") {
+        // Portal IVA separa el usuario autenticado del CUIT representado.
+        const active = page.getByText(
+            new RegExp(`^representando a:\\s*.+\\[CUIT (?:${task.cuit}|${formatted})\\]$`, "i"),
+        ).filter({ visible: true });
+        if (await active.count() === 1) return;
+        await page.locator('a[href$="#/changeRelation"]:visible').click();
+        await page.waitForURL((url) => url.hash === "#/changeRelation");
+        await page.getByText("Elegí una persona para ingresar", { exact: true }).waitFor();
+        const target = page.getByText(
+            new RegExp(`^\\[CUIT (?:${task.cuit}|${formatted})\\]$`, "i"),
+        ).filter({ visible: true });
+        if (await target.count() !== 1) throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
+        await target.click();
+        await page.waitForURL((url) => url.hash.startsWith("#/init"));
+        await verifySession(page);
+        await active.waitFor();
+        return;
+    }
     const chooser = page.locator("select:visible").filter({ has: page.locator("option").filter({ hasText: exactCuit }) });
     const roleOption = page.getByRole("option", { name: exactCuit });
     const representation = page.getByRole("combobox", { name: /represent|contribuyente|cuit/i });
@@ -209,9 +228,88 @@ async function invoiceFiles(context: BrowserContext, portal: Page, task: ArcaDow
     return { files: [{ file, format: "PORTAL_CSV" }], empty: false };
 }
 
+const LEGACY_TAX_ORIGIN = "https://seti.afip.gob.ar";
+const isLegacyTaxPage = (url: URL) => url.origin === LEGACY_TAX_ORIGIN
+    && url.pathname === "/misret/consultaMisRetenciones.do";
+
+async function openLegacyTaxPage(context: BrowserContext, page: Page) {
+    if (isLegacyTaxPage(new URL(page.url()))) return page;
+    const legacy = Promise.any([
+        page.waitForURL(isLegacyTaxPage).then(() => page),
+        context.waitForEvent("page").then(async (popup) => {
+            await popup.waitForURL(isLegacyTaxPage);
+            return popup;
+        }),
+    ]);
+    const [result] = await Promise.all([
+        legacy,
+        page.getByText("click aquí", { exact: true }).click(),
+    ]);
+    await verifySession(result);
+    return result;
+}
+
+async function legacyTaxFiles(context: BrowserContext, page: Page, task: ArcaDownloadTask): Promise<ArcaDownloadResult> {
+    const month = String(task.month).padStart(2, "0");
+    const last = new Date(Date.UTC(task.year, task.month, 0)).getUTCDate();
+    const startDate = `01/${month}/${task.year}`;
+    const endDate = `${last}/${month}/${task.year}`;
+    const codes = task.source === "RETENTIONS" ? ["216", "767"] : ["767"];
+    const files: ArcaFile[] = [];
+
+    for (const [index, code] of codes.entries()) {
+        if (index) await page.goBack({ waitUntil: "domcontentloaded" });
+        const row = (label: RegExp) => page.getByText(label, { exact: true }).locator("xpath=ancestor::tr[1]");
+        const cuit = row(/^CUIT del retenido\s*:?$/i).locator("select");
+        await atStage("REPRESENTATION", async () => {
+            const selected = await cuit.selectOption({ label: task.cuit });
+            if (selected.length !== 1) throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
+        });
+        const tax = row(/^Impuesto retenido\s*:?$/i).locator("select");
+        const taxOption = tax.locator("option").filter({ hasText: new RegExp(`^\\s*${code}\\s*-`) });
+        const taxLabel = (await taxOption.textContent())?.trim();
+        if (!taxLabel) throw new ArcaBrowserError("ARCA_FORMAT");
+        await tax.selectOption({ label: taxLabel });
+
+        const kind = task.source === "RETENTIONS" ? "Retención" : "Percepción";
+        const radio = row(new RegExp(`^${kind}\\s*:?$`, "i")).getByRole("radio");
+        const labelled = page.getByRole("radio", { name: kind, exact: true });
+        if (await labelled.count() === 1) {
+            await labelled.check();
+        } else {
+            // El formulario anterior presenta los tres radios en orden fijo.
+            if (await radio.count() !== 3) throw new ArcaBrowserError("ARCA_FORMAT");
+            await radio.nth(task.source === "RETENTIONS" ? 0 : 1).check();
+        }
+        const dates = row(/^Fecha Ret\.\/Perc\.\s*:?$/i).locator('input[type="text"]:visible');
+        if (await dates.count() !== 2) throw new ArcaBrowserError("ARCA_FORMAT");
+        await dates.nth(0).fill(startDate.replaceAll("/", ""));
+        await dates.nth(1).fill(endDate.replaceAll("/", ""));
+        await page.getByRole("button", { name: "CONSULTAR", exact: true }).click();
+        await verifySession(page);
+        if (!isLegacyTaxPage(new URL(page.url()))) throw new ArcaBrowserError("ARCA_FORMAT");
+
+        const result = await page.locator("body").innerText();
+        const expectedCuit = new RegExp(`CUIT del Retenido\\s*:\\s*${task.cuit}(?!\\d)`, "i");
+        if (!expectedCuit.test(result)) throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
+        if (!result.includes(startDate) || !result.includes(endDate) || !new RegExp(`Impuesto retenido\\s*:\\s*${code}\\s*-`, "i").test(result)) {
+            throw new ArcaBrowserError("ARCA_FORMAT");
+        }
+
+        const exportLink = page.getByText("Exportar a Texto", { exact: true });
+        if (!(await exportLink.isVisible()) && /no (?:se encontraron|hay|existen) (?:resultados|registros|datos)/i.test(result)) continue;
+        const file = await atStage("EXPORT", () => exportedFile(context, page, () => exportLink.click()));
+        files.push({ file });
+    }
+    return { files, empty: files.length === 0 };
+}
+
 async function taxFiles(context: BrowserContext, portal: Page, task: ArcaDownloadTask, loginCuit: string): Promise<ArcaDownloadResult> {
     const page = await atStage("SERVICE", () => openService(context, portal, "Mis Retenciones"));
-    await atStage("REPRESENTATION", () => selectRepresentedClient(page, task, loginCuit));
+    if (task.cuit !== loginCuit || isLegacyTaxPage(new URL(page.url()))) {
+        const legacy = await atStage("SERVICE", () => openLegacyTaxPage(context, page));
+        return legacyTaxFiles(context, legacy, task);
+    }
     const files: ArcaFile[] = [];
     const codes = task.source === "RETENTIONS" ? ["216", "767"] : ["767"];
     for (const [index, code] of codes.entries()) {

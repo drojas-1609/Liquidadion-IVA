@@ -2,6 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { F2051_VOUCHER_TYPE_CODES, isDateInPeriod, parseIsoDateOnly } from "../api-input";
+import { parseMisRetencionesText } from "./mis-retenciones-text";
 import { raise, type ImportRowStatus } from "./common";
 import { parsePerceptionsCsv, type PerceptionRow } from "./perceptions-csv";
 import { parseRetentionsCsv, type RetentionLayout, type RetentionRow } from "./retentions-csv";
@@ -27,7 +28,7 @@ export type TaxImportRow = (PerceptionRow | (RetentionRow & { regimeCode: number
 
 export interface TaxImportPreview {
     kind: TaxImportKind;
-    layout: RetentionLayout | "PERCEPTIONS_DOWNLOAD" | null;
+    layout: RetentionLayout | "PERCEPTIONS_DOWNLOAD" | "MIS_RETENCIONES_TEXT" | null;
     rows: TaxImportRow[];
     fileErrors: string[];
     counts: Record<ImportRowStatus, number>;
@@ -67,9 +68,10 @@ export function buildTaxImportPreview(
     periodId: string,
     opts: { integerAmountsArePesos: boolean },
 ): TaxImportPreview {
-    const ret = kind === "RETENTIONS" ? parseRetentionsCsv(file) : null;
-    const parsed = ret ?? parsePerceptionsCsv(file);
-    const layout = ret ? ret.layout : parsed.fileErrors.length ? null : "PERCEPTIONS_DOWNLOAD";
+    const text = parseMisRetencionesText(file, kind);
+    const ret = !text && kind === "RETENTIONS" ? parseRetentionsCsv(file) : null;
+    const parsed = text ?? ret ?? parsePerceptionsCsv(file);
+    const layout = parsed.fileErrors.length ? null : text ? "MIS_RETENCIONES_TEXT" : ret ? ret.layout : "PERCEPTIONS_DOWNLOAD";
     const rows: TaxImportRow[] = parsed.rows.map((r) => ({ ...r, kind }));
     const seen = new Set<string>();
     for (const r of rows) {
