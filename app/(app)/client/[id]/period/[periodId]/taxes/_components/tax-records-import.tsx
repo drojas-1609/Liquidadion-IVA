@@ -17,8 +17,8 @@ interface Row { line: number; status: Status; messages: string[]; regimeCode: nu
 interface Preview { kind: Kind; layout: string | null; fileErrors: string[]; counts: Record<Status, number>; importableTotal: string; excludedTotal: string; token: string; rows: Row[] }
 
 const STATUS_LABEL: Record<Status, string> = { OK: "Se importa", DUPLICATE: "Ya registrada", REVIEW: "Revisar", ERROR: "Error" };
-const LAYOUT_LABEL: Record<string, string> = { F2051_DESIGN: "diseño de importación del F.2051 (9 campos)", ARCA_DOWNLOAD: "descarga de ARCA (10 campos)", PERCEPTIONS_DOWNLOAD: "descarga de percepciones de ARCA (8 campos)" };
-const KIND_FILE: Record<Kind, string> = { RETENTIONS: "Retenciones-AAAAMM.csv o el archivo de importación del F.2051", PERCEPTIONS: "Percepciones-impositivas-AAAAMM.csv" };
+const LAYOUT_LABEL: Record<string, string> = { F2051_DESIGN: "diseño de importación del F.2051 (9 campos)", ARCA_DOWNLOAD: "descarga de ARCA (10 campos)", PERCEPTIONS_DOWNLOAD: "descarga de percepciones de ARCA (8 campos)", MIS_RETENCIONES_TEXT: "Mis Retenciones (Exportar a Texto)" };
+const KIND_FILE: Record<Kind, string> = { RETENTIONS: "Retenciones-AAAAMM.csv, TXT de Mis Retenciones o archivo del F.2051", PERCEPTIONS: "Percepciones-impositivas-AAAAMM.csv o TXT de Mis Retenciones" };
 
 async function toBase64(f: File): Promise<string> {
     const u = new Uint8Array(await f.arrayBuffer());
@@ -104,7 +104,7 @@ export function TaxRecordsImport({ periodId }: { periodId: string }) {
                         <option value="PERCEPTIONS">Percepciones</option>
                     </select>
                 </label>
-                <input key={kind} type="file" accept=".csv,text/csv,text/plain" disabled={busy} onChange={(e) => { setFile(e.target.files?.[0] ?? null); reset(); }} aria-label="Archivo a importar" />
+                <input key={kind} type="file" accept=".csv,.txt,text/csv,text/plain" disabled={busy} onChange={(e) => { setFile(e.target.files?.[0] ?? null); reset(); }} aria-label="Archivo a importar" />
                 <label style={{ fontSize: "0.875rem" }}>
                     <input type="checkbox" checked={integerPesos} disabled={busy} onChange={(e) => { setIntegerPesos(e.target.checked); reset(); }} />{" "}
                     Confirmo que los importes sin decimales del archivo son pesos enteros
