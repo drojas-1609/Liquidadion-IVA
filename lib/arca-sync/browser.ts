@@ -112,22 +112,22 @@ async function selectRepresentedClient(page: Page, task: ArcaDownloadTask, login
     if (new URL(page.url()).origin === "https://siapweb.cloud.afip.gob.ar") {
         // Portal IVA separa el usuario autenticado del CUIT representado.
         const active = page.getByText(
-            new RegExp(`^representando a:\\s*.+\\[CUIT (?:${task.cuit}|${formatted})\\]$`, "i"),
+            new RegExp(`^representando\\s+a\\s*:\\s*.*?\\[\\s*CUIT\\s*:?\\s*(?:${task.cuit}|${formatted})\\s*\\]$`, "i"),
         ).filter({ visible: true });
         if (await active.count() === 1) return;
         const relation = page.locator('[href*="#/changeRelation"]:visible');
         await relation.click();
         await page.waitForURL((url) => url.hash.split("?")[0] === "#/changeRelation");
-        await page.getByText("Elegí una persona para ingresar", { exact: true }).waitFor();
         const target = page.getByText(
-            new RegExp(`^\\[CUIT (?:${task.cuit}|${formatted})\\]$`, "i"),
+            new RegExp(`\\[\\s*CUIT\\s*:?\\s*(?:${task.cuit}|${formatted})\\s*\\]$`, "i"),
         ).filter({ visible: true });
         await target.first().waitFor();
         if (await target.count() !== 1) throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
         await target.click();
-        await page.waitForURL((url) => url.hash.startsWith("#/init"));
-        await verifySession(page);
+        await page.waitForURL((url) => url.origin === "https://siapweb.cloud.afip.gob.ar"
+            && url.hash.split("?")[0] !== "#/changeRelation");
         await active.waitFor();
+        await verifySession(page);
         return;
     }
     const chooser = page.locator("select:visible").filter({ has: page.locator("option").filter({ hasText: exactCuit }) });
@@ -273,10 +273,18 @@ async function legacyTaxFiles(context: BrowserContext, page: Page, task: ArcaDow
     for (const [index, code] of codes.entries()) {
         if (index) await page.goBack({ waitUntil: "domcontentloaded" });
         const row = (label: RegExp) => page.getByText(label, { exact: true }).locator("xpath=ancestor::tr[1]");
-        const cuit = row(/^CUIT del retenido\s*:?$/i).locator("select");
         await atStage("REPRESENTATION", async () => {
-            const selected = await cuit.selectOption({ label: task.cuit });
-            if (selected.length !== 1) throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
+            const formatted = `${task.cuit.slice(0, 2)}-${task.cuit.slice(2, 10)}-${task.cuit.slice(10)}`;
+            const option = page.locator("option").filter({
+                hasText: new RegExp(`^\\s*(?:${task.cuit}|${formatted})\\s*$`),
+            });
+            const cuit = page.locator("select:visible").filter({ has: option });
+            await cuit.waitFor();
+            const target = cuit.locator("option").and(option);
+            if (await target.count() !== 1) throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
+            const label = await target.textContent();
+            if (!label) throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
+            await cuit.selectOption({ label: label.trim() });
         });
         const tax = row(/^Impuesto retenido\s*:?$/i).locator("select");
         const taxOption = tax.locator("option").filter({ hasText: new RegExp(`^\\s*${code}\\s*-`) });
