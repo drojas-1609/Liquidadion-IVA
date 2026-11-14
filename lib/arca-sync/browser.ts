@@ -124,7 +124,7 @@ async function selectRepresentedClient(page: Page, task: ArcaDownloadTask, login
     if (new URL(page.url()).origin === "https://siapweb.cloud.afip.gob.ar") {
         // Portal IVA separa el usuario autenticado del CUIT representado.
         const active = page.getByText(
-            new RegExp(`^representando\\s+a\\s*:\\s*.*?\\[\\s*CUIT\\s*:?\\s*(?:${task.cuit}|${formatted})\\s*\\]$`, "i"),
+            new RegExp(`representando\\s+a\\s*:\\s*[^\\[]*\\[\\s*CUIT\\s*:?\\s*(?:${task.cuit}|${formatted})\\s*\\]`, "i"),
         ).filter({ visible: true });
         if (await active.count() === 1) return;
         const relation = page.locator('[href*="#/changeRelation"]:visible');
@@ -298,11 +298,14 @@ async function legacyTaxFiles(context: BrowserContext, page: Page, task: ArcaDow
             if (!label) throw new ArcaBrowserError("REPRESENTATION_REQUIRED");
             await cuit.selectOption({ label: label.trim() });
         });
-        const tax = row(/^Impuesto retenido\s*:?$/i).locator("select");
-        const taxOption = tax.locator("option").filter({ hasText: new RegExp(`^\\s*${code}\\s*-`) });
-        const taxLabel = (await traceStep("tax-find-code", () => taxOption.textContent()))?.trim();
-        if (!taxLabel) throw new ArcaBrowserError("ARCA_FORMAT");
-        await traceStep("tax-select-code", () => tax.selectOption({ label: taxLabel }));
+        const taxOption = page.locator("option").filter({
+            hasText: new RegExp(`^\\s*${code}\\s*[-–—]`),
+        });
+        const tax = page.locator("select:visible").filter({ has: taxOption });
+        const value = await traceStep("tax-find-code", () => tax.locator("option").and(taxOption).evaluate(
+            (option: HTMLOptionElement) => option.value,
+        ));
+        await traceStep("tax-select-code", () => tax.selectOption({ value }));
 
         const kind = task.source === "RETENTIONS" ? "Retención" : "Percepción";
         const radio = row(new RegExp(`^${kind}\\s*:?$`, "i")).getByRole("radio");
