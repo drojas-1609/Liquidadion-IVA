@@ -59,7 +59,7 @@ export const POST = withApiAuthz(async (request: Request) => {
         if (body.action === "finish") {
             const permitted = ["EMPTY", "AUTH_REQUIRED", "FAILED"];
             if (!permitted.includes(body.status)) return response({ error: "INVALID_STATUS" }, 400);
-            const allowedErrors = ["ARCA_SESSION", "ARCA_DOWNLOAD", "ARCA_FORMAT", "CREDENTIALS_MISSING", "VERIFICATION_REQUIRED", "REPRESENTATION_REQUIRED",
+            const allowedErrors = ["ARCA_SESSION", "ARCA_DOWNLOAD", "ARCA_FORMAT", "ARCA_PAGE", "ARCA_PERIOD", "CREDENTIALS_MISSING", "VERIFICATION_REQUIRED", "REPRESENTATION_REQUIRED",
                 "ARCA_TIMEOUT_LOGIN", "ARCA_TIMEOUT_SERVICE", "ARCA_TIMEOUT_REPRESENTATION", "ARCA_TIMEOUT_QUERY", "ARCA_TIMEOUT_EXPORT"];
             await prisma.arcaSyncTask.updateMany({
                 where: { id: task.id, status: "RUNNING", leaseUntil: lease },
@@ -82,11 +82,15 @@ export const POST = withApiAuthz(async (request: Request) => {
         let imported = 0;
         let duplicates = 0;
         const issues: Array<{ file: number; line: number; status: string; messages: string[] }> = [];
+        // Un libro grande puede dejar miles de filas para revisar: se guarda el
+        // total en `pending` y sólo las primeras como detalle del panel.
+        const ISSUE_DETAIL_LIMIT = 200;
+        let pending = 0;
         await withSyncIdentity({
             profileId: task.actorProfileId, organizationId: task.organizationId, periodId: task.periodId,
         }, async () => {
             for (const [index, raw] of (body.files as FileInput[]).entries()) {
-                if (!raw || typeof raw.file !== "string" || raw.file.length > 2_800_000) throw new Error("ARCA_FORMAT");
+                if (!raw || typeof raw.file !== "string" || raw.file.length > 2_800_000) throw new Error("IMPORT_REJECTED");
                 const invoiceSource = task.source === "SALES" || task.source === "PURCHASES";
                 const input = invoiceSource ? {
                     clientId: task.period.clientId, category: task.source, format: raw.format ?? "PORTAL_CSV",
@@ -98,13 +102,18 @@ export const POST = withApiAuthz(async (request: Request) => {
                 const context = { params: Promise.resolve({ id: task.periodId }) };
                 const previewResponse = await (invoiceSource ? previewInvoices : importTaxes)(makeRequest(input), context);
                 const preview = await previewResponse.json();
-                if (!previewResponse.ok || preview.fileErrors?.length) throw new Error("ARCA_FORMAT");
+                if (!previewResponse.ok || preview.fileErrors?.length) {
+                    // Sólo el motivo genérico: los mensajes del lector pueden citar datos del archivo.
+                    console.warn(`[arca-sync] import rejected source=${task.source} file=${index + 1} reason=${previewResponse.ok ? "file-errors" : "preview-status"}`);
+                    throw new Error("IMPORT_REJECTED");
+                }
                 const counts = invoiceSource ? preview.reconciliation.statusCounts : preview.counts;
                 const rows = preview.rows as Array<{ line: number; status: string; messages: string[] }>;
                 downloaded += rows.length;
                 duplicates += counts.DUPLICATE ?? 0;
                 for (const row of rows.filter((r) => r.status !== "OK" && r.status !== "DUPLICATE")) {
-                    issues.push({ file: index + 1, line: row.line, status: row.status, messages: row.messages });
+                    pending++;
+                    if (issues.length < ISSUE_DETAIL_LIMIT) issues.push({ file: index + 1, line: row.line, status: row.status, messages: row.messages });
                 }
                 if (!(counts.OK > 0)) continue;
                 // Derivado del taskId y del archivo: estable al reintentar una respuesta perdida.
@@ -119,14 +128,14 @@ export const POST = withApiAuthz(async (request: Request) => {
         });
         await prisma.arcaSyncTask.updateMany({
             where: { id: task.id, status: "RUNNING", leaseUntil: lease },
-            data: { status: issues.length ? "REVIEW" : "DONE", downloaded, imported, duplicates, pending: issues.length, issues, errorCode: null, leaseUntil: null },
+            data: { status: pending ? "REVIEW" : "DONE", downloaded, imported, duplicates, pending, issues, errorCode: null, leaseUntil: null },
         });
         advance();
-        return response({ ok: true, downloaded, imported, duplicates, pending: issues.length });
+        return response({ ok: true, downloaded, imported, duplicates, pending });
     } catch (error) {
         await prisma.arcaSyncTask.updateMany({
             where: { id: task.id, status: "RUNNING", leaseUntil: lease },
-            data: { status: "FAILED", errorCode: error instanceof Error && error.message === "ARCA_FORMAT" ? "ARCA_FORMAT" : "ARCA_IMPORT", leaseUntil: null },
+            data: { status: "FAILED", errorCode: error instanceof Error && error.message === "IMPORT_REJECTED" ? "IMPORT_REJECTED" : "ARCA_IMPORT", leaseUntil: null },
         });
         advance();
         return response({ error: "IMPORT_FAILED" }, 422);

@@ -21,7 +21,10 @@ const ERROR_LABELS: Record<string, string> = {
     ARCA_TIMEOUT_REPRESENTATION: "Se agotó el tiempo al seleccionar el CUIT representado.",
     ARCA_TIMEOUT_QUERY: "Se agotó el tiempo al consultar el período en ARCA.",
     ARCA_TIMEOUT_EXPORT: "Se agotó el tiempo al descargar el archivo de ARCA.",
-    ARCA_FORMAT: "El archivo no coincide con el formato de importación.",
+    ARCA_FORMAT: "El archivo que entregó ARCA está vacío o supera el tamaño admitido.",
+    ARCA_PAGE: "La pantalla de ARCA no tiene los controles esperados. No se descargó ningún archivo.",
+    ARCA_PERIOD: "ARCA no confirmó el período pedido. No se descargó ningún archivo.",
+    IMPORT_REJECTED: "El importador rechazó el archivo descargado: no coincide con el formato de importación.",
     ARCA_IMPORT: "No se pudo confirmar la importación. Volvé a intentar.",
 };
 
@@ -117,6 +120,7 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
                         {task.errorCode && <p>{ERROR_LABELS[task.errorCode]}</p>}
                         {task.pending > 0 && <details>
                             <summary>{task.pending} filas pendientes</summary>
+                            {task.pending > task.issues.length && <p>Se muestran las primeras {task.issues.length}. La vista previa del importador las detalla todas.</p>}
                             <ul>{task.issues.map((issue) => <li key={`${issue.file}-${issue.line}`}>
                                 Fila {issue.line} del archivo {issue.file}. {issue.messages.join(" ")}
                             </li>)}</ul>
