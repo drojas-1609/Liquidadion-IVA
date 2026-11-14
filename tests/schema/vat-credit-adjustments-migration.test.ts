@@ -24,8 +24,8 @@ const code = sql
 describe(`migración ${MIGRATION} — revisión estática`, () => {
   it("sigue a la del rol Operador sin cambiarla; sólo la sigue la de exportación y cierre (y ella misma no cambia: aplicada en DEV)", () => {
     const allDirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-        expect(allDirs.slice(-3)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential"]);
-        const dirs = allDirs.slice(0, -3);
+        expect(allDirs.slice(-4)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview"]);
+        const dirs = allDirs.slice(0, -4);
     expect(dirs.at(-1)).toBe("20261108120000_invoice_import_deletions");
     expect(dirs.at(-2)).toBe("20261107120000_vat_export_close_versions");
     expect(dirs.at(-3)).toBe(MIGRATION);

@@ -1018,14 +1018,32 @@ model ArcaSyncTask {
   pending        Int @default(0)
   errorCode      String?
   issues         Json @default("[]")
+  /// Resumen de la vista previa (conteos, totales y motivos agrupados): sin datos de comprobantes.
+  preview        Json?
   leaseUntil     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  files  ArcaSyncFile[]
 
   @@unique([periodId, runKey, source])
   @@index([status, updatedAt])
+}
+
+/// Archivo descargado de ARCA mientras su vista previa espera confirmación.
+/// Se borra al confirmar, descartar o reemplazar la corrida.
+model ArcaSyncFile {
+  taskId    String
+  position  Int
+  format    String?
+  sha256    String
+  content   Bytes
+  createdAt DateTime @default(now())
+
+  task ArcaSyncTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, position])
 }
 
 model ArcaClientCredential {

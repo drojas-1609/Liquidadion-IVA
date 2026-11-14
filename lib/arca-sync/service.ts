@@ -4,7 +4,7 @@ import { ARCA_WORKER_PATH, syncCredentials, syncOrigin } from "./auth";
 import { Prisma, type Role } from "@prisma/client";
 import { effectivePermissions, modulesAllow } from "../auth/permissions";
 import { ROLES_CONFIG, ROLES_CREATE } from "../auth/roles";
-import { ARCA_SYNC_SOURCES, ARCA_SYNC_TERMINAL, isScheduledDay, scheduleDate } from "./calendar";
+import { ARCA_SYNC_AWAITING, ARCA_SYNC_SOURCES, ARCA_SYNC_TERMINAL, isScheduledDay, scheduleDate } from "./calendar";
 
 const RETRYABLE = ["FAILED", "AUTH_REQUIRED"];
 const terminal = new Set<string>(ARCA_SYNC_TERMINAL);
@@ -49,7 +49,7 @@ export async function getSyncStatus(periodId: string, clientId: string) {
     ]);
     const tasks = latest ? await prisma.arcaSyncTask.findMany({
         where: { periodId, runKey: latest.runKey },
-        select: { source: true, status: true, downloaded: true, imported: true, duplicates: true, pending: true, errorCode: true, issues: true, updatedAt: true },
+        select: { source: true, status: true, downloaded: true, imported: true, duplicates: true, pending: true, errorCode: true, issues: true, preview: true, updatedAt: true },
     }) : [];
     tasks.sort((a, b) => sourceOrder.get(a.source)! - sourceOrder.get(b.source)!);
     return { schedule, configured: Boolean(connectorConfig() && client && hasClientCredential(client)), tasks };
@@ -58,10 +58,16 @@ export async function getSyncStatus(periodId: string, clientId: string) {
 export async function enqueueSync(periodId: string, organizationId: string, actorProfileId: string, runKey: string) {
     const period = await prisma.period.findFirst({ where: { id: periodId, organizationId }, select: { clientId: true } });
     if (!period) return;
-    await prisma.arcaSyncTask.createMany({
+    const created = await prisma.arcaSyncTask.createMany({
         data: ARCA_SYNC_SOURCES.map((source) => ({ periodId, organizationId, clientId: period.clientId, actorProfileId, runKey, source })),
         skipDuplicates: true,
     });
+    if (!created.count) return;
+    // Una corrida nueva reemplaza las vistas previas sin confirmar de las anteriores:
+    // sus archivos se borran y nada de ellas se incorpora.
+    const superseded = { periodId, runKey: { not: runKey }, status: "PREVIEW" };
+    await prisma.arcaSyncFile.deleteMany({ where: { task: superseded } });
+    await prisma.arcaSyncTask.updateMany({ where: superseded, data: { status: "DISCARDED" } });
 }
 
 export async function startManualSync(periodId: string, organizationId: string, actorProfileId: string) {
@@ -69,15 +75,19 @@ export async function startManualSync(periodId: string, organizationId: string, 
         where: { periodId, status: { notIn: [...terminal] } }, orderBy: { updatedAt: "asc" }, select: { runKey: true },
     });
     if (pending) {
-        await prisma.arcaSyncTask.updateMany({
+        const retried = await prisma.arcaSyncTask.updateMany({
             where: { periodId, runKey: pending.runKey, status: { in: RETRYABLE } },
             data: { status: "PENDING", actorProfileId, leaseUntil: null, errorCode: null },
         });
-        return;
+        if (retried?.count) return "RETRIED" as const;
+        // Sin fuentes para reintentar: si hay vistas previas, primero se resuelven.
+        const awaiting = await prisma.arcaSyncTask.count({ where: { periodId, runKey: pending.runKey, status: { in: [...ARCA_SYNC_AWAITING] } } });
+        return awaiting ? "AWAITING_DECISION" as const : "RUNNING" as const;
     }
     // El bucket absorbe el doble clic simultáneo sin impedir una nueva corrida posterior.
     const runKey = `manual-${Math.floor(Date.now() / 1000)}`;
     await enqueueSync(periodId, organizationId, actorProfileId, runKey);
+    return "STARTED" as const;
 }
 
 export async function enqueueScheduledSyncs(now: Date) {

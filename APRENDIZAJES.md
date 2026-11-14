@@ -43,3 +43,17 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Regla:** ante un fallo del conector, primero el registro de la función (paso y código)
   y el DOM real con una sesión abierta por el usuario; después el cambio. Las pantallas
   observadas se reproducen en `tests/_fixtures/fake-arca.ts` con datos sintéticos.
+
+### 2026-11-14 · La corrida automática incorporaba sin mostrar nada
+
+- **Qué pasó:** «Importar ahora» confirmaba solo las filas aptas apenas terminaba la descarga.
+- **Regla:** descarga -> vista previa -> confirmación explícita, por fuente. El calendario
+  también termina en vista previa. La primera corrida de un cliente nunca incorpora sola.
+
+### 2026-11-14 · Ventas a consumidor final: todas para revisar
+
+- **Qué pasó:** las 7.113 ventas B de octubre quedaron pendientes porque Mis Comprobantes
+  no informa denominación para el documento 99.
+- **Regla:** la leyenda «CONSUMIDOR FINAL» es una sugerencia que la persona acepta al
+  confirmar; completa sólo la denominación. No se infieren alícuotas, códigos de operación
+  ni importes para cerrar una fila: lo que el archivo no informa queda pendiente con su motivo.

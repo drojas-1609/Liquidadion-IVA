@@ -4,7 +4,9 @@ import { runNextSyncTask, startManualSync } from "@/lib/arca-sync/service";
 
 vi.mock("@/lib/prisma", () => ({
     default: {
-        arcaSyncTask: { findMany: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), createMany: vi.fn() },
+        arcaSyncTask: { findMany: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), createMany: vi.fn(), count: vi.fn() },
+        arcaSyncFile: { deleteMany: vi.fn() },
+        period: { findFirst: vi.fn() },
         membership: { findUnique: vi.fn() },
     },
 }));
@@ -54,5 +56,24 @@ describe("importación programada de ARCA", () => {
             where: { periodId: "period", runKey: "existing", status: { in: ["FAILED", "AUTH_REQUIRED"] } },
             data: { status: "PENDING", actorProfileId: "profile", leaseUntil: null, errorCode: null },
         });
+    });
+
+    it("con vistas previas sin resolver no vuelve a descargar", async () => {
+        vi.mocked(prisma.arcaSyncTask.findFirst).mockResolvedValue({ runKey: "existing" } as never);
+        vi.mocked(prisma.arcaSyncTask.updateMany).mockResolvedValue({ count: 0 });
+        vi.mocked(prisma.arcaSyncTask.count).mockResolvedValue(2);
+        await expect(startManualSync("period", "org", "profile")).resolves.toBe("AWAITING_DECISION");
+        expect(prisma.arcaSyncTask.count).toHaveBeenCalledWith({ where: { periodId: "period", runKey: "existing", status: { in: ["PREVIEW", "CONFIRMING"] } } });
+        expect(prisma.arcaSyncTask.createMany).not.toHaveBeenCalled();
+    });
+
+    it("una corrida nueva descarta las vistas previas anteriores y borra sus archivos", async () => {
+        vi.mocked(prisma.arcaSyncTask.findFirst).mockResolvedValue(null);
+        vi.mocked(prisma.period.findFirst).mockResolvedValue({ clientId: "client" } as never);
+        vi.mocked(prisma.arcaSyncTask.createMany).mockResolvedValue({ count: 4 });
+        await expect(startManualSync("period", "org", "profile")).resolves.toBe("STARTED");
+        const superseded = { periodId: "period", runKey: { not: expect.stringMatching(/^manual-\d+$/) }, status: "PREVIEW" };
+        expect(prisma.arcaSyncFile.deleteMany).toHaveBeenCalledWith({ where: { task: superseded } });
+        expect(prisma.arcaSyncTask.updateMany).toHaveBeenCalledWith({ where: superseded, data: { status: "DISCARDED" } });
     });
 });

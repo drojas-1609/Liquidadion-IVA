@@ -254,3 +254,56 @@ describe("Importación de ventas frente a un rango de venta global diaria ya car
         expect(pv.rows[0].messages.join()).toMatch(/dentro del rango de venta global diaria 100–180/);
     });
 });
+
+describe("Mis Comprobantes: ventas a consumidor final sin identificar (documento 99)", () => {
+    // Forma observada el 14/11/2026: Factura B, documento 99, número 0 y denominación vacía.
+    const finalB = (nro: number, total: string, r: Parameters<typeof rates>[0], extra: Parameters<typeof emitido>[5]) => {
+        const fields = emitido("2027-10-05", 6, nro, total, r, { ...extra, name: "" }).split(";");
+        fields[6] = "99"; fields[7] = "0";
+        return fields.join(";");
+    };
+    const file = utf8([
+        H_EMITIDOS,
+        finalB(1, "121,00", { r21: ["100,00", "21,00"] }, { netTotal: "100,00", vat: "21,00" }),
+        finalB(2, "300,00", {}, { exempt: "300,00", netTotal: "0,00", vat: "0,00" }),
+        finalB(3, "121,01", { r21: ["100,00", "21,00"] }, { netTotal: "100,00", vat: "21,00" }),
+        finalB(4, "50,00", { n0: "50,00" }, { netTotal: "50,00", vat: "0,00" }),
+        finalB(5, "300,00", {}, { netTotal: "0,00", vat: "0,00" }),
+        emitido("2027-10-06", 6, 6, "121,00", { r21: ["100,00", "21,00"] }, { name: "", netTotal: "100,00", vat: "21,00" }),
+    ]);
+    const preview = (consumerFinalLegend: boolean, category: "SALES" | "PURCHASES" = "SALES") => {
+        const p = parseMisComprobantes(file, "SALES", CLIENT);
+        return buildImportPreview({ ...CTX, category, consumerFinalLegend }, p.vouchers, p.aliquots, { fileErrors: p.fileErrors, rowNotes: p.rowNotes });
+    };
+
+    it("sin confirmación quedan para revisar, con la sugerencia como motivo", () => {
+        const pv = preview(false);
+        expect(pv.rows.map((r) => r.status)).toEqual(["REVIEW", "REVIEW", "REVIEW", "REVIEW", "REVIEW", "REVIEW"]);
+        expect(pv.rows[0].messages).toEqual(["la consulta de Mis Comprobantes no informa la denominación de la contraparte (documento 99): se puede aplicar la leyenda «CONSUMIDOR FINAL»"]);
+        expect(pv.rows[0].name).toBe("");
+    });
+
+    it("con la leyenda sólo se completa la denominación: importes y alícuotas son los del archivo", () => {
+        const pv = preview(true);
+        expect(pv.rows.map((r) => r.status)).toEqual(["OK", "REVIEW", "REVIEW", "REVIEW", "REVIEW", "REVIEW"]);
+        expect(pv.rows[0].name).toBe("CONSUMIDOR FINAL");
+        expect(pv.rows[0].notes.join(" ")).toMatch(/«CONSUMIDOR FINAL» aplicada por confirmación/);
+        expect(pv.rows[0].model!.vatLines.map((l) => [l.vatRateCode, l.netAmount.toFixed(2), l.vatAmount.toFixed(2)])).toEqual([[5, "100.00", "21.00"]]);
+        expect(pv.rows[0].model!.voucherTotalAmount.toFixed(2)).toBe("121.00");
+        expect(pv.reconciliation.statusCounts).toEqual({ OK: 1, DUPLICATE: 0, REVIEW: 5, ERROR: 0 });
+    });
+
+    it("no cierra filas por inferencia: exenta sin código, diferencia de total y neto al 0 % siguen pendientes", () => {
+        const pv = preview(true);
+        expect(pv.rows[1].messages).toEqual(["venta B exenta o no gravada según la consulta de Mis Comprobantes (sin IVA): falta el código de operación, que la consulta no informa"]);
+        expect(pv.rows[2].messages.join(" ")).toMatch(/el total informado 121\.01 no coincide/);
+        expect(pv.rows[3].messages.join(" ")).toMatch(/0 %.*código de operación/);
+        // Sin exento ni no gravado que expliquen el total, falta información.
+        expect(pv.rows[4].messages.join(" ")).toMatch(/venta B sin detalle de alícuotas: no se puede determinar el débito fiscal/);
+    });
+
+    it("no toca a un receptor identificado sin denominación ni a las compras", () => {
+        expect(preview(true).rows[5].messages).toEqual(["la consulta de Mis Comprobantes no informa la denominación de la contraparte: completarla antes de importar"]);
+        expect(preview(true).rows[5].name).toBe("");
+    });
+});

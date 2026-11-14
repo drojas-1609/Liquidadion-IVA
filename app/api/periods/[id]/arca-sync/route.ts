@@ -41,7 +41,10 @@ export const POST = withApiAuthz(async (_request: Request, context: Context) => 
     if (!(await getSyncStatus(id, period.clientId)).configured) {
         throw new ConflictError("Falta conectar el servicio de descarga de ARCA.");
     }
-    await startManualSync(id, organizationId, profileId);
+    const started = await startManualSync(id, organizationId, profileId);
+    if (started === "AWAITING_DECISION") {
+        throw new ConflictError("Hay una vista previa sin resolver: confirmá o descartá cada fuente antes de volver a descargar.");
+    }
     after(async () => { await runNextSyncTask(id); });
     return NextResponse.json(await getSyncStatus(id, period.clientId), { status: 202 });
 });

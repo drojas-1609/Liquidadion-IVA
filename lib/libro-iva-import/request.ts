@@ -26,6 +26,8 @@ export interface ImportRequest {
      * (por defecto): quedan para revisar.
      */
     reimportDeleted: boolean;
+    /** true: las ventas con documento 99 sin denominación toman la leyenda «CONSUMIDOR FINAL» (confirmación expresa). */
+    consumerFinalLegend: boolean;
     /** Sólo confirmación: identificador de la operación generado por el navegador (UUID). */
     operationId: string | null;
     /** Sólo confirmación, opcional: identificador de ESTE envío (UUID). Un reintento de la misma operación lleva otro. */
@@ -67,9 +69,11 @@ export function parseImportRequest(body: unknown, opts: { requireToken: boolean 
     }
     if (b.acceptPartial !== undefined && typeof b.acceptPartial !== "boolean") return { ok: false, field: "acceptPartial", error: "acceptPartial debe ser booleano" };
     if (b.reimportDeleted !== undefined && typeof b.reimportDeleted !== "boolean") return { ok: false, field: "reimportDeleted", error: "reimportDeleted debe ser booleano" };
+    if (b.consumerFinalLegend !== undefined && typeof b.consumerFinalLegend !== "boolean") return { ok: false, field: "consumerFinalLegend", error: "consumerFinalLegend debe ser booleano" };
     return {
         ok: true,
         data: { clientId: b.clientId, category: b.category, format, vouchers: vouchers.bytes, aliquots: aliquots.bytes, token, acceptPartial: b.acceptPartial === true, reimportDeleted: b.reimportDeleted === true,
+            consumerFinalLegend: b.consumerFinalLegend === true,
             operationId: opts.requireToken ? (b.operationId as string) : null,
             attemptId: opts.requireToken && typeof b.attemptId === "string" ? b.attemptId : null },
     };
