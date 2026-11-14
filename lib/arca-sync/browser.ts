@@ -228,12 +228,12 @@ async function exportedFile(context: BrowserContext, page: Page, click: () => Pr
 async function invoiceFiles(context: BrowserContext, portal: Page, task: ArcaDownloadTask, loginCuit: string): Promise<ArcaDownloadResult> {
     const page = await atStage("SERVICE", () => openService(context, portal, "Portal IVA"));
     await atStage("REPRESENTATION", () => selectRepresentedClient(page, task, loginCuit));
-    await page.getByRole("button", { name: /nueva.declaracion.alt/ }).click();
+    await traceStep("portal-open-periods", () => page.getByRole("button", { name: /^(?:ingresar|nueva.declaracion.alt)$/i }).click());
     const period = `${String(task.month).padStart(2, "0")}/${task.year}`;
-    await page.getByRole("combobox").selectOption({ label: period });
-    await page.getByRole("button", { name: /validar.periodo/ }).click();
-    await page.getByRole("button", { name: /btn.home.liva/ }).click();
-    await page.waitForURL(/liva\.afip\.gob\.ar/);
+    await traceStep("portal-select-period", () => page.getByRole("combobox").selectOption({ label: period }));
+    await traceStep("portal-validate-period", () => page.getByRole("button", { name: /^(?:continuar|validar.periodo)$/i }).click());
+    await traceStep("portal-open-ledger", () => page.getByRole("button", { name: /btn.home.liva|^libro iva digital$/i }).click());
+    await traceStep("portal-wait-ledger", () => page.waitForURL((url) => url.origin === "https://liva.afip.gob.ar"));
     await page.getByRole("link", { name: task.source === "SALES" ? /Libro Ventas Registr/ : /Libro Compras Registr/ }).click();
     await verifySession(page);
     const text = await page.locator("body").innerText();
@@ -308,17 +308,23 @@ async function legacyTaxFiles(context: BrowserContext, page: Page, task: ArcaDow
         await traceStep("tax-select-code", () => tax.selectOption({ value }));
 
         const kind = task.source === "RETENTIONS" ? "Retención" : "Percepción";
-        const radio = row(new RegExp(`^${kind}\\s*:?$`, "i")).getByRole("radio");
+        const radio = tax.locator("xpath=ancestor::form[1]").getByRole("radio");
         const labelled = page.getByRole("radio", { name: kind, exact: true });
         if (await labelled.count() === 1) {
             await traceStep("tax-select-kind", () => labelled.check());
         } else {
             // El formulario anterior presenta los tres radios en orden fijo.
-            if (await radio.count() !== 3) throw new ArcaBrowserError("ARCA_FORMAT");
+            if (await radio.count() !== 3) {
+                console.warn("[arca-sync] format step=tax-kind-fields");
+                throw new ArcaBrowserError("ARCA_FORMAT");
+            }
             await traceStep("tax-select-kind", () => radio.nth(task.source === "RETENTIONS" ? 0 : 1).check());
         }
-        const dates = row(/^Fecha Ret\.\/Perc\.\s*:?$/i).locator('input[type="text"]:visible');
-        if (await dates.count() !== 2) throw new ArcaBrowserError("ARCA_FORMAT");
+        const dates = row(/^Fecha Ret\.\/Perc\.\s*:?$/i).locator('input:is([type="text"], :not([type])):visible');
+        if (await dates.count() !== 2) {
+            console.warn("[arca-sync] format step=tax-date-fields");
+            throw new ArcaBrowserError("ARCA_FORMAT");
+        }
         await traceStep("tax-fill-start", () => dates.nth(0).fill(startDate.replaceAll("/", "")));
         await traceStep("tax-fill-end", () => dates.nth(1).fill(endDate.replaceAll("/", "")));
         await traceStep("tax-submit-query", () => page.getByRole("button", { name: "CONSULTAR", exact: true }).click());
