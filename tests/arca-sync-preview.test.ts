@@ -81,7 +81,13 @@ describe("confirmación explícita", () => {
     it("incorpora la variante que vio la persona, con la leyenda sólo si la eligió", async () => {
         const seen = await buildSyncPreview(task, [file()], salesInvoke().invoke);
         const { invoke, calls } = salesInvoke();
-        const result = await confirmSyncPreview(task, [file()], seen, { consumerFinalLegend: true }, invoke);
+        // PostgreSQL JSONB puede devolver las claves en otro orden.
+        const stored = JSON.parse(JSON.stringify(seen, (_key, value) =>
+            value && typeof value === "object" && !Array.isArray(value)
+                ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.length - b.length || a.localeCompare(b)))
+                : value,
+        ));
+        const result = await confirmSyncPreview(task, [file()], stored, { consumerFinalLegend: true }, invoke);
         expect(result.imported).toBe(1);
         expect(result.summary.confirmed).toEqual({ consumerFinalLegend: true, imported: 1 });
         const confirm = calls.filter((entry) => entry.call === "INVOICE_CONFIRM");

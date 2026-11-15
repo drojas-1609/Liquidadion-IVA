@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 /**
  * Resumen de la vista previa de una fuente descargada de ARCA (lógica pura).
  * Lo arma la ruta interna con la respuesta del importador existente y lo
@@ -140,5 +142,5 @@ export function consumerFinalRows(preview: InvoicePreviewJson) {
 
 /** ¿La vista previa recalculada coincide con la que vio el usuario? */
 export function sameVariant(a: SyncVariant, b: SyncVariant) {
-    return JSON.stringify([a.counts, a.invoices ?? null, a.taxes ?? null]) === JSON.stringify([b.counts, b.invoices ?? null, b.taxes ?? null]);
+    return isDeepStrictEqual([a.counts, a.invoices, a.taxes], [b.counts, b.invoices, b.taxes]);
 }
