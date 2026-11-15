@@ -18,6 +18,7 @@ vi.mock("next/server", async (original) => ({
 }));
 
 import { POST as SYNC_CALLBACK } from "@/app/api/internal/arca-sync/route";
+import { POST as SYNC_DECISION } from "@/app/api/periods/[id]/arca-sync/decision/route";
 import { POST as PREVIEW } from "@/app/api/periods/[id]/libro-iva-import/preview/route";
 import { POST as CONFIRM } from "@/app/api/periods/[id]/libro-iva-import/confirm/route";
 import { POST as TAX_IMPORT } from "@/app/api/periods/[id]/tax-import/route";
@@ -167,7 +168,7 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
         expect(otherAgent.status).toBe(201);
     });
 
-    it("la tarea automática autentica el envío, reutiliza el importador y conserva duplicados y pendientes", async () => {
+    it("la tarea automática autentica el envío y deja una vista previa; sólo la confirmación de una persona incorpora", async () => {
         const target = await db.period.create({ data: { clientId: "c_dl", organizationId: ORG, month: 10, year: 2028 } });
         const lease = new Date(Date.now() + 60000);
         const task = await db.arcaSyncTask.create({ data: {
@@ -186,18 +187,40 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
             expect((await callback("Bearer invalid")).status).toBe(401);
             expect((await callback(`Bearer ${token}`)).status).toBe(200);
             expect((await callback(`Bearer ${token}`)).status).toBe(409);
-            expect(await db.arcaSyncTask.findUnique({ where: { id: task.id } })).toMatchObject({
-                status: "REVIEW", downloaded: 2, imported: 1, duplicates: 0, pending: 1, leaseUntil: null,
-            });
+            // Descarga + vista previa: nada incorporado, archivo en espera.
+            const previewed = await db.arcaSyncTask.findUnique({ where: { id: task.id } });
+            expect(previewed).toMatchObject({ status: "PREVIEW", downloaded: 2, imported: null, duplicates: 0, pending: 1, leaseUntil: null });
+            expect(previewed!.preview).toMatchObject({ version: 1, counts: { OK: 1, DUPLICATE: 0, REVIEW: 1, ERROR: 0 }, invoices: { importable: { total: "1210.00", vat: "210.00" }, byRate: [{ code: "0005", net: "1000.00", vat: "210.00" }] } });
+            expect(JSON.stringify(previewed!.preview)).not.toContain(SELLER);
+            expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(0);
+            expect(await db.arcaSyncFile.count({ where: { taskId: task.id } })).toBe(1);
+
+            const decide = (body: Record<string, unknown>) => SYNC_DECISION(new Request(`http://localhost/api/periods/${target.id}/arca-sync/decision`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+            }), ctx(target.id));
+            H.sub = VIEWER;
+            expect((await decide({ source: "PURCHASES", action: "confirm" })).status).toBe(403);
+            H.sub = OWNER;
+            expect((await decide({ source: "PURCHASES", action: "confirm", consumerFinalLegend: true })).status).toBe(400);
+            expect((await decide({ source: "PURCHASES", action: "confirm" })).status).toBe(200);
+            expect(await db.arcaSyncTask.findUnique({ where: { id: task.id } })).toMatchObject({ status: "REVIEW", downloaded: 2, imported: 1, duplicates: 0, pending: 1 });
             expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(1);
+            expect(await db.arcaSyncFile.count({ where: { taskId: task.id } })).toBe(0);
+            // Ya resuelta: una segunda confirmación no vuelve a escribir.
+            expect((await decide({ source: "PURCHASES", action: "confirm" })).status).toBe(409);
+
+            // Otra corrida trae lo mismo: se ve como duplicado y se puede descartar.
+            H.sub = null;
             const retry = await db.arcaSyncTask.create({ data: {
                 clientId: "c_dl", periodId: target.id, organizationId: ORG, actorProfileId: OWNER, runKey: "smoke-retry",
-                source: "PURCHASES", status: "RUNNING", leaseUntil: lease,
+                source: "PURCHASES", status: "RUNNING", leaseUntil: lease, createdAt: new Date(Date.now() + 1000),
             } });
             expect((await callback(`Bearer ${token}`, retry.id)).status).toBe(200);
-            expect(await db.arcaSyncTask.findUnique({ where: { id: retry.id } })).toMatchObject({
-                imported: 0, duplicates: 1, pending: 1,
-            });
+            expect(await db.arcaSyncTask.findUnique({ where: { id: retry.id } })).toMatchObject({ status: "PREVIEW", imported: null, duplicates: 1, pending: 1 });
+            H.sub = OWNER;
+            expect((await decide({ source: "PURCHASES", action: "discard" })).status).toBe(200);
+            expect(await db.arcaSyncTask.findUnique({ where: { id: retry.id } })).toMatchObject({ status: "DISCARDED" });
+            expect(await db.arcaSyncFile.count({ where: { taskId: retry.id } })).toBe(0);
             expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(1);
         } finally {
             vi.unstubAllEnvs();

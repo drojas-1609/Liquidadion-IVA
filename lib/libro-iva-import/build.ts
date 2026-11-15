@@ -18,7 +18,7 @@ import {
 import { checkVoucherDate, type InvoiceWarning } from "../invoice-rules";
 import { DOCUMENT_TYPES, VAT_RATES, VOUCHER_TYPES, VOUCHER_LIQUIDACIONES_A, CURRENCY_PESOS } from "../arca/catalogs";
 import { normalizeImportedDocNumber } from "../arca/document-rules";
-import { UNIDENTIFIED_DOC_TYPE, unidentifiedExportProblem } from "../arca/unidentified-buyer";
+import { LEGEND_UNIDENTIFIED, UNIDENTIFIED_DOC_TYPE, unidentifiedExportProblem } from "../arca/unidentified-buyer";
 import { VOUCHER_INT_MAX } from "../api-input";
 import type { LidCategory, ParsedFile, ParsedRecord } from "./format";
 
@@ -161,6 +161,16 @@ export interface PreviewContext {
      */
     source?: ImportSource;
     /**
+     * Sugerencia «CONSUMIDOR FINAL» (confirmación expresa del usuario): en una
+     * descarga, una VENTA con documento 99 y denominación vacía toma la leyenda
+     * «CONSUMIDOR FINAL» (Libro IVA Digital, Especificaciones, Ventas, campos 6
+     * a 8; ver lib/arca/unidentified-buyer). Sólo completa la denominación: no
+     * agrupa comprobantes ni toca importes, alícuotas o códigos, y la fila pasa
+     * igual por los controles del documento 99 (clase B o C, número 0, umbral).
+     * Sin la confirmación, esas filas quedan para revisar.
+     */
+    consumerFinalLegend?: boolean;
+    /**
      * CUIT del informante (el cliente), sólo dígitos. Un 063 cuyo campo 23
      * "CUIT Emisor / Corredor" es esta CUIT no tiene intermediario
      * (Especificaciones, Libro Compras, campo 23).
@@ -270,6 +280,9 @@ function draft(line: number): RowDraft {
     };
 }
 
+/** Motivo de revisión que la sugerencia «CONSUMIDOR FINAL» resuelve (se usa para contarlo). */
+export const CONSUMER_FINAL_PENDING = (label: string) => `${label} no informa la denominación de la contraparte (documento 99): se puede aplicar la leyenda «${LEGEND_UNIDENTIFIED}»`;
+
 /** Modelo de una fila con sus alícuotas ya vinculadas. */
 function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, aliquots: ParsedRecord[], d: RowDraft): void {
     const v = rec.values;
@@ -304,7 +317,13 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     if (row.name === "") {
         // La descarga de Portal IVA deja vacía la denominación de algunos consumidores
         // identificados (p. ej. con DNI): falta un dato, no es un registro inválido.
-        if (downloadLabel(ctx.source)) d.raise("REVIEW", `${downloadLabel(ctx.source)} no informa la denominación de la contraparte: completarla antes de importar`);
+        const label = downloadLabel(ctx.source);
+        const unidentifiedSale = label !== null && category === "SALES" && Number(str(v.docType)) === UNIDENTIFIED_DOC_TYPE;
+        if (unidentifiedSale && ctx.consumerFinalLegend) {
+            row.name = LEGEND_UNIDENTIFIED;
+            row.notes.push(`denominación «${LEGEND_UNIDENTIFIED}» aplicada por confirmación: ${label} informa documento 99 sin denominación`);
+        } else if (unidentifiedSale) d.raise("REVIEW", CONSUMER_FINAL_PENDING(label));
+        else if (label) d.raise("REVIEW", `${label} no informa la denominación de la contraparte: completarla antes de importar`);
         else d.raise("ERROR", "apellido y nombre o denominación vacío");
     }
 
@@ -402,7 +421,16 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
         if (category === "SALES" && vt.letter === "C") {
             // Venta C sin IVA: el neto va sin discriminación.
         } else if (category === "SALES" && vt.letter === "B") {
-            d.raise("REVIEW", "venta B sin detalle de alícuotas: no se puede determinar el débito fiscal");
+            // Sin detalle de alícuotas hay dos casos que el archivo sí distingue:
+            // el total se explica con exento / no gravado / otros tributos (no hay
+            // IVA que determinar, pero falta el código de operación) o no se
+            // explica (falta información). Ninguno se completa por inferencia.
+            const withoutVat = sum([header.nonTaxed, header.exempt, header.vatPerception, header.nationalPerception, header.iibbPerception,
+                header.municipalPerception, header.internalTaxes, header.otherTaxes].map((x) => x.abs()));
+            const backed = download !== null && (!header.exempt.isZero() || !header.nonTaxed.isZero()) && withoutVat.equals(header.total.abs());
+            d.raise("REVIEW", backed
+                ? `venta B exenta o no gravada según ${download} (sin IVA): falta el código de operación, que la consulta no informa`
+                : "venta B sin detalle de alícuotas: no se puede determinar el débito fiscal");
         } else if (download && (!header.exempt.isZero() || !header.nonTaxed.isZero())) {
             // Comprobante sólo exento / no gravado: la descarga no trae línea de alícuota 0 % ni código de operación.
             d.row.notes.push(`operación exenta o no gravada: ${download} no informa el código de operación`);

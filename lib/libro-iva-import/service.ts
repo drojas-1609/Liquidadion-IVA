@@ -48,6 +48,8 @@ export interface ImportFiles {
     aliquots: Uint8Array;
     /** Volver a importar los importados eliminados de la app (confirmación expresa). */
     reimportDeleted?: boolean;
+    /** Aplicar la leyenda «CONSUMIDOR FINAL» a las ventas con documento 99 sin denominación (confirmación expresa). */
+    consumerFinalLegend?: boolean;
 }
 
 const sha256 = (b: Uint8Array | string) => createHash("sha256").update(b).digest("hex");
@@ -138,6 +140,7 @@ export async function previewImport(scope: ImportScope, files: ImportFiles, db: 
         editedKeys: await editedImportKeys(db, scope, files.category),
         deletedLookup: (key: string) => deleted.get(importKeyHash(key)),
         reimportDeleted: files.reimportDeleted === true,
+        consumerFinalLegend: files.consumerFinalLegend === true,
         rangeOf: (code: number, pos: number, n: number) => ranges.find((r) => r.voucherCode === code && r.pointOfSale === pos && r.from <= n && n <= r.to),
         informantCuit: period.client.cuit.replace(/\D/g, ""),
     };
@@ -155,6 +158,8 @@ export async function previewImport(scope: ImportScope, files: ImportFiles, db: 
     const vouchersSha256 = sha256(files.vouchers), aliquotsSha256 = sha256(files.aliquots);
     const token = sha256(JSON.stringify({
         v: 2, ...scope, category: files.category, format, vouchersSha256, aliquotsSha256, reimportDeleted: files.reimportDeleted === true,
+        // Sólo cuando se pide: los tokens de las vistas previas sin la sugerencia no cambian.
+        ...(files.consumerFinalLegend === true ? { consumerFinalLegend: true } : {}),
         settings: [settings.creditProrationMode, settings.turivaIncluded],
         rows: preview.rows.map((r) => [r.line, r.status, r.key]),
         fileErrors: preview.fileErrors,

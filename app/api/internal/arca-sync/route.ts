@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { after, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { syncAuthorized } from "@/lib/arca-sync/auth";
@@ -6,9 +5,9 @@ import { enqueueScheduledSyncs, runNextSyncTask } from "@/lib/arca-sync/service"
 import { withSyncIdentity } from "@/lib/arca-sync/identity";
 import { requirePeriodAccess, withApiAuthz } from "@/lib/auth/authz";
 import { ROLES_CREATE } from "@/lib/auth/roles";
-import { POST as previewInvoices } from "@/app/api/periods/[id]/libro-iva-import/preview/route";
-import { POST as confirmInvoices } from "@/app/api/periods/[id]/libro-iva-import/confirm/route";
-import { POST as importTaxes } from "@/app/api/periods/[id]/tax-import/route";
+import type { Prisma } from "@prisma/client";
+import { buildSyncPreview, fileSha256, ImportRejectedError, type SyncFile, type SyncSource } from "@/lib/arca-sync/preview-run";
+import { importerInvoke } from "@/lib/arca-sync/importer-invoke";
 
 export const maxDuration = 60;
 
@@ -59,7 +58,7 @@ export const POST = withApiAuthz(async (request: Request) => {
         if (body.action === "finish") {
             const permitted = ["EMPTY", "AUTH_REQUIRED", "FAILED"];
             if (!permitted.includes(body.status)) return response({ error: "INVALID_STATUS" }, 400);
-            const allowedErrors = ["ARCA_SESSION", "ARCA_DOWNLOAD", "ARCA_FORMAT", "CREDENTIALS_MISSING", "VERIFICATION_REQUIRED", "REPRESENTATION_REQUIRED",
+            const allowedErrors = ["ARCA_SESSION", "ARCA_DOWNLOAD", "ARCA_FORMAT", "ARCA_PAGE", "ARCA_PERIOD", "CREDENTIALS_MISSING", "VERIFICATION_REQUIRED", "REPRESENTATION_REQUIRED",
                 "ARCA_TIMEOUT_LOGIN", "ARCA_TIMEOUT_SERVICE", "ARCA_TIMEOUT_REPRESENTATION", "ARCA_TIMEOUT_QUERY", "ARCA_TIMEOUT_EXPORT"];
             await prisma.arcaSyncTask.updateMany({
                 where: { id: task.id, status: "RUNNING", leaseUntil: lease },
@@ -78,55 +77,40 @@ export const POST = withApiAuthz(async (request: Request) => {
         if (body.targetCuit !== task.period.client.cuit.replace(/\D/g, "")) {
             throw new Error("ARCA_IMPORT");
         }
-        let downloaded = 0;
-        let imported = 0;
-        let duplicates = 0;
-        const issues: Array<{ file: number; line: number; status: string; messages: string[] }> = [];
-        await withSyncIdentity({
+        const files: SyncFile[] = [];
+        for (const raw of body.files as FileInput[]) {
+            if (!raw || typeof raw.file !== "string" || raw.file.length < 4 || raw.file.length > 2_800_000) throw new ImportRejectedError("file-errors");
+            const content = Uint8Array.from(Buffer.from(raw.file, "base64"));
+            files.push({ content, format: raw.format ?? null, sha256: fileSha256(content) });
+        }
+        // Sólo vista previa: la incorporación la confirma una persona desde el panel.
+        const summary = await withSyncIdentity({
             profileId: task.actorProfileId, organizationId: task.organizationId, periodId: task.periodId,
-        }, async () => {
-            for (const [index, raw] of (body.files as FileInput[]).entries()) {
-                if (!raw || typeof raw.file !== "string" || raw.file.length > 2_800_000) throw new Error("ARCA_FORMAT");
-                const invoiceSource = task.source === "SALES" || task.source === "PURCHASES";
-                const input = invoiceSource ? {
-                    clientId: task.period.clientId, category: task.source, format: raw.format ?? "PORTAL_CSV",
-                    vouchersFile: raw.file, acceptPartial: true,
-                } : { kind: task.source, file: raw.file, confirm: false };
-                const makeRequest = (value: unknown) => new Request(new URL("/api/arca-import", request.url), {
-                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value),
-                });
-                const context = { params: Promise.resolve({ id: task.periodId }) };
-                const previewResponse = await (invoiceSource ? previewInvoices : importTaxes)(makeRequest(input), context);
-                const preview = await previewResponse.json();
-                if (!previewResponse.ok || preview.fileErrors?.length) throw new Error("ARCA_FORMAT");
-                const counts = invoiceSource ? preview.reconciliation.statusCounts : preview.counts;
-                const rows = preview.rows as Array<{ line: number; status: string; messages: string[] }>;
-                downloaded += rows.length;
-                duplicates += counts.DUPLICATE ?? 0;
-                for (const row of rows.filter((r) => r.status !== "OK" && r.status !== "DUPLICATE")) {
-                    issues.push({ file: index + 1, line: row.line, status: row.status, messages: row.messages });
-                }
-                if (!(counts.OK > 0)) continue;
-                // Derivado del taskId y del archivo: estable al reintentar una respuesta perdida.
-                const hex = createHash("sha256").update(task.id).update(String(index)).update(raw.file).digest("hex");
-                const operationId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-                const confirm = { ...input, token: preview.token, operationId, confirm: true };
-                const result = await (invoiceSource ? confirmInvoices : importTaxes)(makeRequest(confirm), context);
-                const data = await result.json();
-                if (!result.ok) throw new Error("ARCA_IMPORT");
-                imported += data.imported;
-            }
+        }, () => buildSyncPreview({ source: task.source as SyncSource, clientId: task.period.clientId }, files, importerInvoke(request.url, task.periodId)));
+        const { counts } = summary;
+        const downloaded = counts.OK + counts.DUPLICATE + counts.REVIEW + counts.ERROR;
+        const pending = counts.REVIEW + counts.ERROR;
+        await prisma.$transaction(async (tx) => {
+            const claimed = await tx.arcaSyncTask.updateMany({
+                where: { id: task.id, status: "RUNNING", leaseUntil: lease },
+                data: { status: "PREVIEW", downloaded, imported: null, duplicates: counts.DUPLICATE, pending, preview: summary as unknown as Prisma.InputJsonValue, issues: [], errorCode: null, leaseUntil: null },
+            });
+            if (!claimed.count) throw new Error("LEASE_EXPIRED");
+            await tx.arcaSyncFile.deleteMany({ where: { taskId: task.id } });
+            await tx.arcaSyncFile.createMany({
+                data: files.map((file, position) => ({ taskId: task.id, position, format: file.format, sha256: file.sha256, content: Buffer.from(file.content) })),
+            });
         });
-        await prisma.arcaSyncTask.updateMany({
-            where: { id: task.id, status: "RUNNING", leaseUntil: lease },
-            data: { status: issues.length ? "REVIEW" : "DONE", downloaded, imported, duplicates, pending: issues.length, issues, errorCode: null, leaseUntil: null },
-        });
+        console.warn(`[arca-sync] preview ready source=${task.source} files=${files.length} rows=${downloaded} ok=${counts.OK} duplicate=${counts.DUPLICATE} review=${counts.REVIEW} error=${counts.ERROR}`);
         advance();
-        return response({ ok: true, downloaded, imported, duplicates, pending: issues.length });
+        return response({ ok: true, preview: true, downloaded, duplicates: counts.DUPLICATE, pending });
     } catch (error) {
+        const rejected = error instanceof ImportRejectedError;
+        // Sólo el motivo genérico: los mensajes del lector pueden citar datos del archivo.
+        if (rejected) console.warn(`[arca-sync] import rejected source=${task.source} reason=${error.reason}`);
         await prisma.arcaSyncTask.updateMany({
             where: { id: task.id, status: "RUNNING", leaseUntil: lease },
-            data: { status: "FAILED", errorCode: error instanceof Error && error.message === "ARCA_FORMAT" ? "ARCA_FORMAT" : "ARCA_IMPORT", leaseUntil: null },
+            data: { status: "FAILED", errorCode: rejected ? "IMPORT_REJECTED" : "ARCA_IMPORT", leaseUntil: null },
         });
         advance();
         return response({ error: "IMPORT_FAILED" }, 422);

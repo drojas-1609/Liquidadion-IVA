@@ -1,5 +1,8 @@
 export const ARCA_SYNC_SOURCES = ["SALES", "PURCHASES", "RETENTIONS", "PERCEPTIONS"] as const;
-export const ARCA_SYNC_TERMINAL = ["DONE", "EMPTY", "REVIEW"] as const;
+/** Fuentes resueltas: no admiten reintento ni esperan una decisión. */
+export const ARCA_SYNC_TERMINAL = ["DONE", "EMPTY", "REVIEW", "DISCARDED"] as const;
+/** Vista previa lista (o incorporándose): espera la confirmación de una persona. */
+export const ARCA_SYNC_AWAITING = ["PREVIEW", "CONFIRMING"] as const;
 
 export function parseExtraDays(input: unknown): number[] | null {
     if (!Array.isArray(input) || input.length > 2) return null;
