@@ -20,6 +20,7 @@ vi.mock("next/server", async (original) => ({
 import { POST as SYNC_CALLBACK } from "@/app/api/internal/arca-sync/route";
 import { POST as SYNC_DECISION } from "@/app/api/periods/[id]/arca-sync/decision/route";
 import { GET as SYNC_PENDING } from "@/app/api/periods/[id]/arca-sync/pending/route";
+import { PUT as SYNC_INITIAL_DATA } from "@/app/api/periods/[id]/arca-sync/initial-data/route";
 import { POST as PREVIEW } from "@/app/api/periods/[id]/libro-iva-import/preview/route";
 import { POST as CONFIRM } from "@/app/api/periods/[id]/libro-iva-import/confirm/route";
 import { POST as TAX_IMPORT } from "@/app/api/periods/[id]/tax-import/route";
@@ -288,6 +289,25 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
         } finally {
             vi.unstubAllEnvs();
         }
+    });
+
+    it("datos iniciales de IVA Simple: se guardan por período y, si se pide, como predeterminados del cliente", async () => {
+        const target = await db.period.create({ data: { clientId: "c_dl", organizationId: ORG, month: 12, year: 2028 } });
+        const put = (body: Record<string, unknown>) => SYNC_INITIAL_DATA(new Request(`http://localhost/api/periods/${target.id}/arca-sync/initial-data`, {
+            method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        }), ctx(target.id));
+        const data = { nonTaxedOrExempt: true, creditComputation: "GLOBAL", definitiveImports: false, serviceImports: false, turiva: true, usedGoods: false };
+        H.sub = VIEWER;
+        expect((await put({ initialData: data })).status).toBe(403);
+        H.sub = OWNER;
+        expect((await put({ initialData: { ...data, creditComputation: null } })).status).toBe(400);
+        const saved = await json(await put({ initialData: data }));
+        expect(saved).toMatchObject({ initialData: { required: true, period: data } });
+        expect(await db.arcaPeriodSetting.findUnique({ where: { periodId: target.id } })).toMatchObject({ organizationId: ORG, initialData: data });
+        expect((await db.client.findUnique({ where: { id: "c_dl" } }))?.arcaInitialData).toBeNull();
+        await put({ initialData: { ...data, turiva: false }, saveAsClientDefault: true });
+        expect((await db.client.findUnique({ where: { id: "c_dl" } }))?.arcaInitialData).toMatchObject({ turiva: false });
+        expect((await db.arcaPeriodSetting.findUnique({ where: { periodId: target.id } }))?.initialData).toMatchObject({ turiva: false });
     });
 
     it("período cerrado: la confirmación se rechaza sin escribir", async () => {
