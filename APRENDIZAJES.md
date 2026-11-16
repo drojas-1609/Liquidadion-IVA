@@ -91,3 +91,11 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
   borrador de un período posterior; los datos iniciales nunca se suponen: los elige la persona
   por período (con predeterminados del cliente). Las escrituras de `Period` están reservadas a
   las transiciones de estado: la elección del período vive en `ArcaPeriodSetting`.
+
+### 2026-11-15 · Esquema de Prisma sin validar antes del push
+
+- **Qué pasó:** la Deploy Preview del PR #55 falló en `prisma generate`: la relación 1:1 de
+  `ArcaPeriodSetting` con `Period` no tenía campos únicos.
+- **Causa:** en el entorno de trabajo no se puede descargar el motor de Prisma y se subió sin validar.
+- **Regla:** validar el esquema con `@prisma/prisma-schema-wasm` de la misma versión que
+  `@prisma/engines-version` (instalado fuera del repositorio) antes de subir cambios de esquema.

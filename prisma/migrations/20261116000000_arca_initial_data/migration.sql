@@ -19,6 +19,8 @@ CREATE TABLE "ArcaPeriodSetting" (
         FOREIGN KEY ("periodId", "organizationId") REFERENCES "Period"("id", "organizationId") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+CREATE UNIQUE INDEX "ArcaPeriodSetting_periodId_organizationId_key" ON "ArcaPeriodSetting"("periodId", "organizationId");
+
 ALTER TABLE "ArcaPeriodSetting" ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON "ArcaPeriodSetting" FROM PUBLIC;
 DO $$
