@@ -30,17 +30,17 @@ const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 afterEach(() => warn.mockClear());
 const steps = () => warn.mock.calls.map((call) => String(call[0]));
 
-function task(source: ArcaDownloadTask["source"]): ArcaDownloadTask {
+function task(source: ArcaDownloadTask["source"], extra: Partial<ArcaDownloadTask> = {}): ArcaDownloadTask {
     const envelope = sealCredential({ cuit: ADMIN, password: "clave-de-prueba" }, scope, Buffer.from(KEY, "hex"));
-    return { cuit: COMPANY, clientId: "client", organizationId: "org", storedCredential: { targetCuit: COMPANY, envelope }, year: 2026, month: 10, source };
+    return { cuit: COMPANY, clientId: "client", organizationId: "org", storedCredential: { targetCuit: COMPANY, envelope }, year: 2026, month: 10, source, condition: "Monotributo", ...extra };
 }
 
 function arca(extra: Partial<FakeArcaOptions> = {}) {
     return fakeArca({ loginCuit: ADMIN, loginName: "ADMINISTRADOR DE PRUEBA", represented: [{ cuit: COMPANY, name: "SOCIEDAD DE PRUEBA S. A. S." }], ...extra });
 }
 
-async function run(source: ArcaDownloadTask["source"], fake: ReturnType<typeof fakeArca>) {
-    return downloadArca(task(source), { executablePath, prepareContext: fake.install });
+async function run(source: ArcaDownloadTask["source"], fake: ReturnType<typeof fakeArca>, extra: Partial<ArcaDownloadTask> = {}) {
+    return downloadArca(task(source, extra), { executablePath, prepareContext: fake.install });
 }
 
 const failure = async (promise: Promise<unknown>) => promise.then(() => "sin error", (error) => error instanceof ArcaBrowserError ? error.code : `otro: ${String(error)}`);
@@ -93,7 +93,57 @@ describe.skipIf(process.platform !== "linux" && !process.env.ARCA_TEST_CHROMIUM)
         });
     });
 
-    describe("Mis Comprobantes de una sociedad representada", () => {
+    describe("Portal IVA (IVA Simple) de una sociedad representada responsable inscripta", () => {
+        const csv = new TextEncoder().encode('"Fecha";"Tipo"\n"14/10/2026";"81"\n');
+        const RI = { condition: "Responsable Inscripto" } as const;
+        const none = { nonTaxedOrExempt: false, creditComputation: null, definitiveImports: false, serviceImports: false, turiva: false, usedGoods: false };
+
+        it("descarta el borrador del período posterior, completa los datos iniciales, importa desde ARCA y exporta el CSV", async () => {
+            const fake = arca({ portal: { otherDraft: "11/2026", found: { compras: 109 }, books: { compras: csv } } });
+            const result = await run("PURCHASES", fake, { ...RI, initialData: none });
+            expect(result).toEqual({ files: [{ file: Buffer.from(csv).toString("base64"), format: "PORTAL_CSV" }], empty: false });
+            expect(fake.log.discardedDrafts).toEqual(["11/2026"]);
+            expect(fake.log.initialData).toEqual([{ con: true, ops: [false, false, false, false, false], none: true, forma: null }]);
+            expect(fake.log.portalImports).toEqual([{ book: "compras", keep: "Conservar el comprobante previamente incluído", from: "01/10/2026", to: "31/10/2026" }]);
+            expect(fake.log.portalExports).toEqual(["compras"]);
+            expect(fake.log.voucherQueries).toEqual([]);
+        });
+
+        it("marca las operaciones elegidas y la forma de cómputo del crédito", async () => {
+            const fake = arca({ portal: { found: { ventas: 3 }, books: { ventas: csv } } });
+            await run("SALES", fake, { ...RI, initialData: { ...none, nonTaxedOrExempt: true, creditComputation: "GLOBAL", turiva: true } });
+            expect(fake.log.initialData).toEqual([{ con: true, ops: [true, false, false, true, false], none: false, forma: "Con prorrateo global" }]);
+            expect(fake.log.portalExports).toEqual(["ventas"]);
+        });
+
+        it("con el borrador del período ya abierto no vuelve a pedir datos iniciales", async () => {
+            const fake = arca({ portal: { draftExists: true, found: { compras: 2 }, books: { compras: csv } } });
+            await run("PURCHASES", fake, { ...RI, initialData: null });
+            expect(fake.log.initialData).toEqual([]);
+            expect(fake.log.portalExports).toEqual(["compras"]);
+        });
+
+        it("sin comprobantes en ARCA informa vacío sin exportar", async () => {
+            const fake = arca({ portal: { draftExists: true, found: { compras: 0 } } });
+            expect(await run("PURCHASES", fake, RI)).toEqual({ files: [], empty: true });
+            expect(fake.log.portalExports).toEqual([]);
+        });
+
+        it("no descarta el borrador de un período anterior", async () => {
+            const fake = arca({ portal: { otherDraft: "09/2026", found: { compras: 2 }, books: { compras: csv } } });
+            expect(await failure(run("PURCHASES", fake, { ...RI, initialData: none }))).toBe("ARCA_DRAFT_OTHER_PERIOD");
+            expect(fake.log.discardedDrafts).toEqual([]);
+            expect(fake.log.portalImports).toEqual([]);
+        });
+
+        it("sin datos iniciales guardados se detiene sin completar nada", async () => {
+            const fake = arca({ portal: { found: { compras: 2 }, books: { compras: csv } } });
+            expect(await failure(run("PURCHASES", fake, { ...RI, initialData: null }))).toBe("ARCA_INITIAL_DATA_REQUIRED");
+            expect(fake.log.initialData).toEqual([]);
+        });
+    });
+
+    describe("Mis Comprobantes de una sociedad representada monotributista", () => {
         const zip = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]);
 
         it("ventas: elige la sociedad, consulta el mes y entrega el archivo de emitidos", async () => {

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatMoney } from "@/lib/format";
 import type { SyncPreviewSummary, SyncVariant } from "@/lib/arca-sync/preview";
 import { ArcaPendingCorrections } from "./arca-pending-corrections";
+import { ArcaInitialDataSection, type InitialDataStatus } from "./arca-initial-data";
 
 const LABELS: Record<string, string> = {
     SALES: "Ventas", PURCHASES: "Compras", RETENTIONS: "Retenciones", PERCEPTIONS: "Percepciones",
@@ -77,11 +78,14 @@ const ERROR_LABELS: Record<string, string> = {
     ARCA_PERIOD: "ARCA no confirmó el período pedido. No se descargó ningún archivo.",
     IMPORT_REJECTED: "El importador rechazó el archivo descargado: no coincide con el formato de importación.",
     ARCA_IMPORT: "No se pudo preparar la vista previa. Volvé a intentar.",
+    ARCA_DRAFT_OTHER_PERIOD: "IVA Simple tiene abierto un borrador sin presentar de un período anterior. Presentalo o descartalo en ARCA y volvé a intentar.",
+    ARCA_INITIAL_DATA_REQUIRED: "IVA Simple pidió los datos iniciales del período y no hay una elección guardada. Confirmalos arriba y volvé a intentar.",
 };
 
 type Status = {
     configured: boolean;
     schedule: { enabled: boolean; extraDays: number[] } | null;
+    initialData: InitialDataStatus;
     tasks: Array<{
         source: string; status: string; downloaded: number | null; imported: number | null; duplicates: number | null;
         pending: number; errorCode: string | null; updatedAt: string;
@@ -211,7 +215,13 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
         <section className="card" style={{ marginBlock: "var(--spacing-md)" }} aria-label="Importación automática de ARCA">
             <h2>Importación automática de ARCA</h2>
             {status && !status.configured && <p>Falta conectar el servicio de descarga de ARCA.</p>}
-            <button type="button" disabled={!status?.configured || busy || status.tasks.some((task) => task.status === "RUNNING") || (awaiting && !retryable)} onClick={() => void submit("POST")}>Importar ahora</button>
+            {status && (
+                <ArcaInitialDataSection key={JSON.stringify(status.initialData.period)} url={url} status={status.initialData} canSaveDefault={canSchedule} busy={busy}
+                    onSaved={(value) => apply(value as Status)} onMessage={setMessage} />
+            )}
+            <button type="button" disabled={!status?.configured || busy || status.tasks.some((task) => task.status === "RUNNING") || (awaiting && !retryable)
+                || (status.initialData.required && !status.initialData.period)} onClick={() => void submit("POST")}>Importar ahora</button>
+            {status?.initialData.required && !status.initialData.period && <p>Confirmá los datos iniciales de IVA Simple del período para importar.</p>}
             <p>«Importar ahora» descarga de ARCA y prepara una vista previa por fuente. Nada se incorpora hasta que la confirmes.</p>
             {awaiting && !retryable && <p>Hay vistas previas sin resolver: confirmá o descartá cada una para poder descargar de nuevo.</p>}
             {canSchedule && (

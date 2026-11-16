@@ -3,6 +3,7 @@ import lambdaChromium from "@sparticuz/chromium";
 import { readFile } from "node:fs/promises";
 import { credentialKey, openCredential } from "./credential-crypto";
 import { syncCredentials } from "./auth";
+import { CREDIT_COMPUTATION_LABELS, NO_OPERATIONS_LABEL, OPERATION_FIELDS, OPERATION_LABELS, usesPortalIva, type ArcaInitialData } from "./initial-data";
 
 export type ArcaTimeoutStage = "LOGIN" | "SERVICE" | "REPRESENTATION" | "QUERY" | "EXPORT";
 
@@ -13,12 +14,16 @@ export type ArcaTimeoutStage = "LOGIN" | "SERVICE" | "REPRESENTATION" | "QUERY" 
  *  - ARCA_PERIOD: ARCA no confirmó el período pedido;
  *  - ARCA_PAGE: la pantalla no tiene los controles esperados (no hay archivo);
  *  - ARCA_DOWNLOAD: la exportación no entregó contenido;
- *  - ARCA_FORMAT: el archivo descargado es inutilizable (vacío o excedido).
+ *  - ARCA_FORMAT: el archivo descargado es inutilizable (vacío o excedido);
+ *  - ARCA_DRAFT_OTHER_PERIOD: IVA Simple tiene abierto el borrador de un período
+ *    ANTERIOR al pedido (sólo se descarta, por regla del estudio, el de uno posterior);
+ *  - ARCA_INITIAL_DATA_REQUIRED: IVA Simple pide los datos iniciales del período
+ *    y no hay una elección guardada para el cliente o el período.
  * Si el importador rechaza el contenido, la tarea queda con IMPORT_REJECTED.
  * «Sin resultados» no es un error: la tarea termina EMPTY.
  */
 export type ArcaErrorCode = "ARCA_SESSION" | "ARCA_DOWNLOAD" | "ARCA_FORMAT" | "ARCA_PAGE" | "ARCA_PERIOD" | "CREDENTIALS_MISSING"
-    | "VERIFICATION_REQUIRED" | "REPRESENTATION_REQUIRED" | `ARCA_TIMEOUT_${ArcaTimeoutStage}`;
+    | "VERIFICATION_REQUIRED" | "REPRESENTATION_REQUIRED" | "ARCA_DRAFT_OTHER_PERIOD" | "ARCA_INITIAL_DATA_REQUIRED" | `ARCA_TIMEOUT_${ArcaTimeoutStage}`;
 
 export class ArcaBrowserError extends Error {
     constructor(readonly code: ArcaErrorCode) {
@@ -73,6 +78,10 @@ export interface ArcaDownloadTask {
     year: number;
     month: number;
     source: "SALES" | "PURCHASES" | "RETENTIONS" | "PERCEPTIONS";
+    /** Condición fiscal del cliente: Monotributo consulta Mis Comprobantes; el resto, el Portal IVA. */
+    condition?: string;
+    /** Datos iniciales de IVA Simple elegidos para el período (o los del cliente). */
+    initialData?: ArcaInitialData | null;
 }
 
 type Credential = { cuit: string; password: string };
@@ -288,20 +297,130 @@ async function linkedExport(page: Page, target: URL) {
     return result.data;
 }
 
+const LIVA_ORIGIN = "https://liva.afip.gob.ar";
+const periodNumber = (month: number, year: number) => year * 100 + month;
+
+/**
+ * Entra al Libro IVA del período desde el Portal IVA. En IVA Simple:
+ *  - un borrador sin presentar de OTRO período bloquea la entrada. Si es de un
+ *    período posterior (lo abren sistemas que importan el mes en curso), se
+ *    descarta y se vuelve a entrar; si es anterior, se detiene;
+ *  - un borrador nuevo pide los «Datos iniciales»: se completan con la elección
+ *    guardada o se detiene. Nada de esto presenta la declaración.
+ */
+async function openLedger(page: Page, task: ArcaDownloadTask) {
+    const period = `${String(task.month).padStart(2, "0")}/${task.year}`;
+    for (let attempt = 0; attempt < 2; attempt++) {
+        await traceStep("portal-open-periods", () => page.getByRole("button", { name: /nueva\.declaracion\.alt|^ingresar$/i }).first().click());
+        await traceStep("portal-select-period", () => page.getByRole("combobox").selectOption({ label: period }));
+        await traceStep("portal-validate-period", () => page.getByRole("button", { name: /validar\.periodo|^continuar$/i }).click());
+        await traceStep("portal-open-ledger", () => page.getByRole("button", { name: /btn\.home\.liva|^libro iva digital$/i }).click());
+        await traceStep("portal-wait-ledger", () => page.waitForURL((url) => url.origin === LIVA_ORIGIN));
+        await page.waitForLoadState("domcontentloaded");
+        // Una de las tres pantallas conocidas: bloqueo por otro borrador, datos iniciales o menú de libros.
+        await traceStep("ledger-wait-screen", () => page.getByText(/borrador sin presentar|datos iniciales|libro ventas|libro compras/i).first().waitFor());
+        await verifySession(page);
+        const text = await page.locator("body").innerText();
+        const blocking = /borrador sin presentar,? correspondiente a otro per[ií]odo \((\d{2})\/(\d{4})\)/i.exec(text);
+        if (blocking) {
+            const other = periodNumber(Number(blocking[1]), Number(blocking[2]));
+            if (other <= periodNumber(task.month, task.year) || attempt > 0) fail("ARCA_DRAFT_OTHER_PERIOD", "ledger-other-draft");
+            await discardLaterDraft(page);
+            continue;
+        }
+        const initial = new URL(page.url()).pathname.endsWith("/verDatosInicialesPresentacion.do")
+            || (/datos iniciales/i.test(text) && /con movimientos/i.test(text));
+        if (initial) await fillInitialData(page, task.initialData);
+        return;
+    }
+    fail("ARCA_DRAFT_OTHER_PERIOD", "ledger-other-draft");
+}
+
+async function discardLaterDraft(page: Page) {
+    await traceStep("ledger-discard-draft", () => page.getByRole("button", { name: "Descartar el borrador de Libro IVA", exact: true }).click());
+    const dialog = page.getByRole("dialog").filter({ hasText: /desea descartar el borrador/i });
+    await traceStep("ledger-confirm-discard", () => dialog.getByRole("button", { name: /^descartar borrador$/i }).click());
+    await traceStep("ledger-wait-discarded", () => page.waitForURL((url) => url.pathname.endsWith("/borradorEliminado.jsp")));
+    console.warn("[arca-sync] later draft discarded");
+    await traceStep("ledger-back-portal", () => page.getByRole("button", { name: /^continuar$/i }).click());
+    await traceStep("ledger-wait-portal", () => page.waitForURL((url) => url.origin === "https://siapweb.cloud.afip.gob.ar"));
+}
+
+async function fillInitialData(page: Page, data: ArcaDownloadTask["initialData"]) {
+    if (!data) fail("ARCA_INITIAL_DATA_REQUIRED", "ledger-initial-data");
+    await traceStep("initial-with-movements", () => page.getByText("Con Movimientos", { exact: true }).click());
+    const none = OPERATION_FIELDS.every((field) => !data[field]);
+    const wanted: Array<[string, boolean]> = [...OPERATION_FIELDS.map((field) => [OPERATION_LABELS[field], data[field]] as [string, boolean]), [NO_OPERATIONS_LABEL, none]];
+    for (const [label, checked] of wanted) {
+        const box = page.getByLabel(label, { exact: true });
+        // Las casillas reales están ocultas detrás de su rótulo: se marca con el rótulo.
+        if (await box.isChecked() !== checked) await traceStep("initial-operation", () => page.getByText(label, { exact: true }).click());
+        if (await box.isChecked() !== checked) fail("ARCA_PAGE", "initial-operation-state");
+    }
+    if (data.nonTaxedOrExempt && data.creditComputation) {
+        // Selector con estilo propio: el <select> real está oculto.
+        const select = page.locator("select").filter({ has: page.locator("option", { hasText: CREDIT_COMPUTATION_LABELS.GLOBAL }) }).first();
+        await traceStep("initial-credit", () => select.selectOption({ label: CREDIT_COMPUTATION_LABELS[data.creditComputation!] }, { force: true }));
+    }
+    await traceStep("initial-continue", () => page.getByRole("button", { name: /^continuar$/i }).click());
+    await traceStep("initial-wait-menu", () => page.waitForURL((url) => !url.pathname.endsWith("/verDatosInicialesPresentacion.do")));
+    console.warn("[arca-sync] initial data completed");
+}
+
+/**
+ * «Importar desde ARCA» trae al borrador los comprobantes registrados del mes,
+ * conservando los ya incluidos. Devuelve cuántos encontró ARCA.
+ */
+async function importFromArca(page: Page, task: ArcaDownloadTask) {
+    const dates = periodDates(task);
+    await traceStep("ledger-open-import", () => page.getByRole("button", { name: "Importar", exact: true }).first().click());
+    await traceStep("ledger-import-arca", () => page.getByRole("link", { name: /importar desde arca/i }).click());
+    const dialog = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: /importar desde arca/i }) });
+    await traceStep("ledger-import-dialog", () => dialog.waitFor());
+    const filter = await dialog.innerText();
+    if (!filter.includes(dates.start) || !filter.includes(dates.end)) fail("ARCA_PERIOD", "ledger-import-filter");
+    const keep = dialog.locator("select").filter({ has: page.locator("option", { hasText: /conservar el comprobante/i }) });
+    if (await keep.count()) await keep.first().selectOption({ label: "Conservar el comprobante previamente incluído" }, { force: true });
+    await traceStep("ledger-import-start", () => dialog.getByRole("button", { name: "Importar", exact: true }).click());
+    const history = page.getByRole("dialog").filter({ hasText: /historial de importaciones/i });
+    await traceStep("ledger-import-history", () => history.waitFor());
+    for (let attempt = 0; attempt < 40; attempt++) {
+        const text = await history.innerText();
+        if (/comprobantes electr[oó]nicos encontrados:\s*\d+/i.test(text) && /procesada/i.test(text)) {
+            const found = Number(/encontrados:\s*(\d+)/i.exec(text)![1]);
+            await history.getByRole("button", { name: /^cerrar$/i }).first().click();
+            return found;
+        }
+        if (/error|rechazad/i.test(text) && !/en proceso|pendiente/i.test(text)) fail("ARCA_DOWNLOAD", "ledger-import-failed");
+        await page.waitForTimeout(3000);
+        const refresh = history.getByRole("button", { name: /^actualizar$/i });
+        if (await refresh.count()) await refresh.first().click();
+    }
+    throw new ArcaBrowserError("ARCA_TIMEOUT_QUERY");
+}
+
 async function invoiceFiles(context: BrowserContext, portal: Page, task: ArcaDownloadTask, loginCuit: string): Promise<ArcaDownloadResult> {
     const page = await atStage("SERVICE", () => openService(context, portal, "Portal IVA"));
     await atStage("REPRESENTATION", () => selectRepresentedClient(page, task, loginCuit));
-    await traceStep("portal-open-periods", () => page.getByRole("button", { name: /nueva\.declaracion\.alt|^ingresar$/i }).click());
-    const period = `${String(task.month).padStart(2, "0")}/${task.year}`;
-    await traceStep("portal-select-period", () => page.getByRole("combobox").selectOption({ label: period }));
-    await traceStep("portal-validate-period", () => page.getByRole("button", { name: /validar\.periodo|^continuar$/i }).click());
-    await traceStep("portal-open-ledger", () => page.getByRole("button", { name: /btn.home.liva|^libro iva digital$/i }).click());
-    await traceStep("portal-wait-ledger", () => page.waitForURL((url) => url.origin === "https://liva.afip.gob.ar"));
-    await page.getByRole("link", { name: task.source === "SALES" ? /Libro Ventas Registr/ : /Libro Compras Registr/ }).click();
+    await openLedger(page, task);
+    // Los accesos a los libros no tienen nombre accesible en IVA Simple: se usan sus direcciones.
+    const book = task.source === "SALES"
+        ? page.locator('a[href*="verVentas.do"]').or(page.getByRole("link", { name: /Libro Ventas Registr/ }))
+        : page.locator('a[href*="verCompras.do"]').or(page.getByRole("link", { name: /Libro Compras Registr/ }));
+    await traceStep("ledger-open-book", () => book.first().click());
+    await page.waitForLoadState("domcontentloaded");
     await verifySession(page);
-    const text = await page.locator("body").innerText();
-    if (!text.includes(period)) fail("ARCA_PERIOD", "portal-ledger-period");
-    const file = await atStage("EXPORT", () => exportedFile(context, page, () => page.getByRole("button", { name: "CSV", exact: true }).click()));
+    const period = `${String(task.month).padStart(2, "0")}/${task.year}`;
+    if (!(await page.locator("body").innerText()).includes(period)) fail("ARCA_PERIOD", "portal-ledger-period");
+    // «Importar desde ARCA…» vive oculto en el desplegable «Importar» hasta abrirlo.
+    if (await page.getByRole("button", { name: "Importar", exact: true }).count()) {
+        const found = await atStage("QUERY", () => importFromArca(page, task));
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await verifySession(page);
+        if (found === 0 && /mostrando 0 registros de un total de 0/i.test(await page.locator("body").innerText())) return { files: [], empty: true };
+    }
+    const csv = page.getByRole("button", { name: /^(csv|exportar como csv)$/i });
+    const file = await atStage("EXPORT", () => exportedFile(context, page, () => csv.first().click()));
     return { files: [{ file, format: "PORTAL_CSV" }], empty: false };
 }
 
@@ -309,7 +428,7 @@ const VOUCHERS_ORIGIN = "https://fes.afip.gob.ar";
 
 /**
  * Mis Comprobantes es sólo consulta: no abre ni modifica una declaración. Se
- * usa para las sociedades representadas, cuyo Portal IVA deriva a IVA Simple.
+ * usa para los clientes monotributistas, que no presentan IVA.
  */
 async function selectVoucherTaxpayer(page: Page, task: ArcaDownloadTask, loginCuit: string) {
     const menu = page.locator('a[href="comprobantesEmitidos.do"]');
@@ -544,9 +663,9 @@ export async function downloadArca(task: ArcaDownloadTask, options: ArcaDownload
             try {
                 const portal = await atStage("LOGIN", () => login(context, credential));
                 return await atStage("QUERY", () => task.source === "SALES" || task.source === "PURCHASES"
-                    // Portal IVA de una representada puede derivar a IVA Simple, que
-                    // abre una declaración: sus comprobantes se consultan en Mis Comprobantes.
-                    ? (task.cuit === credential.cuit ? invoiceFiles(context, portal, task, credential.cuit) : voucherFiles(context, portal, task, credential.cuit))
+                    // Regla del estudio: Monotributo consulta Mis Comprobantes; el resto,
+                    // el Portal IVA (también las sociedades representadas, vía IVA Simple).
+                    ? (usesPortalIva(task.condition) ? invoiceFiles(context, portal, task, credential.cuit) : voucherFiles(context, portal, task, credential.cuit))
                     : taxFiles(context, portal, task, credential.cuit));
             } catch (error) {
                 let cause = error;

@@ -78,3 +78,16 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Regla:** ante una respuesta que no llega, releer el estado en vez de reintentar; las
   decisiones de la persona (leyenda, correcciones) se guardan en la vista previa de la corrida
   actual y el panel las toma de ahí.
+
+### 2026-11-15 · Comprobantes de responsables inscriptos tomados de Mis Comprobantes
+
+- **Qué pasó:** las ventas y compras de una sociedad representada responsable inscripta se
+  importaron desde Mis Comprobantes. Faltaba el detalle por concepto (5 tiques de combustible
+  quedaron pendientes: la diferencia eran impuestos internos, visibles sólo en el Portal IVA).
+- **Causa:** el conector evitaba el Portal IVA de las representadas para no abrir un borrador
+  en IVA Simple, y la fuente no dependía de la condición del cliente.
+- **Regla:** Monotributo usa Mis Comprobantes; el resto, el Portal IVA. Consultar e importar
+  sobre el borrador no afecta la declaración mientras no se presenta. Sólo se descarta el
+  borrador de un período posterior; los datos iniciales nunca se suponen: los elige la persona
+  por período (con predeterminados del cliente). Las escrituras de `Period` están reservadas a
+  las transiciones de estado: la elección del período vive en `ArcaPeriodSetting`.

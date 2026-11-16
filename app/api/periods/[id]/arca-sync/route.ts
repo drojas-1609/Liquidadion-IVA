@@ -38,8 +38,13 @@ export const POST = withApiAuthz(async (_request: Request, context: Context) => 
     const { profileId } = await requireAuthenticatedProfile();
     const { period, organizationId } = await requirePeriodAccess(profileId, id, ROLES_CREATE);
     if (period.status !== "OPEN") throw new ConflictError("El período está cerrado.");
-    if (!(await getSyncStatus(id, period.clientId)).configured) {
+    const status = await getSyncStatus(id, period.clientId);
+    if (!status.configured) {
         throw new ConflictError("Falta conectar el servicio de descarga de ARCA.");
+    }
+    // Primera importación del mes: la persona confirma los datos iniciales de IVA Simple del período.
+    if (status.initialData.required && !status.initialData.period) {
+        throw new ConflictError("Confirmá los datos iniciales de IVA Simple del período antes de importar.");
     }
     const started = await startManualSync(id, organizationId, profileId);
     if (started === "AWAITING_DECISION") {

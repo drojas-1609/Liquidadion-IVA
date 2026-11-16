@@ -1,3 +1,4 @@
+import { storedInitialData, usesPortalIva } from "./initial-data";
 import prisma from "../prisma";
 import { credentialKey } from "./credential-crypto";
 import { ARCA_WORKER_PATH, syncCredentials, syncOrigin } from "./auth";
@@ -40,12 +41,14 @@ function hasClientCredential(client: { id: string; cuit: string; arcaCredentials
 }
 
 export async function getSyncStatus(periodId: string, clientId: string) {
-    const [schedule, latest, client] = await Promise.all([
+    const [schedule, latest, client, period, vat] = await Promise.all([
         prisma.arcaSyncSchedule.findUnique({ where: { clientId }, select: { enabled: true, extraDays: true } }),
         prisma.arcaSyncTask.findFirst({
             where: { periodId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { runKey: true },
         }),
-        prisma.client.findUnique({ where: { id: clientId }, select: { id: true, cuit: true, arcaCredentials: { select: { targetCuit: true } } } }),
+        prisma.client.findUnique({ where: { id: clientId }, select: { id: true, cuit: true, condition: true, arcaInitialData: true, arcaCredentials: { select: { targetCuit: true } } } }),
+        prisma.arcaPeriodSetting.findUnique({ where: { periodId }, select: { initialData: true } }),
+        prisma.periodVatSettings.findUnique({ where: { periodId }, select: { turivaIncluded: true, creditProrationMode: true } }),
     ]);
     const tasks = latest ? await prisma.arcaSyncTask.findMany({
         where: { periodId, runKey: latest.runKey },
@@ -54,6 +57,14 @@ export async function getSyncStatus(periodId: string, clientId: string) {
     tasks.sort((a, b) => sourceOrder.get(a.source)! - sourceOrder.get(b.source)!);
     return {
         schedule, configured: Boolean(connectorConfig() && client && hasClientCredential(client)),
+        // Datos iniciales de IVA Simple: sólo para clientes que consultan el Portal IVA.
+        // La configuración de IVA del período se muestra para comparar, nunca se cambia sola.
+        initialData: {
+            required: usesPortalIva(client?.condition),
+            period: storedInitialData(period?.initialData),
+            client: storedInitialData(client?.arcaInitialData),
+            vatSettings: { turivaIncluded: vat?.turivaIncluded ?? false, creditProrationMode: vat?.creditProrationMode ?? "NONE" },
+        },
         // correctable: el archivo sigue guardado y las filas pendientes se pueden revisar y corregir.
         tasks: tasks.map(({ _count, ...task }) => ({ ...task, correctable: _count.files > 0 && (task.status === "REVIEW" || task.status === "PREVIEW") })),
     };

@@ -7,6 +7,11 @@ import type { BrowserContext, Route } from "playwright-core";
  *  - Mis Comprobantes (fes.afip.gob.ar/mcmp): selector de persona, consulta por
  *    rango de fechas (Enter cierra el calendario sin enviar la consulta), panel
  *    «Filtro Aplicado» y «Exportar como CSV»;
+ *  - Portal IVA → IVA Simple (siapweb / liva, observado el 15/11/2026): elección
+ *    de representado, período, bloqueo por borrador de otro período con
+ *    «Descartar borrador», «Datos iniciales» con casillas ocultas tras su
+ *    rótulo, menú con accesos sin nombre, «Importar → Importar desde ARCA…»
+ *    con historial que pasa de «En proceso» a «Procesada» y exportación CSV;
  *  - versión anterior de Mis Retenciones (seti.afip.gob.ar/misret): rótulos con
  *    espacios duros, radios que el propio formulario oculta según el impuesto,
  *    botón cuyo valor es «Consultar», resultado sin encabezado cuando no hay
@@ -28,19 +33,34 @@ export interface FakeArcaOptions {
     taxExportMode?: "inline" | "download";
     /** La sesión de la versión anterior figura vencida. */
     legacySessionExpired?: boolean;
+    /** Portal IVA / IVA Simple. */
+    portal?: {
+        /** Borrador sin presentar de otro período ("MM/AAAA") que bloquea la entrada. */
+        otherDraft?: string;
+        /** Si el borrador del período ya existe, no se piden los datos iniciales. */
+        draftExists?: boolean;
+        /** Comprobantes que «Importar desde ARCA» encuentra, por libro. */
+        found?: { ventas?: number; compras?: number };
+        /** Contenido de la exportación CSV por libro. */
+        books?: { ventas?: Uint8Array; compras?: Uint8Array };
+    };
 }
 
 export interface FakeArcaLog {
     voucherQueries: Array<{ kind: string; range: string; cuit: string }>;
     taxQueries: Array<Record<string, string>>;
     taxExports: Array<Record<string, string>>;
+    discardedDrafts: string[];
+    initialData: Array<Record<string, unknown>>;
+    portalImports: Array<{ book: string; keep: string; from: string; to: string }>;
+    portalExports: string[];
 }
 
 const dashed = (cuit: string) => `${cuit.slice(0, 2)}-${cuit.slice(2, 10)}-${cuit.slice(10)}`;
 const html = (body: string, head = "") => `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>ARCA simulado</title>${head}</head><body>${body}</body></html>`;
 
 export function fakeArca(options: FakeArcaOptions) {
-    const log: FakeArcaLog = { voucherQueries: [], taxQueries: [], taxExports: [] };
+    const log: FakeArcaLog = { voucherQueries: [], taxQueries: [], taxExports: [], discardedDrafts: [], initialData: [], portalImports: [], portalExports: [] };
     const people = [{ cuit: options.loginCuit, name: options.loginName }, ...options.represented];
     let voucherPerson = options.loginCuit;
 
@@ -58,6 +78,7 @@ export function fakeArca(options: FakeArcaOptions) {
         <nav>
             <a target="_blank" href="https://fes.afip.gob.ar/mcmp/jsp/index.do">Mis Comprobantes</a>
             <a target="_blank" href="https://mirequa-web.arca.gob.ar/">Mis Retenciones</a>
+            <a target="_blank" href="https://siapweb.cloud.afip.gob.ar/iva/">Portal IVA</a>
         </nav>`);
 
     // ---- Mis Comprobantes ----
@@ -150,12 +171,165 @@ export function fakeArca(options: FakeArcaOptions) {
             <script>function go(url) { location.href = url; }</script>`);
     };
 
+    // ---- Portal IVA / IVA Simple ----
+    let portalPerson = options.loginCuit;
+    let otherDraft = options.portal?.otherDraft ?? null;
+    let draftOpened = options.portal?.draftExists ?? false;
+    let requested = "";
+    const imported = new Set<string>();
+    const portalSpa = () => {
+        const person = people.find((p) => p.cuit === portalPerson)!;
+        return html(`
+        <header>${options.loginName} [CUIT ${dashed(options.loginCuit)}]
+            <div>REPRESENTANDO A: <b>${person.name}</b> [CUIT ${dashed(person.cuit)}]</div><a href="#/changeRelation">cambio relación</a></header>
+        <main id="app"></main>
+        <script>
+            const people = ${JSON.stringify(people.map((p) => ({ name: p.name, cuit: dashed(p.cuit) })))};
+            function render() {
+                const hash = location.hash.split("?")[0];
+                const app = document.getElementById("app");
+                if (hash === "#/changeRelation") {
+                    app.innerHTML = people.map((p, i) => '<div class="panel" title="Representar a..." data-i="' + i + '"><h3>' + p.name + '<small>[CUIT ' + p.cuit + ']</small></h3></div>').join("");
+                    app.querySelectorAll(".panel").forEach((el) => el.onclick = () => fetch("relacion?i=" + el.dataset.i).then(() => { location.hash = "#/init"; location.reload(); }));
+                } else if (hash === "#/nueva.declaracion.jurada") {
+                    app.innerHTML = '<h2>Nueva declaración jurada</h2><select><option></option><option value="202611">11/2026</option><option value="202610">10/2026</option></select>'
+                        + '<button type="button" aria-label="Sin texto (iva.btn.home.validar.periodo.alt)" id="validar">Continuar</button><div id="dj"></div>';
+                    document.getElementById("validar").onclick = () => {
+                        const p = app.querySelector("select").value;
+                        document.getElementById("dj").innerHTML = '<h3>Registración y declaración</h3><button type="button" aria-label="Sin texto (iva.btn.home.liva.alt)" id="liva">Ingresar</button>';
+                        document.getElementById("liva").onclick = () => { location.href = "https://liva.afip.gob.ar/liva/jsp/mostrarMenu.do?p=" + p; };
+                    };
+                } else {
+                    app.innerHTML = '<h2>Portal IVA</h2><button type="button" aria-label="Sin texto (iva.home.btn.nueva.declaracion.alt)" id="nueva">Ingresar</button>';
+                    document.getElementById("nueva").onclick = () => { location.hash = "#/nueva.declaracion.jurada"; };
+                }
+            }
+            window.onhashchange = render; render();
+        </script>`);
+    };
+    const livaChrome = (body: string) => html(`<header>REPRESENTANDO A: [${dashed(portalPerson)}]</header>${body}`);
+    const blockedPage = (draft: string) => livaChrome(`
+        <div class="panel-danger"><h3>Error</h3><p>Tiene un borrador sin presentar, correspondiente a otro período (${draft}). Debe presentar o eliminar el borrador existente antes de comenzar una nueva presentación para otro período.</p></div>
+        <button type="button" onclick="history.back()">Volver</button>
+        <button type="button" aria-label="Descartar el borrador de Libro IVA" id="desc">Descartar borrador</button>
+        <div role="dialog" id="dlg" hidden><h4>Descartar Borrador</h4><p>¿Desea descartar el borrador ${draft} y la información cargada en el mismo?</p>
+            <button type="button" onclick="document.getElementById('dlg').hidden = true">Cancelar</button>
+            <button type="button" onclick="location.href='borradorEliminado.jsp'">Descartar Borrador</button></div>
+        <script>document.getElementById("desc").onclick = () => { document.getElementById("dlg").hidden = false; };</script>`);
+    const initialPage = () => livaChrome(`
+        <h1>Datos Iniciales</h1><p>Período ${requested.slice(4)}/${requested.slice(0, 4)}</p>
+        <style>.oculta { position: absolute; opacity: 0; width: 1px; height: 1px; }</style>
+        <input type="radio" class="oculta" name="mov" id="con" checked><label for="con">Con Movimientos</label>
+        <input type="radio" class="oculta" name="mov" id="sin"><label for="sin">Sin Movimientos</label>
+        ${[["ng", "Operaciones No Gravadas o Exentas"], ["ib", "Importación definitiva de bienes"], ["is", "Importación de servicios"], ["tu", "Incluido en el régimen TurIVA"], ["bu", "Compras de bienes usados o material reciclable"], ["no", "No realizo ninguna actividad anterior"]]
+            .map(([id, label]) => `<div><input type="checkbox" class="oculta" id="${id}"><label for="${id}">${label}</label></div>`).join("")}
+        <div id="credito" hidden><label>Forma de Cómputo del Crédito Fiscal</label>
+            <select id="forma" style="display:none"><option value="1">Con prorrateo por asignación directa</option><option value="2">Con prorrateo global</option><option value="3">Con prorrateo por asignación directa y global</option></select>
+            <button type="button">Con prorrateo por asignación directa</button></div>
+        <button type="button" id="cont" disabled>Continuar</button>
+        <script>
+            const boxes = ["ng", "ib", "is", "tu", "bu"].map((id) => document.getElementById(id));
+            const none = document.getElementById("no"), cont = document.getElementById("cont");
+            function sync() {
+                document.getElementById("credito").hidden = !boxes[0].checked;
+                cont.disabled = !(none.checked || boxes.some((b) => b.checked));
+            }
+            boxes.forEach((b) => b.onchange = () => { if (b.checked) none.checked = false; sync(); });
+            none.onchange = () => { if (none.checked) boxes.forEach((b) => b.checked = false); sync(); };
+            cont.onclick = () => {
+                const data = { con: document.getElementById("con").checked, ops: boxes.map((b) => b.checked), none: none.checked, forma: boxes[0].checked ? document.getElementById("forma").selectedOptions[0].text : null };
+                fetch("guardarDatosIniciales.do?d=" + encodeURIComponent(JSON.stringify(data))).then(() => { location.href = "menuPresentacion.do"; });
+            };
+        </script>`);
+    const menuPage = () => livaChrome(`
+        <h3>Libro Ventas</h3><a href="verVentas.do?t=31"><i class="icono" style="display:inline-block;width:40px;height:40px"></i></a>
+        <h3>Libro Compras</h3><a href="verCompras.do?t=21"><i class="icono" style="display:inline-block;width:40px;height:40px"></i></a>`);
+    const bookPage = (book: "ventas" | "compras") => {
+        const total = imported.has(book) ? options.portal?.found?.[book] ?? 0 : 0;
+        const month = requested.slice(4), year = requested.slice(0, 4);
+        const last = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
+        return livaChrome(`
+        <h1>Libro ${book === "ventas" ? "Ventas" : "Compras"} | ${month}/${year}</h1>
+        <div class="dropdown"><button type="button" id="imp">Importar</button>
+            <ul id="menu" hidden><li><a href="#" id="arca">Importar desde ARCA...</a></li><li><a href="#">Importar Archivos...</a></li></ul></div>
+        <button type="button" class="btn btn-default" id="csv">CSV</button>
+        <div class="dataTables_info">${total ? `Mostrando registros 1 al ${Math.min(total, 5)} de un total de ${total}` : "Mostrando 0 registros de un total de 0"}</div>
+        <div role="dialog" id="dlg" hidden><h4>Importar desde ARCA</h4><ul><li>Fecha del Comprobante: <b>01/${month}/${year}</b> a <b>${last}/${month}/${year}</b></li></ul>
+            <select id="keep" style="display:none"><option value="1">Conservar el comprobante previamente incluído</option><option value="2">Reemplazar el comprobante previamente incluído por el que se está importando</option></select>
+            <button type="button" onclick="document.getElementById('dlg').hidden = true">Cancelar</button><button type="button" id="go">Importar</button></div>
+        <div role="dialog" id="hist" hidden><h4>Historial de Importaciones</h4><p id="estado"></p>
+            <button type="button" id="act">Actualizar</button><button type="button" onclick="document.getElementById('hist').hidden = true">Cerrar</button></div>
+        <script>
+            let polls = 0;
+            document.getElementById("imp").onclick = () => { document.getElementById("menu").hidden = false; };
+            document.getElementById("arca").onclick = (e) => { e.preventDefault(); document.getElementById("menu").hidden = true; document.getElementById("dlg").hidden = false; };
+            document.getElementById("go").onclick = () => {
+                const keep = document.getElementById("keep").selectedOptions[0].text;
+                fetch("importar.do?book=${book}&keep=" + encodeURIComponent(keep) + "&from=01/${month}/${year}&to=${last}/${month}/${year}").then(() => {
+                    document.getElementById("dlg").hidden = true;
+                    document.getElementById("estado").textContent = "Importación desde ARCA En proceso";
+                    document.getElementById("hist").hidden = false;
+                });
+            };
+            document.getElementById("act").onclick = () => {
+                if (++polls >= 1) document.getElementById("estado").textContent = "Importación desde ARCA Procesada Comprobantes Electrónicos encontrados: ${options.portal?.found?.[book] ?? 0} Agregados: ${options.portal?.found?.[book] ?? 0}";
+            };
+            document.getElementById("csv").onclick = () => { location.href = "exportar.do?book=${book}"; };
+        </script>`);
+    };
+
     async function handle(route: Route) {
         const request = route.request();
         const url = new URL(request.url());
         const page = (body: string, contentType = "text/html; charset=utf-8") => route.fulfill({ status: 200, contentType, body });
         if (url.hostname === "auth.afip.gob.ar") return page(loginPage());
         if (url.hostname === "portalcf.cloud.afip.gob.ar") return page(portalPage());
+        if (url.hostname === "siapweb.cloud.afip.gob.ar" && url.pathname.startsWith("/iva/")) {
+            if (url.pathname.endsWith("/relacion")) {
+                portalPerson = people[Number(url.searchParams.get("i"))]?.cuit ?? options.loginCuit;
+                return route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+            }
+            return page(portalSpa());
+        }
+        if (url.hostname === "liva.afip.gob.ar") {
+            const name = url.pathname.split("/").pop();
+            if (name === "mostrarMenu.do") {
+                requested = url.searchParams.get("p") ?? requested;
+                const asked = `${requested.slice(4)}/${requested.slice(0, 4)}`;
+                if (otherDraft && otherDraft !== asked) return page(blockedPage(otherDraft));
+                if (draftOpened) return page(menuPage());
+                // ARCA lleva a los datos iniciales cuando el borrador es nuevo.
+                return page(html(`<script>location.replace("verDatosInicialesPresentacion.do")</script>`));
+            }
+            if (name === "verDatosInicialesPresentacion.do") return page(initialPage());
+            if (name === "borradorEliminado.jsp") {
+                if (otherDraft) log.discardedDrafts.push(otherDraft);
+                otherDraft = null;
+                return page(livaChrome(`<p>Listo, tu borrador fue eliminado</p><button type="submit" onclick="location.href='https://siapweb.cloud.afip.gob.ar/iva/#/init'">Continuar</button>`));
+            }
+            if (name === "guardarDatosIniciales.do") {
+                log.initialData.push(JSON.parse(url.searchParams.get("d") ?? "{}"));
+                draftOpened = true;
+                return route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+            }
+            if (name === "menuPresentacion.do") return page(menuPage());
+            if (name === "verVentas.do") return page(bookPage("ventas"));
+            if (name === "verCompras.do") return page(bookPage("compras"));
+            if (name === "importar.do") {
+                const book = url.searchParams.get("book")!;
+                imported.add(book);
+                log.portalImports.push({ book, keep: url.searchParams.get("keep")!, from: url.searchParams.get("from")!, to: url.searchParams.get("to")! });
+                return route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+            }
+            if (name === "exportar.do") {
+                const book = url.searchParams.get("book") as "ventas" | "compras";
+                log.portalExports.push(book);
+                return route.fulfill({
+                    status: 200, contentType: "text/csv", body: Buffer.from(options.portal?.books?.[book] ?? new Uint8Array()),
+                    headers: { "Content-Disposition": `attachment; filename="${book}.csv"` },
+                });
+            }
+        }
         if (url.hostname === "mirequa-web.arca.gob.ar") {
             return page(html(`<h1>Mis retenciones</h1><div role="alert">Podés acceder a la versión anterior del servicio haciendo
                 <button type="button" onclick="location.href='https://seti.afip.gob.ar/misret/consultaMisRetenciones.do?method=getForm'">click aquí</button></div>`));

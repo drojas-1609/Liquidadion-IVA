@@ -209,6 +209,8 @@ model Client {
   condition       String
   address         String?
   defaultIibbRate Decimal  @default(3.000000) @db.Decimal(9, 6)
+  /// Datos iniciales de IVA Simple predeterminados (lib/arca-sync/initial-data.ts).
+  arcaInitialData Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -276,6 +278,8 @@ model Period {
   /// Versiones cerradas de la liquidación (historial de cierres).
   liquidationVersions  PeriodLiquidationVersion[]
   arcaSyncTasks        ArcaSyncTask[]
+  /// Datos iniciales de IVA Simple elegidos para este período (si falta, los del cliente).
+  arcaSetting          ArcaPeriodSetting?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1054,4 +1058,17 @@ model ArcaClientCredential {
   client         Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@id([clientId, organizationId])
+}
+
+/// Elección por período para el conector de ARCA (fuera de Period: sus escrituras
+/// están reservadas a las transiciones de estado).
+model ArcaPeriodSetting {
+  periodId       String   @id
+  organizationId String
+  /// Datos iniciales de IVA Simple (lib/arca-sync/initial-data.ts).
+  initialData    Json
+  updatedById    String?  @db.Uuid
+  updatedAt      DateTime @default(now()) @updatedAt
+
+  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onDelete: Cascade)
 }
