@@ -67,3 +67,14 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Regla:** una fila pendiente siempre tiene un camino de salida: su motivo a la vista, una
   corrección elegida por la persona (nunca inferida) que queda en las notas, y una nueva
   vista previa antes de incorporar. El archivo se conserva mientras haya pendientes.
+
+### 2026-11-15 · Recálculo de ventas sin respuesta y leyenda desmarcada
+
+- **Qué pasó:** en la prueba con 7.113 ventas el servidor guardó la vista previa corregida,
+  pero el navegador mostró «No se pudo conectar»; al recargar, la leyenda «CONSUMIDOR FINAL»
+  aparecía desmarcada y el panel arrastraba la marca de la corrida anterior.
+- **Causa:** la respuesta superó el tiempo de espera de la función; la elección de la leyenda
+  no se guardaba al recalcular y el panel la tomaba de la confirmación previa.
+- **Regla:** ante una respuesta que no llega, releer el estado en vez de reintentar; las
+  decisiones de la persona (leyenda, correcciones) se guardan en la vista previa de la corrida
+  actual y el panel las toma de ahí.

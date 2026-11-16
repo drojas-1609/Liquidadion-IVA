@@ -76,15 +76,18 @@ export const POST = withApiAuthz(async (request: Request, context: Context) => {
             if (error instanceof ImportRejectedError) throw new ConflictError("El importador no acepta las correcciones indicadas.");
             throw error;
         }
-        // Si las ventas ya se incorporaron con la leyenda, la corrección parte de esa variante.
+        // La variante de ventas la elige la persona (leyenda marcada en el panel); si no la
+        // informa, se mantiene la de la vista previa o la de la confirmación anterior.
         const previous = task.preview as unknown as SyncPreviewSummary;
-        const consumerFinalApplied = (previous.confirmed?.consumerFinalLegend ?? previous.consumerFinalApplied) === true;
+        const consumerFinalApplied = source === "SALES" && (body.consumerFinalLegend !== undefined
+            ? consumerFinalLegend
+            : (previous.consumerFinalApplied ?? previous.confirmed?.consumerFinalLegend) === true);
         const { counts } = consumerFinalApplied && summary.consumerFinal ? summary.consumerFinal : summary;
         const revised = await prisma.arcaSyncTask.updateMany({
             where: { id: task.id, status: task.status },
             data: {
                 status: "PREVIEW", duplicates: counts.DUPLICATE, pending: counts.REVIEW + counts.ERROR,
-                preview: json({ ...summary, importedBefore, ...(consumerFinalApplied ? { consumerFinalApplied } : {}) }),
+                preview: json({ ...summary, importedBefore, ...(source === "SALES" ? { consumerFinalApplied } : {}) }),
             },
         });
         if (!revised.count) throw new ConflictError("Esa fuente cambió mientras se recalculaba. Volvé a intentar.");

@@ -111,21 +111,41 @@ export function ArcaPendingCorrections({ url, source, legend, busy, onRevised, o
         onMessage("");
     }
 
+    async function readTask(): Promise<{ status: unknown; task?: { status: string; updatedAt: string } } | null> {
+        const response = await fetch(url, { cache: "no-store" }).catch(() => null);
+        if (!response?.ok) return null;
+        const status = await response.json() as { tasks: { source: string; status: string; updatedAt: string }[] };
+        return { status, task: status.tasks.find((task) => task.source === source) };
+    }
+
     async function revise() {
         setSaving(true);
         onMessage("");
-        try {
-            const response = await fetch(`${url}/decision`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ source, action: "revise", corrections }),
-            });
-            const result = await response.json();
-            if (!response.ok) { onMessage(result.error?.message ?? "No se pudo recalcular la vista previa."); return; }
+        const before = (await readTask())?.task?.updatedAt;
+        const done = (result: unknown) => {
             setData(null);
             onRevised(result);
             onMessage("Vista previa recalculada con las correcciones. Revisala y confirmá para incorporar.");
+        };
+        try {
+            const response = await fetch(`${url}/decision`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ source, action: "revise", corrections, ...(source === "SALES" ? { consumerFinalLegend: legend } : {}) }),
+            });
+            const result = await response.json().catch(() => null);
+            if (response.ok && result) { done(result); return; }
+            if (result?.error) { onMessage(result.error.message ?? "No se pudo recalcular la vista previa."); return; }
+            throw new Error("sin respuesta");
         } catch {
-            onMessage("No se pudo conectar. Volvé a intentar.");
+            // Con archivos grandes la respuesta puede no llegar aunque el servidor siga
+            // recalculando: se espera a que la fuente cambie en lugar de reintentar.
+            onMessage("El recálculo tarda más de lo esperado; esperando el resultado…");
+            for (let attempt = 0; attempt < 24; attempt++) {
+                await new Promise((resolve) => setTimeout(resolve, 5000));
+                const read = await readTask();
+                if (read?.task && read.task.status === "PREVIEW" && read.task.updatedAt !== before) { done(read.status); return; }
+            }
+            onMessage("No se recibió el resultado del recálculo. Recargá la página para ver el estado antes de volver a intentar.");
         } finally {
             setSaving(false);
         }

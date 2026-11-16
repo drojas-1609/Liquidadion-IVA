@@ -43,7 +43,7 @@ export const GET = withApiAuthz(async (request: Request, context: Context) => {
     const summary = task.preview as unknown as SyncPreviewSummary;
     const legendParam = url.searchParams.get("legend");
     const legend = source === "SALES" && (legendParam === null
-        ? (summary.confirmed?.consumerFinalLegend ?? summary.consumerFinalApplied) === true
+        ? (summary.consumerFinalApplied ?? summary.confirmed?.consumerFinalLegend) === true
         : legendParam === "1");
 
     const stored = task.files[0];

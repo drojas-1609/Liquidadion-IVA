@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatMoney } from "@/lib/format";
 import type { SyncPreviewSummary, SyncVariant } from "@/lib/arca-sync/preview";
 import { ArcaPendingCorrections } from "./arca-pending-corrections";
@@ -92,6 +92,16 @@ type Status = {
     }>;
 };
 
+/** Leyenda elegida para la vista previa de ventas de la corrida actual (no la de corridas anteriores). */
+function legendOf(value: Status): boolean {
+    const sales = value.tasks.find((task) => task.source === "SALES")?.preview;
+    return (sales?.consumerFinalApplied ?? sales?.confirmed?.consumerFinalLegend) === true;
+}
+const salesKey = (value: Status) => {
+    const sales = value.tasks.find((task) => task.source === "SALES");
+    return sales ? `${sales.status}|${sales.updatedAt}` : "";
+};
+
 export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; canSchedule: boolean }) {
     const url = `/api/periods/${encodeURIComponent(periodId)}/arca-sync`;
     const [status, setStatus] = useState<Status>();
@@ -100,6 +110,23 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
     const [message, setMessage] = useState("");
     const [busy, setBusy] = useState(false);
     const [legend, setLegend] = useState(false);
+    const lastSales = useRef("");
+    /** Aplica un estado nuevo; la leyenda sólo se resincroniza cuando cambió la fuente de ventas. */
+    function apply(value: Status) {
+        setStatus(value);
+        const key = salesKey(value);
+        if (key !== lastSales.current) {
+            lastSales.current = key;
+            setLegend(legendOf(value));
+        }
+    }
+    async function refresh(): Promise<Status | null> {
+        const fresh = await fetch(url, { cache: "no-store" }).catch(() => null);
+        if (!fresh?.ok) return null;
+        const value: Status = await fresh.json();
+        apply(value);
+        return value;
+    }
     const active = status?.tasks.some((task) => task.status === "PENDING" || task.status === "RUNNING" || task.status === "CONFIRMING") ?? false;
     const awaiting = status?.tasks.some((task) => task.status === "PREVIEW" || task.status === "CONFIRMING") ?? false;
     const retryable = status?.tasks.some((task) => task.status === "FAILED" || task.status === "AUTH_REQUIRED") ?? false;
@@ -109,10 +136,7 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
         fetch(url, { signal: controller.signal, cache: "no-store" }).then(async (response) => {
             if (!response.ok) throw new Error();
             const value: Status = await response.json();
-            setStatus(value);
-            // Si las ventas ya se incorporaron con la leyenda, la corrección parte de esa variante.
-            const sales = value.tasks.find((task) => task.source === "SALES")?.preview;
-            if ((sales?.confirmed?.consumerFinalLegend ?? sales?.consumerFinalApplied) === true) setLegend(true);
+            apply(value);
             setEnabled(value.schedule?.enabled ?? false);
             setDays([0, 1].map((index) => value.schedule?.extraDays[index]?.toString() ?? ""));
         }).catch(() => { if (!controller.signal.aborted) setMessage("No se pudo consultar la automatización de ARCA."); });
@@ -124,7 +148,7 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
         const controller = new AbortController();
         const timer = setInterval(() => {
             fetch(url, { signal: controller.signal, cache: "no-store" }).then(async (response) => {
-                if (response.ok) setStatus(await response.json());
+                if (response.ok) apply(await response.json());
             }).catch(() => {});
         }, 4000);
         return () => { clearInterval(timer); controller.abort(); };
@@ -144,7 +168,7 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
                 setMessage(result.error?.message ?? "No se pudo guardar.");
                 return;
             }
-            setStatus(result);
+            apply(result);
             setMessage(method === "PUT" ? "Calendario guardado." : "Importación solicitada.");
         } catch {
             setMessage("No se pudo conectar. Volvé a intentar.");
@@ -166,14 +190,18 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
             if (!response.ok) {
                 setMessage(result.error?.message ?? "No se pudo resolver la vista previa.");
                 // La vista previa pudo cambiar: se vuelve a leer antes de decidir otra vez.
-                const fresh = await fetch(url, { cache: "no-store" });
-                if (fresh.ok) setStatus(await fresh.json());
+                await refresh();
                 return;
             }
-            setStatus(result);
+            apply(result);
             setMessage(action === "confirm" ? `${LABELS[source]}: incorporación confirmada.` : `${LABELS[source]}: vista previa descartada.`);
         } catch {
-            setMessage("No se pudo conectar. Volvé a intentar.");
+            // Con archivos grandes la respuesta puede no llegar aunque el servidor haya terminado:
+            // se relee el estado en lugar de reintentar a ciegas.
+            const value = await refresh();
+            setMessage(value
+                ? "La respuesta tardó más de lo esperado. Se actualizó el estado: revisá el resultado antes de volver a intentar."
+                : "No se pudo conectar. Volvé a intentar.");
         } finally {
             setBusy(false);
         }
@@ -232,7 +260,7 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
                         {correctsPending && task.status === "REVIEW" && (
                             <>
                                 <ArcaPendingCorrections url={url} source={task.source as "SALES" | "PURCHASES"} legend={legend} busy={busy}
-                                    onRevised={(value) => setStatus(value as Status)} onMessage={setMessage} />
+                                    onRevised={(value) => apply(value as Status)} onMessage={setMessage} />
                                 <p>
                                     <button type="button" className="btn" disabled={busy} onClick={() => void decide(task.source, "discard")}>Cerrar sin corregir</button>
                                     {" "}Borra el archivo guardado; lo ya incorporado se mantiene.
@@ -241,7 +269,7 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
                         )}
                         {correctsPending && task.status === "PREVIEW" && (
                             <ArcaPendingCorrections url={url} source={task.source as "SALES" | "PURCHASES"} legend={legend} busy={busy}
-                                onRevised={(value) => setStatus(value as Status)} onMessage={setMessage} />
+                                onRevised={(value) => apply(value as Status)} onMessage={setMessage} />
                         )}
                         {task.status === "PREVIEW" && shown && (
                             <p>

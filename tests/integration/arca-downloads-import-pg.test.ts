@@ -268,6 +268,7 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
             expect((await decide({ source: "PURCHASES", action: "revise", corrections: { acceptRounding: true } })).status).toBe(403);
             H.sub = OWNER;
             expect((await decide({ source: "PURCHASES", action: "revise", corrections: { exemptSaleOperationCode: "Q" } })).status).toBe(400);
+            expect((await decide({ source: "PURCHASES", action: "revise", corrections: {}, consumerFinalLegend: true })).status).toBe(400);
             expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(1);
 
             // Corrección elegida: vista previa nueva, lo ya incorporado como duplicado.
