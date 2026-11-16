@@ -1,3 +1,4 @@
+import { storedInitialData } from "@/lib/arca-sync/initial-data";
 import { after, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { syncAuthorized } from "@/lib/arca-sync/auth";
@@ -31,7 +32,7 @@ export const POST = withApiAuthz(async (request: Request) => {
     if (!Number.isFinite(lease.getTime())) return response({ error: "INVALID_LEASE" }, 400);
     const task = await prisma.arcaSyncTask.findFirst({
         where: { id: body.taskId, status: "RUNNING", leaseUntil: lease },
-        include: { period: { select: { clientId: true, year: true, month: true, client: { select: { cuit: true } } } } },
+        include: { period: { select: { clientId: true, year: true, month: true, arcaSetting: { select: { initialData: true } }, client: { select: { cuit: true, condition: true, arcaInitialData: true } } } } },
     });
     if (!task || lease.getTime() <= Date.now()) return response({ error: "LEASE_EXPIRED" }, 409);
     const advance = () => after(async () => { await runNextSyncTask(task.periodId); });
@@ -52,14 +53,16 @@ export const POST = withApiAuthz(async (request: Request) => {
             return response({
                 storedCredential, clientId: task.period.clientId, organizationId: task.organizationId,
                 cuit: task.period.client.cuit.replace(/\D/g, ""), year: task.period.year, month: task.period.month,
-                source: task.source, periodId: task.periodId,
+                source: task.source, periodId: task.periodId, condition: task.period.client.condition,
+                // Elección del período o, si no la hay, la predeterminada del cliente.
+                initialData: storedInitialData(task.period.arcaSetting?.initialData) ?? storedInitialData(task.period.client.arcaInitialData),
             });
         }
         if (body.action === "finish") {
             const permitted = ["EMPTY", "AUTH_REQUIRED", "FAILED"];
             if (!permitted.includes(body.status)) return response({ error: "INVALID_STATUS" }, 400);
             const allowedErrors = ["ARCA_SESSION", "ARCA_DOWNLOAD", "ARCA_FORMAT", "ARCA_PAGE", "ARCA_PERIOD", "CREDENTIALS_MISSING", "VERIFICATION_REQUIRED", "REPRESENTATION_REQUIRED",
-                "ARCA_TIMEOUT_LOGIN", "ARCA_TIMEOUT_SERVICE", "ARCA_TIMEOUT_REPRESENTATION", "ARCA_TIMEOUT_QUERY", "ARCA_TIMEOUT_EXPORT"];
+                "ARCA_DRAFT_OTHER_PERIOD", "ARCA_INITIAL_DATA_REQUIRED", "ARCA_TIMEOUT_LOGIN", "ARCA_TIMEOUT_SERVICE", "ARCA_TIMEOUT_REPRESENTATION", "ARCA_TIMEOUT_QUERY", "ARCA_TIMEOUT_EXPORT"];
             await prisma.arcaSyncTask.updateMany({
                 where: { id: task.id, status: "RUNNING", leaseUntil: lease },
                 data: {

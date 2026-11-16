@@ -7,7 +7,7 @@ import { deletedImportHashes, importKeyHash } from "../invoice-import-deletion";
 import { lockClientForUpdate } from "../client-lock";
 import { ConflictError, NotFoundError, ValidationError } from "../auth/errors";
 import { parseLidFile, type LidCategory } from "./format";
-import { buildImportPreview, voucherKey, type ImportPreview, type ImportSource, type SectionTotals } from "./build";
+import { buildImportPreview, voucherKey, type ImportPreview, type ImportSource, type SectionTotals, type ImportCorrections } from "./build";
 import { parsePortalDownload } from "./portal-csv";
 import { parseMisComprobantes } from "./mis-comprobantes-csv";
 import { recordAudit } from "../auth/audit";
@@ -50,6 +50,8 @@ export interface ImportFiles {
     reimportDeleted?: boolean;
     /** Aplicar la leyenda «CONSUMIDOR FINAL» a las ventas con documento 99 sin denominación (confirmación expresa). */
     consumerFinalLegend?: boolean;
+    /** Correcciones elegidas por la persona para las filas pendientes. */
+    corrections?: ImportCorrections;
 }
 
 const sha256 = (b: Uint8Array | string) => createHash("sha256").update(b).digest("hex");
@@ -141,6 +143,7 @@ export async function previewImport(scope: ImportScope, files: ImportFiles, db: 
         deletedLookup: (key: string) => deleted.get(importKeyHash(key)),
         reimportDeleted: files.reimportDeleted === true,
         consumerFinalLegend: files.consumerFinalLegend === true,
+        corrections: files.corrections,
         rangeOf: (code: number, pos: number, n: number) => ranges.find((r) => r.voucherCode === code && r.pointOfSale === pos && r.from <= n && n <= r.to),
         informantCuit: period.client.cuit.replace(/\D/g, ""),
     };
@@ -160,6 +163,7 @@ export async function previewImport(scope: ImportScope, files: ImportFiles, db: 
         v: 2, ...scope, category: files.category, format, vouchersSha256, aliquotsSha256, reimportDeleted: files.reimportDeleted === true,
         // Sólo cuando se pide: los tokens de las vistas previas sin la sugerencia no cambian.
         ...(files.consumerFinalLegend === true ? { consumerFinalLegend: true } : {}),
+        ...(files.corrections ? { corrections: files.corrections } : {}),
         settings: [settings.creditProrationMode, settings.turivaIncluded],
         rows: preview.rows.map((r) => [r.line, r.status, r.key]),
         fileErrors: preview.fileErrors,

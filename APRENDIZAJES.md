@@ -57,3 +57,55 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Regla:** la leyenda «CONSUMIDOR FINAL» es una sugerencia que la persona acepta al
   confirmar; completa sólo la denominación. No se infieren alícuotas, códigos de operación
   ni importes para cerrar una fila: lo que el archivo no informa queda pendiente con su motivo.
+
+### 2026-11-15 · Las filas pendientes no se podían corregir ni incorporar
+
+- **Qué pasó:** en producción, un cliente incorporó ventas y compras, pero 1.033 filas quedaron
+  pendientes (1.022 ventas, 11 compras) sin forma de verlas ni corregirlas.
+- **Causa:** el importador nunca incorpora filas para revisar, la app no ofrecía cómo
+  resolverlas y el archivo descargado se borraba al confirmar.
+- **Regla:** una fila pendiente siempre tiene un camino de salida: su motivo a la vista, una
+  corrección elegida por la persona (nunca inferida) que queda en las notas, y una nueva
+  vista previa antes de incorporar. El archivo se conserva mientras haya pendientes.
+
+### 2026-11-15 · Recálculo de ventas sin respuesta y leyenda desmarcada
+
+- **Qué pasó:** en la prueba con 7.113 ventas el servidor guardó la vista previa corregida,
+  pero el navegador mostró «No se pudo conectar»; al recargar, la leyenda «CONSUMIDOR FINAL»
+  aparecía desmarcada y el panel arrastraba la marca de la corrida anterior.
+- **Causa:** la respuesta superó el tiempo de espera de la función; la elección de la leyenda
+  no se guardaba al recalcular y el panel la tomaba de la confirmación previa.
+- **Regla:** ante una respuesta que no llega, releer el estado en vez de reintentar; las
+  decisiones de la persona (leyenda, correcciones) se guardan en la vista previa de la corrida
+  actual y el panel las toma de ahí.
+
+### 2026-11-15 · Comprobantes de responsables inscriptos tomados de Mis Comprobantes
+
+- **Qué pasó:** las ventas y compras de una sociedad representada responsable inscripta se
+  importaron desde Mis Comprobantes. Faltaba el detalle por concepto (5 tiques de combustible
+  quedaron pendientes: la diferencia eran impuestos internos, visibles sólo en el Portal IVA).
+- **Causa:** el conector evitaba el Portal IVA de las representadas para no abrir un borrador
+  en IVA Simple, y la fuente no dependía de la condición del cliente.
+- **Regla:** Monotributo usa Mis Comprobantes; el resto, el Portal IVA. Consultar e importar
+  sobre el borrador no afecta la declaración mientras no se presenta. Sólo se descarta el
+  borrador de un período posterior; los datos iniciales nunca se suponen: los elige la persona
+  por período (con predeterminados del cliente). Las escrituras de `Period` están reservadas a
+  las transiciones de estado: la elección del período vive en `ArcaPeriodSetting`.
+
+### 2026-11-15 · Esquema de Prisma sin validar antes del push
+
+- **Qué pasó:** la Deploy Preview del PR #55 falló en `prisma generate`: la relación 1:1 de
+  `ArcaPeriodSetting` con `Period` no tenía campos únicos.
+- **Causa:** en el entorno de trabajo no se puede descargar el motor de Prisma y se subió sin validar.
+- **Regla:** validar el esquema con `@prisma/prisma-schema-wasm` de la misma versión que
+  `@prisma/engines-version` (instalado fuera del repositorio) antes de subir cambios de esquema.
+
+### 2026-11-16 · La Deploy Preview probaba el conector de otro PR
+
+- **Qué pasó:** la primera prueba del PR #55 en DEV volvió a descargar de Mis Comprobantes:
+  el envío y la respuesta del conector iban a la Preview de un PR anterior.
+- **Causa:** `ARCA_SYNC_APP_ORIGIN` del contexto «Deploy Previews» tenía la dirección fija de
+  la Preview anterior, y las funciones toman el valor recién al volver a desplegar.
+- **Regla:** antes de probar el conector en una Preview, apuntar `ARCA_SYNC_APP_ORIGIN`
+  (sólo «Deploy Previews») a esa Preview, volver a desplegarla y confirmar en la vista previa
+  el formato de la fuente (`PORTAL_CSV` o `MIS_COMPROBANTES`). Nunca cambiar el de Production.

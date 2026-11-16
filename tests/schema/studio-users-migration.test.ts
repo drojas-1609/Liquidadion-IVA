@@ -27,8 +27,8 @@ const schema = readFileSync(repo + "prisma/schema.prisma", "utf8");
 describe(`migración ${MIGRATION} — revisión estática`, () => {
   it("sigue a la de ARCA sin cambiarla", () => {
     const allDirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-        expect(allDirs.slice(-4)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview"]);
-        const dirs = allDirs.slice(0, -4);
+        expect(allDirs.slice(-5)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview", "20261116000000_arca_initial_data"]);
+        const dirs = allDirs.slice(0, -5);
     expect(dirs.at(-1)).toBe("20261108120000_invoice_import_deletions");
     expect(dirs.at(-2)).toBe("20261107120000_vat_export_close_versions");
     expect(dirs.at(-3)).toBe("20261106120000_vat_credit_adjustments");

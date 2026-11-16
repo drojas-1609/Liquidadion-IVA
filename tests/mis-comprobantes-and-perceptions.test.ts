@@ -307,3 +307,64 @@ describe("Mis Comprobantes: ventas a consumidor final sin identificar (documento
         expect(preview(true).rows[5].name).toBe("");
     });
 });
+
+describe("Mis Comprobantes: correcciones elegidas en la app para las filas pendientes", () => {
+    // Datos sintéticos; reproducen los tres motivos observados: venta B exenta sin
+    // código de operación, diferencia de redondeo y neto gravado al 0 % sin código.
+    const file = utf8([
+        H_EMITIDOS,
+        emitido("2027-10-05", 6, 1, "300,00", {}, { exempt: "300,00", netTotal: "0,00", vat: "0,00" }),
+        emitido("2027-10-05", 6, 2, "121,01", { r21: ["100,00", "21,00"] }, { netTotal: "100,00", vat: "21,00" }),
+        emitido("2027-10-05", 6, 3, "120,98", { r21: ["100,00", "21,00"] }, { netTotal: "100,00", vat: "21,00" }),
+        emitido("2027-10-05", 6, 4, "50,00", { n0: "50,00" }, { netTotal: "50,00", vat: "0,00" }),
+        emitido("2027-10-05", 1, 5, "9121,00", { r21: ["100,00", "21,00"] }, { netTotal: "100,00", vat: "21,00" }),
+    ]);
+    const preview = (corrections?: Parameters<typeof buildImportPreview>[0]["corrections"]) => {
+        const p = parseMisComprobantes(file, "SALES", CLIENT);
+        return buildImportPreview({ ...CTX, category: "SALES", corrections }, p.vouchers, p.aliquots, { fileErrors: p.fileErrors, rowNotes: p.rowNotes });
+    };
+
+    it("sin correcciones todas quedan pendientes", () => {
+        expect(preview().rows.map((r) => r.status)).toEqual(["REVIEW", "REVIEW", "REVIEW", "REVIEW", "REVIEW"]);
+    });
+
+    it("acepta el redondeo de hasta $ 0,02 (en ambos sentidos) guardando el total calculado, con nota", () => {
+        const pv = preview({ acceptRounding: true });
+        expect(pv.rows[1].status).toBe("OK");
+        expect(pv.rows[1].model!.voucherTotalAmount.toFixed(2)).toBe("121.00");
+        expect(pv.rows[1].notes.join(" ")).toMatch(/diferencia de redondeo aceptada: el total informado 121\.01 se guarda como 121\.00/);
+        // −0,02 también está dentro de la tolerancia acordada.
+        expect(pv.rows[2].status).toBe("OK");
+        expect(pv.rows[2].model!.voucherTotalAmount.toFixed(2)).toBe("121.00");
+    });
+
+    it("con diferencia mayor a $ 0,02 la fila sigue pendiente", () => {
+        const wide = utf8([H_EMITIDOS, emitido("2027-10-05", 6, 9, "121,03", { r21: ["100,00", "21,00"] }, { netTotal: "100,00", vat: "21,00" })]);
+        const p = parseMisComprobantes(wide, "SALES", CLIENT);
+        const pv = buildImportPreview({ ...CTX, category: "SALES", corrections: { acceptRounding: true } }, p.vouchers, p.aliquots, { fileErrors: p.fileErrors, rowNotes: p.rowNotes });
+        expect(pv.rows[0].status).toBe("REVIEW");
+    });
+
+    it("asigna sólo el código de operación elegido a la venta exenta y al neto 0 %", () => {
+        const pv = preview({ exemptSaleOperationCode: "E", zeroRateOperationCode: "N" });
+        expect(pv.rows[0].status).toBe("OK");
+        expect(pv.rows[0].model!.operationCode).toBe("E");
+        expect(pv.rows[0].notes.join(" ")).toMatch(/código de operación E asignado en la app/);
+        expect(pv.rows[3].status).toBe("OK");
+        expect(pv.rows[3].notes.join(" ")).toMatch(/código de operación N asignado en la app al neto gravado al 0 %/);
+        // La diferencia de total no se toca sin aceptarla.
+        expect(pv.rows[1].status).toBe("REVIEW");
+    });
+
+    it("corrige importes de cabecera de una línea elegida y deja constancia", () => {
+        const before = preview();
+        const line = before.rows[4].line;
+        expect(before.rows[4].status).toBe("REVIEW");
+        const pv = preview({ lineAmounts: { [String(line)]: { otherTaxes: "9000.00" } } });
+        expect(pv.rows[4].status).toBe("OK");
+        expect(pv.rows[4].model!.voucherTotalAmount.toFixed(2)).toBe("9121.00");
+        expect(pv.rows[4].notes.join(" ")).toMatch(/importes corregidos en la app/);
+        // Las demás líneas no cambian.
+        expect(pv.rows.slice(0, 4).map((r) => r.status)).toEqual(before.rows.slice(0, 4).map((r) => r.status));
+    });
+});

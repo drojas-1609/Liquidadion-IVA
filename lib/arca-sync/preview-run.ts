@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ImportCorrections } from "@/lib/libro-iva-import/build";
 import {
     consumerFinalRows, invoiceVariant, sameVariant, taxVariant,
     type InvoicePreviewJson, type SyncPreviewSummary, type SyncVariant, type TaxPreviewJson,
@@ -38,11 +39,12 @@ export class ConfirmFailedError extends Error {
 export const fileSha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const isInvoices = (source: SyncSource) => source === "SALES" || source === "PURCHASES";
 
-function invoiceBody(task: { source: SyncSource; clientId: string }, file: SyncFile, consumerFinalLegend: boolean) {
+export function invoiceBody(task: { source: SyncSource; clientId: string }, file: SyncFile, consumerFinalLegend: boolean, corrections?: ImportCorrections) {
     return {
         clientId: task.clientId, category: task.source, format: file.format ?? "PORTAL_CSV",
         vouchersFile: Buffer.from(file.content).toString("base64"), acceptPartial: true,
         ...(consumerFinalLegend ? { consumerFinalLegend: true } : {}),
+        ...(corrections ? { corrections } : {}),
     };
 }
 const taxBody = (task: { source: SyncSource }, file: SyncFile) => ({ kind: task.source, file: Buffer.from(file.content).toString("base64") });
@@ -65,18 +67,18 @@ interface Computed {
     variant: (consumerFinalLegend: boolean) => SyncVariant;
 }
 
-async function compute(task: { source: SyncSource; clientId: string }, files: readonly SyncFile[], invoke: Invoke): Promise<Computed> {
+async function compute(task: { source: SyncSource; clientId: string }, files: readonly SyncFile[], invoke: Invoke, corrections?: ImportCorrections): Promise<Computed> {
     const described = files.map((file) => ({ sha256: file.sha256, format: file.format }));
     if (isInvoices(task.source)) {
         // Los libros llegan en un único archivo por fuente.
         if (files.length !== 1) throw new ImportRejectedError("file-errors");
         const file = files[0];
-        const base = await preview<InvoiceData>(invoke, "INVOICE_PREVIEW", invoiceBody(task, file, false));
-        const summary: SyncPreviewSummary = { version: 1, files: described, ...invoiceVariant(base) };
+        const base = await preview<InvoiceData>(invoke, "INVOICE_PREVIEW", invoiceBody(task, file, false, corrections));
+        const summary: SyncPreviewSummary = { version: 1, files: described, ...(corrections ? { corrections } : {}), ...invoiceVariant(base) };
         const suggested = task.source === "SALES" ? consumerFinalRows(base) : 0;
         let legend: InvoiceData | null = null;
         if (suggested > 0) {
-            legend = await preview<InvoiceData>(invoke, "INVOICE_PREVIEW", invoiceBody(task, file, true));
+            legend = await preview<InvoiceData>(invoke, "INVOICE_PREVIEW", invoiceBody(task, file, true, corrections));
             summary.consumerFinal = { rows: suggested, ...invoiceVariant(legend) };
         }
         return {
@@ -98,13 +100,14 @@ async function compute(task: { source: SyncSource; clientId: string }, files: re
     };
 }
 
-export async function buildSyncPreview(task: { source: SyncSource; clientId: string }, files: readonly SyncFile[], invoke: Invoke) {
-    return (await compute(task, files, invoke)).summary;
+export async function buildSyncPreview(task: { source: SyncSource; clientId: string }, files: readonly SyncFile[], invoke: Invoke, corrections?: ImportCorrections) {
+    if (corrections && task.source !== "SALES" && task.source !== "PURCHASES") throw new ImportRejectedError("preview-status");
+    return (await compute(task, files, invoke, corrections)).summary;
 }
 
 /** Identificador estable de la operación: un reintento de la misma confirmación no duplica. */
-export function operationIdFor(taskId: string, index: number, sha256: string, legend: boolean) {
-    const hex = createHash("sha256").update(taskId).update(String(index)).update(sha256).update(legend ? "legend" : "").digest("hex");
+export function operationIdFor(taskId: string, index: number, sha256: string, legend: boolean, revision = "") {
+    const hex = createHash("sha256").update(taskId).update(String(index)).update(sha256).update(legend ? "legend" : "").update(revision).digest("hex");
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
@@ -119,16 +122,17 @@ export async function confirmSyncPreview(
     options: { consumerFinalLegend: boolean },
     invoke: Invoke,
 ) {
-    const current = await compute(task, files, invoke);
+    const current = await compute(task, files, invoke, seen.corrections);
     const legend = options.consumerFinalLegend && current.summary.consumerFinal !== undefined;
     const seenVariant = options.consumerFinalLegend && seen.consumerFinal ? seen.consumerFinal : seen;
     if (options.consumerFinalLegend !== legend || !sameVariant(seenVariant, current.variant(legend))) throw new PreviewChangedError(current.summary);
     let imported = 0;
     for (const item of current.confirmable(legend)) {
         if (!(item.ok > 0)) continue;
-        const operationId = operationIdFor(task.id, item.index, item.file.sha256, item.legend);
+        // Cada corrección es otra operación: confirmar de nuevo tras corregir no se toma como reintento.
+        const operationId = operationIdFor(task.id, item.index, item.file.sha256, item.legend, seen.corrections ? JSON.stringify(seen.corrections) : "");
         const response = isInvoices(task.source)
-            ? await invoke("INVOICE_CONFIRM", { ...invoiceBody(task, item.file, item.legend), token: item.token, operationId })
+            ? await invoke("INVOICE_CONFIRM", { ...invoiceBody(task, item.file, item.legend, seen.corrections), token: item.token, operationId })
             : await invoke("TAX", { ...taxBody(task, item.file), token: item.token, confirm: true });
         if (!response.ok) throw new ConfirmFailedError();
         imported += Number((response.data as { imported?: number }).imported ?? 0);
