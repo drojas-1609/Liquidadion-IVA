@@ -67,13 +67,13 @@ describe("importación programada de ARCA", () => {
         expect(prisma.arcaSyncTask.createMany).not.toHaveBeenCalled();
     });
 
-    it("una corrida nueva descarta las vistas previas anteriores y borra sus archivos", async () => {
+    it("una corrida nueva descarta las vistas previas anteriores y borra los archivos de las corridas anteriores", async () => {
         vi.mocked(prisma.arcaSyncTask.findFirst).mockResolvedValue(null);
         vi.mocked(prisma.period.findFirst).mockResolvedValue({ clientId: "client" } as never);
         vi.mocked(prisma.arcaSyncTask.createMany).mockResolvedValue({ count: 4 });
         await expect(startManualSync("period", "org", "profile")).resolves.toBe("STARTED");
-        const superseded = { periodId: "period", runKey: { not: expect.stringMatching(/^manual-\d+$/) }, status: "PREVIEW" };
-        expect(prisma.arcaSyncFile.deleteMany).toHaveBeenCalledWith({ where: { task: superseded } });
-        expect(prisma.arcaSyncTask.updateMany).toHaveBeenCalledWith({ where: superseded, data: { status: "DISCARDED" } });
+        const older = { not: expect.stringMatching(/^manual-\d+$/) };
+        expect(prisma.arcaSyncFile.deleteMany).toHaveBeenCalledWith({ where: { task: { periodId: "period", runKey: older } } });
+        expect(prisma.arcaSyncTask.updateMany).toHaveBeenCalledWith({ where: { periodId: "period", runKey: older, status: "PREVIEW" }, data: { status: "DISCARDED" } });
     });
 });

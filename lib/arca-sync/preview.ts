@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import type { ImportCorrections } from "@/lib/libro-iva-import/build";
 
 /**
  * Resumen de la vista previa de una fuente descargada de ARCA (lógica pura).
@@ -36,12 +37,18 @@ export interface SyncVariant {
 
 export interface SyncPreviewSummary extends SyncVariant {
     version: 1;
+    /** Correcciones que la persona eligió para las filas pendientes; viajan a la confirmación. */
+    corrections?: ImportCorrections;
     files: Array<{ sha256: string; format: string | null }>;
     /**
      * Sólo ventas: resultado si se aplica la leyenda «CONSUMIDOR FINAL» a las
      * filas con documento 99 sin denominación. `rows` es cuántas la reciben.
      */
     consumerFinal?: SyncVariant & { rows: number };
+    /** Filas de esta fuente ya incorporadas antes de esta vista previa (correcciones de pendientes). */
+    importedBefore?: number;
+    /** La fuente ya se incorporó con la leyenda «CONSUMIDOR FINAL»: la corrección parte de esa variante. */
+    consumerFinalApplied?: boolean;
     /** Se completa al confirmar. */
     confirmed?: { consumerFinalLegend: boolean; imported: number };
 }

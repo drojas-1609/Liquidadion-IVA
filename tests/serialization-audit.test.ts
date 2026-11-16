@@ -49,6 +49,8 @@ const EXPECTED = {
   "app/api/periods/[id]/arca-sync/route.ts": { models: [], serializer: null },
   // Confirmar o descartar la vista previa: responde el estado de las fuentes; los importes del resumen ya son texto.
   "app/api/periods/[id]/arca-sync/decision/route.ts": { models: [], serializer: null },
+  // Filas pendientes recalculadas con el importador: importes como texto, sin modelos de Prisma.
+  "app/api/periods/[id]/arca-sync/pending/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/purchase-account/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/vat-package/route.ts": { models: [], serializer: null },
   // Vista previa / confirmación de percepciones: importes como string con toFixed(2) en la ruta.

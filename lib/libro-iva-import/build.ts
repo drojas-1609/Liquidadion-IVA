@@ -170,6 +170,8 @@ export interface PreviewContext {
      * Sin la confirmación, esas filas quedan para revisar.
      */
     consumerFinalLegend?: boolean;
+    /** Correcciones que la persona eligió para las filas pendientes (ver ImportCorrections). */
+    corrections?: ImportCorrections;
     /**
      * CUIT del informante (el cliente), sólo dígitos. Un 063 cuyo campo 23
      * "CUIT Emisor / Corredor" es esta CUIT no tiene intermediario
@@ -194,6 +196,33 @@ export interface PreviewExtras {
 
 /** Códigos de operación (Libro IVA Digital, Tablas del Sistema). */
 export const OPERATION_CODES: ReadonlySet<string> = new Set(["A", "C", "D", "E", "N", "T", "X", "Z"]);
+
+/** Importes de cabecera que la persona puede corregir en una fila pendiente. */
+export const CORRECTABLE_AMOUNTS = [
+    "nonTaxed", "exempt", "vatPerception", "nationalPerception", "iibbPerception", "municipalPerception", "internalTaxes", "otherTaxes",
+] as const;
+export type CorrectableAmount = (typeof CORRECTABLE_AMOUNTS)[number];
+/** Diferencia de redondeo entre el total informado y la suma de sus componentes que se puede aceptar. */
+export const ROUNDING_TOLERANCE = D("0.02");
+
+/**
+ * Correcciones de filas pendientes, siempre elegidas por la persona (ninguna
+ * se aplica por inferencia):
+ *  - acceptRounding: si el total informado difiere de la suma de sus
+ *    componentes en hasta ROUNDING_TOLERANCE, se guarda el total calculado y
+ *    la fila conserva el informado y la diferencia en sus notas;
+ *  - exemptSaleOperationCode: código de operación para las ventas B cuyo total
+ *    se explica sólo con exento o no gravado según el archivo;
+ *  - zeroRateOperationCode: código de operación para el neto gravado al 0 %;
+ *  - lineAmounts: importes de cabecera corregidos por línea del archivo
+ *    (p. ej. el concepto que la descarga no detalla en un tique).
+ */
+export interface ImportCorrections {
+    acceptRounding?: boolean;
+    exemptSaleOperationCode?: string;
+    zeroRateOperationCode?: string;
+    lineAmounts?: Record<string, Partial<Record<CorrectableAmount, string>>>;
+}
 const VAT_TOLERANCE = D("0.01");
 
 /** Clave de duplicidad: misma composición que duplicateVoucherWhere (lib/invoice-rules). */
@@ -283,9 +312,21 @@ function draft(line: number): RowDraft {
 /** Motivo de revisión que la sugerencia «CONSUMIDOR FINAL» resuelve (se usa para contarlo). */
 export const CONSUMER_FINAL_PENDING = (label: string) => `${label} no informa la denominación de la contraparte (documento 99): se puede aplicar la leyenda «${LEGEND_UNIDENTIFIED}»`;
 
+const CORRECTABLE_LABELS: Record<CorrectableAmount, string> = {
+    nonTaxed: "no gravado", exempt: "exento", vatPerception: "percepción de IVA", nationalPerception: "percepciones nacionales",
+    iibbPerception: "percepción de Ingresos Brutos", municipalPerception: "percepciones municipales", internalTaxes: "impuestos internos",
+    otherTaxes: "otros tributos",
+};
+
 /** Modelo de una fila con sus alícuotas ya vinculadas. */
 function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, aliquots: ParsedRecord[], d: RowDraft): void {
-    const v = rec.values;
+    const corrected = ctx.corrections?.lineAmounts?.[String(rec.line)];
+    const v: typeof rec.values = corrected
+        ? { ...rec.values, ...Object.fromEntries(Object.entries(corrected).map(([field, amount]) => [field, D(amount!)])) }
+        : rec.values;
+    if (corrected) {
+        d.row.notes.push(`importes corregidos en la app: ${Object.keys(corrected).map((field) => CORRECTABLE_LABELS[field as CorrectableAmount]).join(", ")}`);
+    }
     const { category } = ctx;
     const row = d.row;
     row.aliquotLines = aliquots.map((a) => a.line);
@@ -368,7 +409,7 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
 
     // Código de operación.
     const opRaw = str(v.operationCode);
-    const operationCode = opRaw === " " || opRaw === "0" ? null : opRaw;
+    let operationCode = opRaw === " " || opRaw === "0" ? null : opRaw;
     if (operationCode !== null && !OPERATION_CODES.has(operationCode)) d.raise("ERROR", `código de operación '${operationCode}' fuera de la tabla oficial`);
 
     // Compras: despacho e intermediarios no se modelan en esta etapa.
@@ -428,9 +469,15 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
             const withoutVat = sum([header.nonTaxed, header.exempt, header.vatPerception, header.nationalPerception, header.iibbPerception,
                 header.municipalPerception, header.internalTaxes, header.otherTaxes].map((x) => x.abs()));
             const backed = download !== null && (!header.exempt.isZero() || !header.nonTaxed.isZero()) && withoutVat.equals(header.total.abs());
-            d.raise("REVIEW", backed
-                ? `venta B exenta o no gravada según ${download} (sin IVA): falta el código de operación, que la consulta no informa`
-                : "venta B sin detalle de alícuotas: no se puede determinar el débito fiscal");
+            const chosen = ctx.corrections?.exemptSaleOperationCode;
+            if (backed && operationCode === null && chosen) {
+                operationCode = chosen;
+                d.row.notes.push(`código de operación ${chosen} asignado en la app a una venta exenta o no gravada`);
+            } else {
+                d.raise("REVIEW", backed
+                    ? `venta B exenta o no gravada según ${download} (sin IVA): falta el código de operación, que la consulta no informa`
+                    : "venta B sin detalle de alícuotas: no se puede determinar el débito fiscal");
+            }
         } else if (download && (!header.exempt.isZero() || !header.nonTaxed.isZero())) {
             // Comprobante sólo exento / no gravado: la descarga no trae línea de alícuota 0 % ni código de operación.
             d.row.notes.push(`operación exenta o no gravada: ${download} no informa el código de operación`);
@@ -457,7 +504,10 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
         if (computed.minus(vat.abs()).abs().greaterThan(VAT_TOLERANCE)) {
             d.raise("REVIEW", `IVA informado ${vat.abs().toFixed(2)} y calculado ${computed.toFixed(2)} difieren en más de 0,01 (línea ${a.line} de alícuotas)`);
         }
-        if (code === 3 && operationCode === null) {
+        if (code === 3 && operationCode === null && ctx.corrections?.zeroRateOperationCode) {
+            operationCode = ctx.corrections.zeroRateOperationCode;
+            d.row.notes.push(`código de operación ${operationCode} asignado en la app al neto gravado al 0 %`);
+        } else if (code === 3 && operationCode === null) {
             d.raise("REVIEW", download ? `neto gravado al 0 %: ${download} no informa el código de operación` : `alícuota 0% sin código de operación (línea ${a.line} de alícuotas)`);
         }
         lines.push({
@@ -517,7 +567,10 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
         otherTaxesAmount: header.otherTaxes.abs(),
     };
     const computedTotal = computeVoucherTotal(amounts);
-    if (!computedTotal.equals(header.total.abs())) {
+    const totalDifference = header.total.abs().minus(computedTotal);
+    if (!totalDifference.isZero() && ctx.corrections?.acceptRounding && totalDifference.abs().lessThanOrEqualTo(ROUNDING_TOLERANCE)) {
+        d.row.notes.push(`diferencia de redondeo aceptada: el total informado ${header.total.abs().toFixed(2)} se guarda como ${computedTotal.toFixed(2)} (diferencia ${totalDifference.toFixed(2)})`);
+    } else if (!computedTotal.equals(header.total.abs())) {
         d.raise("REVIEW", `el total informado ${header.total.abs().toFixed(2)} no coincide con la suma de sus componentes ${computedTotal.toFixed(2)} (diferencia ${header.total.abs().minus(computedTotal).toFixed(2)})`);
     }
 

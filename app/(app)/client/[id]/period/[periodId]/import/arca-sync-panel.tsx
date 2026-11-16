@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatMoney } from "@/lib/format";
 import type { SyncPreviewSummary, SyncVariant } from "@/lib/arca-sync/preview";
+import { ArcaPendingCorrections } from "./arca-pending-corrections";
 
 const LABELS: Record<string, string> = {
     SALES: "Ventas", PURCHASES: "Compras", RETENTIONS: "Retenciones", PERCEPTIONS: "Percepciones",
@@ -85,6 +86,8 @@ type Status = {
         source: string; status: string; downloaded: number | null; imported: number | null; duplicates: number | null;
         pending: number; errorCode: string | null; updatedAt: string;
         preview: SyncPreviewSummary | null;
+        /** El archivo sigue guardado: las filas pendientes se pueden revisar y corregir. */
+        correctable: boolean;
         issues: Array<{ file: number; line: number; status: string; messages: string[] }>;
     }>;
 };
@@ -107,6 +110,9 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
             if (!response.ok) throw new Error();
             const value: Status = await response.json();
             setStatus(value);
+            // Si las ventas ya se incorporaron con la leyenda, la corrección parte de esa variante.
+            const sales = value.tasks.find((task) => task.source === "SALES")?.preview;
+            if ((sales?.confirmed?.consumerFinalLegend ?? sales?.consumerFinalApplied) === true) setLegend(true);
             setEnabled(value.schedule?.enabled ?? false);
             setDays([0, 1].map((index) => value.schedule?.extraDays[index]?.toString() ?? ""));
         }).catch(() => { if (!controller.signal.aborted) setMessage("No se pudo consultar la automatización de ARCA."); });
@@ -196,18 +202,19 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
             <p role="status">{message}</p>
             {status?.tasks.map((task) => {
                 const preview = task.preview;
-                const offersLegend = task.status === "PREVIEW" && task.source === "SALES" && preview?.consumerFinal !== undefined;
+                const offersLegend = (task.status === "PREVIEW" || (task.status === "REVIEW" && task.correctable)) && task.source === "SALES" && preview?.consumerFinal !== undefined;
                 const confirmed = preview?.confirmed;
                 const shown: SyncVariant | null = !preview ? null
-                    : (task.status === "PREVIEW" ? offersLegend && legend : confirmed?.consumerFinalLegend) && preview.consumerFinal ? preview.consumerFinal : preview;
+                    : (task.status === "PREVIEW" ? offersLegend && legend : (confirmed?.consumerFinalLegend ?? preview.consumerFinalApplied)) && preview.consumerFinal ? preview.consumerFinal : preview;
+                const correctsPending = task.correctable && (task.source === "SALES" || task.source === "PURCHASES") && task.pending > 0;
                 return (
                     <section key={task.source} aria-label={LABELS[task.source]}>
                         <h3>{LABELS[task.source]}</h3>
                         <p>
                             {LABELS[task.status]}
                             {task.downloaded !== null && task.status !== "EMPTY" && ` · ${task.downloaded} filas descargadas`}
-                            {confirmed && ` · ${confirmed.imported} incorporadas`}
-                            {confirmed?.consumerFinalLegend && " con la leyenda «CONSUMIDOR FINAL»"}
+                            {task.imported ? ` · ${task.imported} incorporadas` : ""}
+                            {(confirmed?.consumerFinalLegend ?? preview?.consumerFinalApplied) && " con la leyenda «CONSUMIDOR FINAL»"}
                         </p>
                         {task.errorCode && <p>{ERROR_LABELS[task.errorCode]}</p>}
                         {offersLegend && preview?.consumerFinal && (
@@ -218,7 +225,24 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
                                 Sólo completa la denominación: no cambia importes, alícuotas ni códigos.
                             </label>
                         )}
+                        {task.status === "PREVIEW" && (preview?.importedBefore ?? 0) > 0 && (
+                            <p>Corrección de pendientes: las {preview?.importedBefore} filas ya incorporadas de esta fuente aparecen como duplicadas y no se vuelven a incorporar.</p>
+                        )}
                         {shown && task.status !== "DISCARDED" && <Variant variant={shown} />}
+                        {correctsPending && task.status === "REVIEW" && (
+                            <>
+                                <ArcaPendingCorrections url={url} source={task.source as "SALES" | "PURCHASES"} legend={legend} busy={busy}
+                                    onRevised={(value) => setStatus(value as Status)} onMessage={setMessage} />
+                                <p>
+                                    <button type="button" className="btn" disabled={busy} onClick={() => void decide(task.source, "discard")}>Cerrar sin corregir</button>
+                                    {" "}Borra el archivo guardado; lo ya incorporado se mantiene.
+                                </p>
+                            </>
+                        )}
+                        {correctsPending && task.status === "PREVIEW" && (
+                            <ArcaPendingCorrections url={url} source={task.source as "SALES" | "PURCHASES"} legend={legend} busy={busy}
+                                onRevised={(value) => setStatus(value as Status)} onMessage={setMessage} />
+                        )}
                         {task.status === "PREVIEW" && shown && (
                             <p>
                                 <button type="button" className="btn btn-primary" disabled={busy || shown.counts.OK === 0} onClick={() => void decide(task.source, "confirm")}>

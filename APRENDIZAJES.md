@@ -57,3 +57,13 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Regla:** la leyenda «CONSUMIDOR FINAL» es una sugerencia que la persona acepta al
   confirmar; completa sólo la denominación. No se infieren alícuotas, códigos de operación
   ni importes para cerrar una fila: lo que el archivo no informa queda pendiente con su motivo.
+
+### 2026-11-15 · Las filas pendientes no se podían corregir ni incorporar
+
+- **Qué pasó:** en producción, un cliente incorporó ventas y compras, pero 1.033 filas quedaron
+  pendientes (1.022 ventas, 11 compras) sin forma de verlas ni corregirlas.
+- **Causa:** el importador nunca incorpora filas para revisar, la app no ofrecía cómo
+  resolverlas y el archivo descargado se borraba al confirmar.
+- **Regla:** una fila pendiente siempre tiene un camino de salida: su motivo a la vista, una
+  corrección elegida por la persona (nunca inferida) que queda en las notas, y una nueva
+  vista previa antes de incorporar. El archivo se conserva mientras haya pendientes.

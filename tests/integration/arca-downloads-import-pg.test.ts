@@ -19,6 +19,7 @@ vi.mock("next/server", async (original) => ({
 
 import { POST as SYNC_CALLBACK } from "@/app/api/internal/arca-sync/route";
 import { POST as SYNC_DECISION } from "@/app/api/periods/[id]/arca-sync/decision/route";
+import { GET as SYNC_PENDING } from "@/app/api/periods/[id]/arca-sync/pending/route";
 import { POST as PREVIEW } from "@/app/api/periods/[id]/libro-iva-import/preview/route";
 import { POST as CONFIRM } from "@/app/api/periods/[id]/libro-iva-import/confirm/route";
 import { POST as TAX_IMPORT } from "@/app/api/periods/[id]/tax-import/route";
@@ -205,7 +206,8 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
             expect((await decide({ source: "PURCHASES", action: "confirm" })).status).toBe(200);
             expect(await db.arcaSyncTask.findUnique({ where: { id: task.id } })).toMatchObject({ status: "REVIEW", downloaded: 2, imported: 1, duplicates: 0, pending: 1 });
             expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(1);
-            expect(await db.arcaSyncFile.count({ where: { taskId: task.id } })).toBe(0);
+            // Con filas pendientes el archivo se conserva para poder corregirlas.
+            expect(await db.arcaSyncFile.count({ where: { taskId: task.id } })).toBe(1);
             // Ya resuelta: una segunda confirmación no vuelve a escribir.
             expect((await decide({ source: "PURCHASES", action: "confirm" })).status).toBe(409);
 
@@ -222,6 +224,66 @@ describe.skipIf(!raw)("descargas de ARCA por las rutas (PostgreSQL)", () => {
             expect(await db.arcaSyncTask.findUnique({ where: { id: retry.id } })).toMatchObject({ status: "DISCARDED" });
             expect(await db.arcaSyncFile.count({ where: { taskId: retry.id } })).toBe(0);
             expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(1);
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it("pendientes: se listan, se corrigen con una decisión explícita y se incorporan sin duplicar lo ya incorporado", async () => {
+        const target = await db.period.create({ data: { clientId: "c_dl", organizationId: ORG, month: 11, year: 2028 } });
+        const lease = new Date(Date.now() + 60000);
+        const task = await db.arcaSyncTask.create({ data: {
+            clientId: "c_dl", periodId: target.id, organizationId: ORG, actorProfileId: OWNER, runKey: "smoke-correct",
+            source: "PURCHASES", status: "RUNNING", leaseUntil: lease,
+        } });
+        const token = "t".repeat(48);
+        vi.stubEnv("ARCA_SYNC_CONNECTOR_TOKEN", token);
+        try {
+            H.sub = null;
+            // Segunda fila: total informado con $ 0,01 de diferencia (redondeo).
+            const rounding = recibido(302).replace("2027-", "2028-").replace(/;1210,00$/, ";1210,01");
+            const file = b64([H_RECIBIDOS, recibido(301).replace("2027-", "2028-"), rounding].join("\n") + "\n");
+            const callback = await SYNC_CALLBACK(new Request("http://localhost/api/internal/arca-sync", {
+                method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "import", targetCuit: CLIENT_CUIT, taskId: task.id, lease: lease.toISOString(), files: [{ format: "MIS_COMPROBANTES", file }] }),
+            }));
+            expect(callback.status).toBe(200);
+            const decide = (body: Record<string, unknown>) => SYNC_DECISION(new Request(`http://localhost/api/periods/${target.id}/arca-sync/decision`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+            }), ctx(target.id));
+            const pending = (source = "PURCHASES") => SYNC_PENDING(new Request(`http://localhost/api/periods/${target.id}/arca-sync/pending?source=${source}`), ctx(target.id));
+            H.sub = OWNER;
+            expect((await decide({ source: "PURCHASES", action: "confirm" })).status).toBe(200);
+            expect(await db.arcaSyncTask.findUnique({ where: { id: task.id } })).toMatchObject({ status: "REVIEW", imported: 1, pending: 1 });
+
+            // Lista de pendientes: lee el archivo guardado y no escribe nada.
+            const listed = await json(await pending());
+            expect(listed).toMatchObject({ total: 1, truncated: false });
+            const rows = (listed as unknown as { rows: { messages: string[]; amounts: Record<string, string> | null }[] }).rows;
+            expect(rows[0].messages.join(" ")).toMatch(/el total informado 1210\.01 no coincide/);
+            expect(rows[0].amounts).toMatchObject({ otherTaxes: "0.00", exempt: "0.00" });
+            expect((await pending("RETENTIONS")).status).toBe(400);
+            H.sub = VIEWER;
+            expect((await pending()).status).toBe(403);
+            expect((await decide({ source: "PURCHASES", action: "revise", corrections: { acceptRounding: true } })).status).toBe(403);
+            H.sub = OWNER;
+            expect((await decide({ source: "PURCHASES", action: "revise", corrections: { exemptSaleOperationCode: "Q" } })).status).toBe(400);
+            expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(1);
+
+            // Corrección elegida: vista previa nueva, lo ya incorporado como duplicado.
+            expect((await decide({ source: "PURCHASES", action: "revise", corrections: { acceptRounding: true } })).status).toBe(200);
+            const revised = await db.arcaSyncTask.findUnique({ where: { id: task.id } });
+            expect(revised).toMatchObject({ status: "PREVIEW", imported: 1 });
+            expect(revised!.preview).toMatchObject({ counts: { OK: 1, DUPLICATE: 1, REVIEW: 0, ERROR: 0 }, importedBefore: 1, corrections: { acceptRounding: true } });
+            expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(1);
+
+            expect((await decide({ source: "PURCHASES", action: "confirm" })).status).toBe(200);
+            expect(await db.arcaSyncTask.findUnique({ where: { id: task.id } })).toMatchObject({ imported: 2, pending: 0 });
+            expect(await db.invoice.count({ where: { periodId: target.id } })).toBe(2);
+            const corrected = await db.invoice.findFirst({ where: { periodId: target.id, number: 302 } });
+            expect(corrected?.voucherTotalAmount?.toFixed(2)).toBe("1210.00");
+            expect(await db.arcaSyncFile.count({ where: { taskId: task.id } })).toBe(0);
+            expect((await pending()).status).toBe(409);
         } finally {
             vi.unstubAllEnvs();
         }
