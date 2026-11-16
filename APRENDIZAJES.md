@@ -99,3 +99,13 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Causa:** en el entorno de trabajo no se puede descargar el motor de Prisma y se subió sin validar.
 - **Regla:** validar el esquema con `@prisma/prisma-schema-wasm` de la misma versión que
   `@prisma/engines-version` (instalado fuera del repositorio) antes de subir cambios de esquema.
+
+### 2026-11-16 · La Deploy Preview probaba el conector de otro PR
+
+- **Qué pasó:** la primera prueba del PR #55 en DEV volvió a descargar de Mis Comprobantes:
+  el envío y la respuesta del conector iban a la Preview de un PR anterior.
+- **Causa:** `ARCA_SYNC_APP_ORIGIN` del contexto «Deploy Previews» tenía la dirección fija de
+  la Preview anterior, y las funciones toman el valor recién al volver a desplegar.
+- **Regla:** antes de probar el conector en una Preview, apuntar `ARCA_SYNC_APP_ORIGIN`
+  (sólo «Deploy Previews») a esa Preview, volver a desplegarla y confirmar en la vista previa
+  el formato de la fuente (`PORTAL_CSV` o `MIS_COMPROBANTES`). Nunca cambiar el de Production.
