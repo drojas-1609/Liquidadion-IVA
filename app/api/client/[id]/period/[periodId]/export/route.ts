@@ -71,6 +71,8 @@ export const GET = withApiAuthz(
             period: `${mm}/${full.year}`,
             client: full.client.name,
             cuit: full.client.cuit,
+            // Hojas de detalle para el control cruzado en el mismo libro.
+            detail: { invoices: full.invoices, taxRecords: full.taxRecords },
         });
 
         // 5 · recién ahora: registrar la exportación (sin buffer / importes / contenido)
