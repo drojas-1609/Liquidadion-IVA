@@ -260,6 +260,7 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
                     <li className={step === 3 ? "is-current" : ""}>Revisar y confirmar</li>
                 </ol>
             )}
+            {!status && !message && <p className="muted" aria-live="polite">Consultando el estado de la importación…</p>}
             {status && !status.configured && <p className="callout callout-warning">Falta conectar el servicio de descarga de ARCA.</p>}
             {needsInitial && <p className="callout callout-info">Confirmá los datos iniciales de IVA Simple del período para importar.</p>}
             {awaiting && !retryable && <p className="callout callout-warning">Hay vistas previas sin resolver: confirmá o descartá cada una para poder descargar de nuevo.</p>}

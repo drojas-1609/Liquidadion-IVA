@@ -70,9 +70,9 @@ export function InvoiceRowActions({ invoiceId, updatedAt, label, editHref, canDe
     if (editHref === null && !canDelete) return null;
 
     return (
-        <div aria-busy={busy} style={{ display: "flex", flexWrap: "wrap", gap: "var(--spacing-xs)", alignItems: "center" }}>
+        <div aria-busy={busy} style={{ display: "flex", flexWrap: "nowrap", gap: "var(--spacing-xs)", alignItems: "center" }}>
             {editHref !== null && state.phase !== "deleted" && (
-                <Link href={editHref} className="btn btn-secondary" aria-label={`Editar ${label}`} aria-disabled={busy} tabIndex={busy ? -1 : undefined}>
+                <Link href={editHref} className="btn btn-secondary btn-sm" aria-label={`Editar ${label}`} aria-disabled={busy} tabIndex={busy ? -1 : undefined}>
                     Editar
                 </Link>
             )}
@@ -81,7 +81,7 @@ export function InvoiceRowActions({ invoiceId, updatedAt, label, editHref, canDe
                 <button
                     ref={deleteButton}
                     type="button"
-                    className="btn btn-secondary"
+                    className="btn btn-secondary btn-sm"
                     aria-label={`Eliminar ${label}`}
                     onClick={() => dispatch({ type: "open" })}
                 >

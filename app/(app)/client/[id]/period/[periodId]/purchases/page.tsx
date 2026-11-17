@@ -57,8 +57,8 @@ export default async function PurchasesPage({ params, searchParams }: { params: 
             </div>
 
             {pager}
-            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-                <p style={{ fontSize: "0.85rem", color: "var(--secondary)", marginBottom: "var(--spacing-sm)" }}>
+            <div className="card invoice-list" style={{ padding: 0, overflowX: "auto" }}>
+                <p className="muted text-sm" style={{ padding: "var(--spacing-sm) var(--spacing-md)" }}>
                     El total incluye el exento, el no gravado, las percepciones y los otros tributos, que no forman parte del neto ni del IVA. Las notas de crédito restan.
                 </p>
                 {/* Retira localmente las filas cuya baja ya confirmó el servidor (204). */}
@@ -70,10 +70,10 @@ export default async function PurchasesPage({ params, searchParams }: { params: 
                             <th>Tipo</th>
                             <th>Número</th>
                             <th>Proveedor</th>
-                            <th>Neto</th>
-                            <th>IVA</th>
+                            <th className="num">Neto</th>
+                            <th className="num">IVA</th>
                             <th>Exento, no gravado y otros</th>
-                            <th>Total</th>
+                            <th className="num">Total</th>
                             {showActions && <th>Acciones</th>}
                         </tr>
                     </thead>
@@ -99,18 +99,18 @@ export default async function PurchasesPage({ params, searchParams }: { params: 
                                     : null;
                                 return (
                                     <DeletableInvoiceRow key={invoice.id} invoiceId={invoice.id}>
-                                        <td>{formatIsoDate(view.voucherDate)}</td>
+                                        <td className="nowrap">{formatIsoDate(view.voucherDate)}</td>
                                         <td>{view.voucherLabel}</td>
-                                        <td>{number}{range}</td>
+                                        <td className="nowrap">{number}{range}</td>
                                         <td>{view.counterpartyName}</td>
-                                        <td>${formatMoney(view.signedNet.toFixed(2))}</td>
-                                        <td>${formatMoney(view.signedVat.toFixed(2))}</td>
+                                        <td className="num">${formatMoney(view.signedNet.toFixed(2))}</td>
+                                        <td className="num">${formatMoney(view.signedVat.toFixed(2))}</td>
                                         <td>
                                             {otherConceptsOf(columns).map((c) => (
                                                 <div key={c.label}>{c.label} ${formatMoney(c.signed.toFixed(2))}</div>
                                             ))}
                                         </td>
-                                        <td>${formatMoney(view.signedTotal.toFixed(2))}</td>
+                                        <td className="num">${formatMoney(view.signedTotal.toFixed(2))}</td>
                                         {actions && (
                                             <td>
                                                 {/* Sin acciones permitidas no se envía nada al cliente. key con el

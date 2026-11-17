@@ -395,7 +395,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                         : format === "PORTAL_CSV"
                             ? <>Descarga de comprobantes del período de Portal IVA: el ZIP <code>comprobantes_periodo_AAAAMM_…</code> tal como se descarga, o el CSV que contiene (montos expresados en pesos), hasta 2 MB.</>
                             : <>Consulta de Mis Comprobantes exportada como CSV: el ZIP <code>comprobantes_consulta_csv_emitidos_…</code> (ventas) o <code>…_recibidos_…</code> (compras), o el CSV que contiene, hasta 2 MB. No informa percepciones de IVA (van agrupadas en «Otros Tributos»): registralas como retención/percepción.</>}
-                    Régimen TurIVA del período: <strong>{turivaIncluded ? "incluido" : "no incluido"}</strong>. Prorrateo del crédito: <strong>{prorationMode}</strong>.
+                    {" "}Régimen TurIVA del período: <strong>{turivaIncluded ? "incluido" : "no incluido"}</strong>. Prorrateo del crédito: <strong>{prorationMode}</strong>.
                 </p>
                 <div className="manual-form">
                     <label className="field">Formato

@@ -781,3 +781,11 @@ a.card:hover { border-color: var(--primary); box-shadow: var(--shadow-md), var(-
 
 /* Encabezados de las pantallas que todavía arman su propio bloque de título. */
 main h1 + p { color: var(--text-muted); }
+
+.nowrap { white-space: nowrap; }
+.invoice-list .table td, .invoice-list .table th { padding: 0.55rem 0.75rem; }
+
+/* Selector de archivo: el nombre elegido ocupa su propia línea y no se corta. */
+.manual-form input[type="file"] { width: 100%; max-width: 100%; font-size: 0.8rem; }
+.manual-form input[type="file"]::file-selector-button { margin-right: 0.5rem; padding: 0.35rem 0.7rem; }
+.manual-form { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
