@@ -109,3 +109,25 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Regla:** antes de probar el conector en una Preview, apuntar `ARCA_SYNC_APP_ORIGIN`
   (sólo «Deploy Previews») a esa Preview, volver a desplegarla y confirmar en la vista previa
   el formato de la fuente (`PORTAL_CSV` o `MIS_COMPROBANTES`). Nunca cambiar el de Production.
+
+## Frontend
+
+### 2026-11-17 · Importes alineados a la izquierda pese a la clase `.num`
+
+- **Qué pasó:** en la Deploy Preview del PR #57 las columnas de importes de Ventas y Compras
+  seguían alineadas a la izquierda aunque las celdas tenían `className="num"`.
+- **Causa:** `.table td { text-align: left }` (clase + elemento) tiene más especificidad que
+  `.num` (sólo clase) y le ganaba.
+- **Regla:** las alineaciones y anchos de celdas se declaran con el selector completo de la
+  tabla (`.table td.num`, `.data-table td.num`). Verificar en la Preview con el estilo
+  calculado (`getComputedStyle`), no sólo que la clase esté en el HTML.
+
+## Exportación a Excel
+
+### 2026-11-17 · El Excel con el detalle pesaba 6,7 MB
+
+- **Qué pasó:** al sumar las hojas de comprobantes (7.113 ventas de un período), la descarga
+  de la liquidación pasó a 6,7 MB.
+- **Causa:** `XLSX.write` de SheetJS no comprime el archivo si no se le pide.
+- **Regla:** exportar siempre con `compression: true` (el mismo libro quedó en 1,96 MB). Al
+  agregar hojas grandes, medir el tamaño del archivo en la Preview con datos reales.
