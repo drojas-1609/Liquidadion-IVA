@@ -14,13 +14,17 @@ import { invoiceEditHref } from "@/lib/invoice-form-client";
 import { InvoiceRowActions } from "../_components/invoice-row-actions";
 import { DeletableInvoiceRow, DeletableInvoiceRows } from "../_components/invoice-deletable-row";
 import { InvoicePager } from "../_components/invoice-pager";
+import { InvoiceSearchForm } from "../_components/invoice-search-form";
+import { normalizeSearch } from "@/lib/invoice-search";
 
 
 export const dynamic = "force-dynamic";
 
-export default async function SalesPage({ params, searchParams }: { params: Promise<{ id: string; periodId: string }>; searchParams?: Promise<{ page?: string | string[] }> }) {
+export default async function SalesPage({ params, searchParams }: { params: Promise<{ id: string; periodId: string }>; searchParams?: Promise<{ page?: string | string[]; q?: string | string[] }> }) {
     const { id, periodId } = await params;
-    const requestedPage = parsePageParam((await searchParams)?.page);
+    const sp = await searchParams;
+    const requestedPage = parsePageParam(sp?.page);
+    const query = normalizeSearch(sp?.q);
 
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
@@ -29,12 +33,12 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
         });
         // Detalle paginado (100 por página): con miles de comprobantes la lista
         // completa no entra en una respuesta.
-        const { invoices, window } = await listPeriodInvoices(prisma, { organizationId, periodId }, "SALES", requestedPage);
+        const { invoices, window } = await listPeriodInvoices(prisma, { organizationId, periodId }, "SALES", requestedPage, query);
         return { role, invoices, window, closed: isPeriodClosed(period.status) };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
     const { role, invoices, window, closed } = guard.data;
-    const pager = <InvoicePager basePath={`/client/${id}/period/${periodId}/sales`} window={window} noun="ventas" />;
+    const pager = <InvoicePager basePath={`/client/${id}/period/${periodId}/sales`} window={window} noun="ventas" query={query} />;
     // VIEWER o período cerrado: sin columna de acciones ni alta (sólo consulta).
     const showActions = ROLES_UPDATE.includes(role) && !closed;
 
@@ -56,6 +60,7 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
                 )}
             </div>
 
+            <InvoiceSearchForm basePath={`/client/${id}/period/${periodId}/sales`} query={query} noun="ventas" matches={window.total} />
             {pager}
             <div className="card invoice-list" style={{ padding: 0, overflowX: "auto" }}>
                 <p className="muted text-sm" style={{ padding: "var(--spacing-sm) var(--spacing-md)" }}>
@@ -81,7 +86,7 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
                         {invoices.length === 0 ? (
                             <tr>
                                 <td colSpan={showActions ? 9 : 8} style={{ textAlign: "center", color: "var(--secondary)" }}>
-                                    No hay ventas registradas.
+                                    {query ? `Ninguna coincide con la búsqueda.` : "No hay ventas registradas."}
                                 </td>
                             </tr>
                         ) : (

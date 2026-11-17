@@ -317,6 +317,8 @@ const WRITERS: Record<string, readonly string[]> = {
   "app/api/periods/[id]/tax-import/route.ts": ["POST"],
   // Corrección detallada de comprobantes importados bajo lockPeriodForWrite + lockInvoiceForUpdate.
   "app/api/invoices/[id]/detail/route.ts": ["PATCH"],
+  // Conciliación a pedido de las percepciones de las compras (helper inventariado, bajo lockPeriodForWrite).
+  "app/api/periods/[id]/invoice-perceptions/route.ts": ["POST"],
 };
 
 /**
@@ -341,9 +343,9 @@ const codes = (file: string, src: string, methods?: readonly string[], transitio
 const details = (file: string, src: string, methods?: readonly string[]) => analyzeSource(file, src, methods).map((v) => v.detail).join(" | ");
 
 describe("cobertura estructural — producción", () => {
-  it("el inventario es exacto: 16 handlers en 14 archivos (14 writers del contenido + 2 transiciones de estado)", () => {
-    expect(Object.keys(WRITERS)).toHaveLength(14);
-    expect(Object.values(WRITERS).flat()).toHaveLength(16);
+  it("el inventario es exacto: 17 handlers en 15 archivos (15 writers del contenido + 2 transiciones de estado)", () => {
+    expect(Object.keys(WRITERS)).toHaveLength(15);
+    expect(Object.values(WRITERS).flat()).toHaveLength(17);
     expect(Object.values(TRANSITIONS).flat()).toHaveLength(2);
     for (const [f, ms] of Object.entries(TRANSITIONS)) for (const m of ms) expect(WRITERS[f], f).toContain(m);
     expect(productionFiles.length).toBeGreaterThan(20);
@@ -941,3 +943,38 @@ describe("cobertura estructural — helpers de bloqueo", () => {
  expect(codes(quota,moved)).toContain("RAW_NOT_INVENTORIED");
  });
  });
+
+describe("helpers de escritura inventariados (lib/invoice-perceptions)", () => {
+  const ROUTE = "app/api/x/route.ts";
+  const handler = (body: string) => `
+import { withApiAuthz } from "@/lib/auth/authz";
+import { lockPeriodForWrite } from "@/lib/period-lock";
+import { reconcileInvoicePerceptions } from "@/lib/invoice-perceptions";
+export const POST = withApiAuthz(async () => {
+  await prisma.$transaction(async (tx) => {
+${body}
+  }, { maxWait: 5000, timeout: 10000 });
+});`;
+
+  it("dentro de un handler inventariado y después del bloqueo: sin violaciones", () => {
+    const src = handler(`    await lockPeriodForWrite(tx, "p", "o");\n    await reconcileInvoicePerceptions(tx, scope);`);
+    expect(codes(ROUTE, src, ["POST"]).filter((c) => c.startsWith("HELPER"))).toEqual([]);
+  });
+
+  it("antes del bloqueo del período", () => {
+    const src = handler(`    await reconcileInvoicePerceptions(tx, scope);\n    await lockPeriodForWrite(tx, "p", "o");`);
+    expect(codes(ROUTE, src, ["POST"])).toContain("HELPER_CALL_BEFORE_LOCK");
+  });
+
+  it("en un archivo o handler no inventariado", () => {
+    const src = handler(`    await lockPeriodForWrite(tx, "p", "o");\n    await reconcileInvoicePerceptions(tx, scope);`);
+    expect(codes(ROUTE, src)).toContain("HELPER_CALL_OUTSIDE_INVENTORY");
+  });
+
+  it("el helper no escribe otros modelos ni fuera de sus funciones", () => {
+    const helperSrc = read("lib/invoice-perceptions.ts");
+    expect(codes("lib/invoice-perceptions.ts", helperSrc)).toEqual([]);
+    expect(codes("lib/invoice-perceptions.ts", helperSrc + "\nexport async function otra(tx: any) { await tx.taxRecord.create({ data: {} }); }")).toContain("HELPER_WRITE_OUTSIDE_FUNCTION");
+    expect(codes("lib/invoice-perceptions.ts", helperSrc.replace("await tx.taxRecord.deleteMany({ where: { ...where, fromInvoice: true } });", "await tx.invoice.deleteMany({ where });"))).toContain("HELPER_WRITE_OUTSIDE_FUNCTION");
+  });
+});

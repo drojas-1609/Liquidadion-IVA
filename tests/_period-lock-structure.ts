@@ -92,7 +92,10 @@ export type ViolationCode =
   | "PERIOD_UPDATE_OUTSIDE_TRANSITION"
   | "STATUS_LOCK_OUTSIDE_TRANSITION"
   | "CLOSED_OUTSIDE_HELPER"
-  | "CLOSED_CHECK";
+  | "CLOSED_CHECK"
+  | "HELPER_WRITE_OUTSIDE_FUNCTION"
+  | "HELPER_CALL_OUTSIDE_INVENTORY"
+  | "HELPER_CALL_BEFORE_LOCK";
 
 export interface Violation {
   code: ViolationCode;
@@ -155,6 +158,21 @@ export const HANDLER_TX_TIMEOUT_OVERRIDES: Readonly<Record<string, string>> = {
  * después del bloqueo del Period. Ninguna otra ruta ni módulo las modifica.
  */
 const LIQUIDATION_VERSION_MODEL = "periodLiquidationVersion";
+
+/**
+ * Helpers de escritura del contenido del período (inventario CERRADO). Su
+ * función exportada sólo escribe los modelos listados, y sólo se la llama
+ * dentro de un handler inventariado, DESPUÉS de lockPeriodForWrite: corre en la
+ * transacción del handler y con el Period bloqueado, que serializa todas las
+ * escrituras del contenido del período (las ediciones y bajas manuales de
+ * TaxRecord también toman ese bloqueo antes que el de la fila).
+ *  - lib/invoice-perceptions.ts: percepciones tomadas de los comprobantes de
+ *    compra -> Retenciones/Percepciones (crear, vincular, actualizar, borrar las
+ *    propias).
+ */
+export const CONTENT_WRITE_HELPERS: Readonly<Record<string, { fns: readonly string[]; models: readonly string[] }>> = {
+  "lib/invoice-perceptions.ts": { fns: ["reconcileInvoicePerceptions", "releaseInvoicePerceptions"], models: ["taxRecord"] },
+};
 
 // ── SQL inventariado ───────────────────────────────────────────────────────
 
@@ -834,7 +852,9 @@ function checkHandler(ctx: Ctx, method: string, handler: ts.Node, transition: bo
   }
 
   const writes = writesIn(ctx, handler);
-  if (writes.length === 0) add(ctx, "NO_WRITES", handler, `${method}: sin escrituras (¿sobra en el inventario?)`);
+  // Una llamada a un helper de escritura inventariado cuenta como escritura.
+  const helperCalls = [...calls(handler)].filter((c) => Object.values(CONTENT_WRITE_HELPERS).some((h) => h.fns.includes(calleeName(c) ?? "")));
+  if (writes.length === 0 && helperCalls.length === 0) add(ctx, "NO_WRITES", handler, `${method}: sin escrituras (¿sobra en el inventario?)`);
   for (const w of writes) {
     const mc = modelCall(ctx, w)!;
     const periodUpdate = mc.model === "period" && PERIOD_UPDATE_OPS.has(mc.op);
@@ -940,7 +960,33 @@ export function analyzeSource(file: string, src: string, methods?: readonly stri
     }
   }
 
+  // Llamadas a helpers de escritura: dentro de un handler inventariado y después de su lockPeriodForWrite.
+  const helperFns = new Map(Object.entries(CONTENT_WRITE_HELPERS).flatMap(([f, h]) => h.fns.map((fn) => [fn, f] as const)));
+  for (const c of calls(sf)) {
+    const name = calleeName(c);
+    if (name === null || !helperFns.has(name) || helperFns.get(name) === file) continue;
+    const owner = [...handlers.entries()].find(([, h]) => within(sf, c, h));
+    if (!owner || !methods?.includes(owner[0])) {
+      add(ctx, "HELPER_CALL_OUTSIDE_INVENTORY", c, `${name} fuera de un handler inventariado`);
+      continue;
+    }
+    const lock = [...calls(owner[1])].find((k) => calleeName(k) === WRITE_LOCK_FN);
+    if (!lock || lock.getStart(sf) > c.getStart(sf)) add(ctx, "HELPER_CALL_BEFORE_LOCK", c, `${owner[0]}: ${name} antes de ${WRITE_LOCK_FN}`);
+  }
+
   const writes = writesIn(ctx, sf);
+  const helper = CONTENT_WRITE_HELPERS[file];
+  if (helper) {
+    const fnNodes: ts.Node[] = [];
+    forEachNode(sf, (n) => { if (ts.isFunctionDeclaration(n) && n.name && helper.fns.includes(n.name.text)) fnNodes.push(n); });
+    for (const w of writes) {
+      const mc = modelCall(ctx, w);
+      if (!fnNodes.some((f) => within(sf, w, f)) || !mc || !helper.models.includes(mc.model)) {
+        add(ctx, "HELPER_WRITE_OUTSIDE_FUNCTION", w, `escritura no inventariada en el helper: ${text(sf, w.expression)}`);
+      }
+    }
+    return ctx.v;
+  }
   if (!methods) {
     for (const w of writes) add(ctx, "WRITE_OUTSIDE_INVENTORY", w, `escritura del contenido del período fuera del inventario: ${text(sf, w.expression)}`);
     return ctx.v;

@@ -25,6 +25,7 @@ import {
 import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_CREATE } from "@/lib/auth/roles";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/auth/errors";
+import { reconcileInvoicePerceptions } from "@/lib/invoice-perceptions";
 
 // POST /api/invoices — alta manual de comprobante (contrato v2) en un período
 // de la organización activa.
@@ -93,6 +94,8 @@ export const POST = withApiAuthz(async (request: Request) => {
                 voucherCode: resolved.model.voucherCode,
             },
         });
+        // Percepciones del comprobante -> Retenciones/Percepciones (lib/invoice-perceptions).
+        await reconcileInvoicePerceptions(tx, { organizationId, periodId, clientId, profileId });
         return invoice;
     }, { maxWait: 5000, timeout: 10000 }).catch(async (err: unknown) => {
         // Carrera con otra alta: P2002 sobre los índices únicos parciales. Se

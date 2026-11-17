@@ -26,8 +26,8 @@ const code = sql
 describe(`migración ${MIGRATION} — revisión estática`, () => {
   it("es la última y sigue a la de exportación y cierre sin cambiarla", () => {
     const allDirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-        expect(allDirs.slice(-5)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview", "20261116000000_arca_initial_data"]);
-        const dirs = allDirs.slice(0, -5);
+        expect(allDirs.slice(-6)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview", "20261116000000_arca_initial_data", "20261117120000_tax_record_invoice_perceptions"]);
+        const dirs = allDirs.slice(0, -6);
     expect(dirs.at(-1)).toBe(MIGRATION);
     expect(dirs.at(-2)).toBe(PREVIOUS);
     expect(createHash("sha256").update(readFileSync(migrationsDir + PREVIOUS + "/migration.sql")).digest("hex")).toBe(PREVIOUS_SHA256);

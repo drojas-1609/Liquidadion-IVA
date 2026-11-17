@@ -253,7 +253,7 @@ export interface DbMock {
   period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn; delete: Fn; update: Fn };
   invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; delete: Fn };
   invoiceVatLine: { findMany: Fn; deleteMany: Fn };
-  taxRecord: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; deleteMany: Fn };
+  taxRecord: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; updateMany: Fn; deleteMany: Fn };
   auditLog: { create: Fn };
   periodVatSettings: { findUnique: Fn; create: Fn; update: Fn };
   periodVatCreditAdjustment: { findMany: Fn; deleteMany: Fn; upsert: Fn };
@@ -283,7 +283,7 @@ export function freshDbMock(): DbMock {
     period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), delete: vi.fn(), update: vi.fn() },
     invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
     invoiceVatLine: { findMany: vi.fn(), deleteMany: vi.fn() },
-    taxRecord: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
+    taxRecord: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     auditLog: { create: vi.fn() },
     periodVatSettings: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     periodVatCreditAdjustment: { findMany: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn() },
@@ -703,6 +703,13 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     rows[idx] = next;
     rec.created.taxRecordUpdate = data;
     return { ...next };
+  });
+  // Desvincular / vincular / actualizar (lib/invoice-perceptions y baja de comprobantes).
+  db.taxRecord.updateMany.mockImplementation(async ({ where, data }: AnyArgs) => {
+    const hits = taxRecordsWhere(where);
+    for (const t of hits) Object.assign(t, data);
+    if (hits.length > 0) rec.created.taxRecordUpdateMany = { where, data };
+    return { count: hits.length };
   });
   db.taxRecord.deleteMany.mockImplementation(async ({ where }: AnyArgs) => {
     const before = world.taxRecords ?? [];

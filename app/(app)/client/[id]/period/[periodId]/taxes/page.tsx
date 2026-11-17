@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { TaxRecordsImport } from "./_components/tax-records-import";
+import { InvoicePerceptionsSync } from "./_components/invoice-perceptions-sync";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
 import { ROLES_CREATE, ROLES_DELETE, ROLES_READ, ROLES_UPDATE } from "@/lib/auth/roles";
@@ -64,6 +65,7 @@ export default async function TaxesPage({ params }: { params: Promise<{ id: stri
                 {closed && <span role="status" style={{ color: "var(--secondary)" }}>Período cerrado: sólo consulta</span>}
             </div>
 
+            {canEdit && <InvoicePerceptionsSync periodId={periodId} />}
             {canCreate && <TaxRecordsImport periodId={periodId} />}
 
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>
@@ -73,7 +75,7 @@ export default async function TaxesPage({ params }: { params: Promise<{ id: stri
                             <th>Fecha</th>
                             <th>Tipo</th>
                             <th>Descripción</th>
-                            <th>Monto</th>
+                            <th className="num">Monto</th>
                             {showActions && <th>Acciones</th>}
                         </tr>
                     </thead>
@@ -96,8 +98,13 @@ export default async function TaxesPage({ params }: { params: Promise<{ id: stri
                                         <td>
                                             <TaxTypeCell type={tax.type} />
                                         </td>
-                                        <td>{tax.description}</td>
-                                        <td>${formatMoney(tax.amount.toFixed(2))}</td>
+                                        <td>
+                                            {tax.description}
+                                            {tax.fromInvoice && <> <span className="badge badge-info">Del comprobante</span></>}
+                                            {!tax.fromInvoice && tax.invoiceId && <> <span className="badge badge-success">Vinculada a la compra</span></>}
+                                            {tax.jurisdictionCode && <> <span className="badge badge-plain">Jurisdicción {tax.jurisdictionCode}</span></>}
+                                        </td>
+                                        <td className="num">${formatMoney(tax.amount.toFixed(2))}</td>
                                         {showActions && (
                                             <td>
                                                 <TaxRowActions
@@ -106,7 +113,7 @@ export default async function TaxesPage({ params }: { params: Promise<{ id: stri
                                                     updatedAt={updatedAt}
                                                     label={taxRowLabel(typeText, date)}
                                                     editHref={canEdit ? taxEditHref(id, periodId, tax.id) : null}
-                                                    canDelete={canDelete}
+                                                    canDelete={canDelete && !tax.fromInvoice}
                                                 />
                                             </td>
                                         )}
