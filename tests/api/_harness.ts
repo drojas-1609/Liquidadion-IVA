@@ -251,7 +251,8 @@ export interface DbMock {
   membershipClient: { findUnique: Fn };
   client: { findMany: Fn; findUnique: Fn; findFirst: Fn; create: Fn; update: Fn; delete: Fn };
   period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn; delete: Fn; update: Fn };
-  invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; delete: Fn };
+  invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; updateMany: Fn; delete: Fn };
+  supplierOtherTaxesRule: { findMany: Fn; upsert: Fn };
   invoiceVatLine: { findMany: Fn; deleteMany: Fn };
   taxRecord: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; updateMany: Fn; deleteMany: Fn };
   auditLog: { create: Fn };
@@ -281,7 +282,8 @@ export function freshDbMock(): DbMock {
       delete: vi.fn(),
     },
     period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), delete: vi.fn(), update: vi.fn() },
-    invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), updateMany: vi.fn(async () => ({ count: 0 })), delete: vi.fn() },
+    supplierOtherTaxesRule: { findMany: vi.fn(async () => []), upsert: vi.fn() },
     invoiceVatLine: { findMany: vi.fn(), deleteMany: vi.fn() },
     taxRecord: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     auditLog: { create: vi.fn() },

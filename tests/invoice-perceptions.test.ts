@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 import { Prisma } from "@prisma/client";
-import { planInvoicePerceptions, sameVoucherNumber, IVA_PERCEPTION_TYPE, IIBB_PERCEPTION_TYPE, type PerceptionInvoice, type PerceptionRecord } from "@/lib/invoice-perceptions";
+import { planInvoicePerceptions, planOtherTaxesSplit, sameVoucherNumber, IVA_PERCEPTION_TYPE, IIBB_PERCEPTION_TYPE, type OtherTaxesInvoice, type PerceptionInvoice, type PerceptionRecord } from "@/lib/invoice-perceptions";
 
 const d = (v: string) => new Prisma.Decimal(v);
 const day = new Date("2026-10-16T00:00:00.000Z");
@@ -95,5 +95,54 @@ describe("conciliación de percepciones de las compras", () => {
             null,
         );
         expect(plan).toEqual([{ kind: "unlink", recordId: "rec1" }, { kind: "delete", recordId: "own" }]);
+    });
+});
+
+describe("separación de «Otros tributos» de las compras", () => {
+    const other = (over: Partial<OtherTaxesInvoice> = {}): OtherTaxesInvoice => ({
+        ...inv({ vatPerceptionAmount: d("0.00") }), otherTaxesAmount: d("1000.00"), internalTaxesAmount: d("0.00"), ...over,
+    });
+    const arca = (amount: string) => rec({ amount: d(amount) });
+
+    it("separa la percepción de IVA informada por ARCA; el resto queda sin regla", () => {
+        const [s] = planOtherTaxesSplit([other()], [arca("300.00")], new Map());
+        expect(s.vatPerceptionAmount.toFixed(2)).toBe("300.00");
+        expect(s.otherTaxesAmount.toFixed(2)).toBe("700.00");
+        expect(s.iibbPerceptionAmount.toFixed(2)).toBe("0.00");
+    });
+
+    it("con regla IIBB, el resto pasa a percepción de IIBB (el total no cambia)", () => {
+        const [s] = planOtherTaxesSplit([other()], [arca("300.00")], new Map([[AGENT, "IIBB_PERCEPTION"]]));
+        expect([s.vatPerceptionAmount, s.iibbPerceptionAmount, s.otherTaxesAmount, s.internalTaxesAmount].map((x) => x.toFixed(2))).toEqual(["300.00", "700.00", "0.00", "0.00"]);
+    });
+
+    it("con regla de impuestos internos, se suma a los internos existentes", () => {
+        const [s] = planOtherTaxesSplit([other({ internalTaxesAmount: d("50.00") })], [], new Map([[AGENT, "INTERNAL_TAXES"]]));
+        expect(s.internalTaxesAmount.toFixed(2)).toBe("1050.00");
+        expect(s.otherTaxesAmount.toFixed(2)).toBe("0.00");
+    });
+
+    it("regla OTHER o sin datos de ARCA: no cambia nada", () => {
+        expect(planOtherTaxesSplit([other()], [], new Map([[AGENT, "OTHER"]]))).toEqual([]);
+        expect(planOtherTaxesSplit([other()], [], new Map())).toEqual([]);
+    });
+
+    it("la percepción de ARCA mayor que «Otros tributos» no se separa", () => {
+        expect(planOtherTaxesSplit([other({ otherTaxesAmount: d("100.00") })], [arca("300.00")], new Map())).toEqual([]);
+    });
+
+    it("con percepción de IVA ya cargada no la toca; sí imputa el resto por regla", () => {
+        const [s] = planOtherTaxesSplit([other({ vatPerceptionAmount: d("21985.02"), otherTaxesAmount: d("40.00") })], [arca("22011.29")], new Map([[AGENT, "IIBB_PERCEPTION"]]));
+        expect(s.vatPerceptionAmount.toFixed(2)).toBe("21985.02");
+        expect(s.iibbPerceptionAmount.toFixed(2)).toBe("40.00");
+    });
+
+    it("es idempotente: ya separada, no hay cambios", () => {
+        const done = other({ vatPerceptionAmount: d("300.00"), otherTaxesAmount: d("0.00"), iibbPerceptionAmount: d("700.00") });
+        expect(planOtherTaxesSplit([done], [arca("300.00")], new Map([[AGENT, "IIBB_PERCEPTION"]]))).toEqual([]);
+    });
+
+    it("notas de crédito: no se separan", () => {
+        expect(planOtherTaxesSplit([other({ voucherCode: 3 })], [arca("300.00")], new Map([[AGENT, "IIBB_PERCEPTION"]]))).toEqual([]);
     });
 });

@@ -56,6 +56,8 @@ export const AUDIT_ACTIONS = [
   "invoice.purchase_account_change",
   // Nota del papel de trabajo del comprobante (sin el texto en la auditoría).
   "invoice.note_change",
+  // Regla por proveedor para «Otros tributos» (sin el CUIT en la auditoría).
+  "supplier.other_taxes_rule",
   // Descarga del paquete de presentación de IVA (borrador o versión cerrada).
   "vat.package.export",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
@@ -132,6 +134,7 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   // Por lote: cantidad de comprobantes y NOMBRES de los campos cambiados.
   "invoice.purchase_account_change": ["periodId", "savedSupplierRule"],
   "invoice.note_change": ["periodId", "hasNote"],
+  "supplier.other_taxes_rule": ["periodId", "kind", "changes"],
   "invoice.classification_change": ["periodId", "category", "count", "changedFields"],
   // Modo (DRAFT/FINAL), versión y huella del ZIP entregado. Sin importes.
   "vat.package.export": ["periodId", "clientId", "month", "year", "mode", "version", "packageSha256"],

@@ -168,10 +168,11 @@ const LIQUIDATION_VERSION_MODEL = "periodLiquidationVersion";
  * TaxRecord también toman ese bloqueo antes que el de la fila).
  *  - lib/invoice-perceptions.ts: percepciones tomadas de los comprobantes de
  *    compra -> Retenciones/Percepciones (crear, vincular, actualizar, borrar las
- *    propias).
+ *    propias) y separación de «Otros tributos» de esas compras (Invoice: sólo
+ *    los importes de percepciones, impuestos internos y otros tributos).
  */
 export const CONTENT_WRITE_HELPERS: Readonly<Record<string, { fns: readonly string[]; models: readonly string[] }>> = {
-  "lib/invoice-perceptions.ts": { fns: ["reconcileInvoicePerceptions", "releaseInvoicePerceptions"], models: ["taxRecord"] },
+  "lib/invoice-perceptions.ts": { fns: ["reconcileInvoicePerceptions", "releaseInvoicePerceptions"], models: ["taxRecord", "invoice"] },
 };
 
 // ── SQL inventariado ───────────────────────────────────────────────────────

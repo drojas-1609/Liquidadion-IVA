@@ -150,25 +150,94 @@ export function planInvoicePerceptions(invoices: PerceptionInvoice[], records: P
     return actions;
 }
 
+export type OtherTaxesKind = "IIBB_PERCEPTION" | "INTERNAL_TAXES" | "OTHER";
+export const OTHER_TAXES_KINDS: readonly OtherTaxesKind[] = ["IIBB_PERCEPTION", "INTERNAL_TAXES", "OTHER"];
+
+export interface OtherTaxesInvoice extends PerceptionInvoice {
+    otherTaxesAmount: Prisma.Decimal | null;
+    internalTaxesAmount: Prisma.Decimal | null;
+}
+
+export interface OtherTaxesSplit {
+    invoiceId: string;
+    otherTaxesAmount: Prisma.Decimal;
+    vatPerceptionAmount: Prisma.Decimal;
+    iibbPerceptionAmount: Prisma.Decimal;
+    internalTaxesAmount: Prisma.Decimal;
+}
+
+const ZERO = new Prisma.Decimal(0);
+const dz = (v: Prisma.Decimal | null) => v ?? ZERO;
+
+/**
+ * Separación de «Otros tributos» (Portal IVA los informa en un solo importe).
+ * Función pura, idempotente; el total del comprobante no cambia:
+ *  1. Percepción de IVA: si el comprobante no la tiene cargada y ARCA informó
+ *     UNA percepción del mismo agente y comprobante, menor o igual a «Otros
+ *     tributos», ese importe pasa a «Percepción de IVA».
+ *  2. Resto: según la regla del proveedor, pasa a «Percepción de IIBB» o a
+ *     «Impuestos internos»; sin regla (u «OTHER») queda en «Otros tributos».
+ * Sólo facturas y notas de débito (las notas de crédito las define el estudio).
+ */
+export function planOtherTaxesSplit(
+    invoices: OtherTaxesInvoice[],
+    records: PerceptionRecord[],
+    rules: ReadonlyMap<string, OtherTaxesKind>,
+): OtherTaxesSplit[] {
+    const out: OtherTaxesSplit[] = [];
+    const taken = new Set<string>();
+    for (const inv of invoices) {
+        if (eligibleKind(inv) === null) continue;
+        let other = dz(inv.otherTaxesAmount);
+        if (!other.greaterThan(0)) continue;
+        let vat = dz(inv.vatPerceptionAmount);
+        let iibb = dz(inv.iibbPerceptionAmount);
+        let internal = dz(inv.internalTaxesAmount);
+        const agentCuit = inv.counterpartyDocType === 80 ? inv.counterpartyDocNumber : null;
+        if (agentCuit === null) continue;
+
+        if (vat.isZero()) {
+            const candidates = records.filter((r) =>
+                !taken.has(r.id) && !r.fromInvoice && r.type === IVA_PERCEPTION_TYPE && r.nature === "PERCEPTION"
+                && (r.invoiceId === null || r.invoiceId === inv.id)
+                && r.agentCuit === agentCuit && sameVoucherNumber(r.voucherNumber, inv.pointOfSale, inv.number));
+            if (candidates.length === 1 && candidates[0].amount.greaterThan(0) && candidates[0].amount.lessThanOrEqualTo(other)) {
+                vat = candidates[0].amount;
+                other = other.minus(vat);
+                taken.add(candidates[0].id);
+            }
+        }
+        const kind = rules.get(agentCuit);
+        if (other.greaterThan(0) && kind === "IIBB_PERCEPTION") { iibb = iibb.plus(other); other = ZERO; }
+        if (other.greaterThan(0) && kind === "INTERNAL_TAXES") { internal = internal.plus(other); other = ZERO; }
+
+        if (!other.equals(dz(inv.otherTaxesAmount))) {
+            out.push({ invoiceId: inv.id, otherTaxesAmount: other, vatPerceptionAmount: vat, iibbPerceptionAmount: iibb, internalTaxesAmount: internal });
+        }
+    }
+    return out;
+}
+
 /** Tipo de comprobante del F.2051 si corresponde crear o vincular automáticamente (facturas y notas de débito). */
 function eligibleKind(inv: Pick<PerceptionInvoice, "voucherCode">): number | null {
     if (inv.voucherCode === null) return null;
     return F2051_TYPE_BY_KIND[voucherType(inv.voucherCode).kind] ?? null;
 }
 
-type Tx = Pick<Prisma.TransactionClient, "invoice" | "taxRecord" | "clientJurisdiction">;
+type Tx = Pick<Prisma.TransactionClient, "invoice" | "taxRecord" | "clientJurisdiction" | "supplierOtherTaxesRule">;
 
 /** Concilia las percepciones del período (ver arriba). Devuelve la cantidad de cambios. */
 export async function reconcileInvoicePerceptions(
     tx: Tx,
     scope: { organizationId: string; periodId: string; clientId: string; profileId: string | null },
 ): Promise<number> {
-    const [invoices, records, jurisdictions] = await Promise.all([
+    const [invoices, records, jurisdictions, rules] = await Promise.all([
         tx.invoice.findMany({
             where: { organizationId: scope.organizationId, periodId: scope.periodId, category: "PURCHASES" },
             select: {
                 id: true, voucherCode: true, pointOfSale: true, number: true, voucherDate: true, date: true,
                 counterpartyDocType: true, counterpartyDocNumber: true, vatPerceptionAmount: true, iibbPerceptionAmount: true,
+                otherTaxesAmount: true, internalTaxesAmount: true,
             },
         }),
         tx.taxRecord.findMany({
@@ -179,6 +248,10 @@ export async function reconcileInvoicePerceptions(
             where: { organizationId: scope.organizationId, clientId: scope.clientId },
             select: { jurisdictionCode: true, isHeadquarters: true },
         }),
+        tx.supplierOtherTaxesRule.findMany({
+            where: { organizationId: scope.organizationId, clientId: scope.clientId },
+            select: { supplierCuit: true, kind: true },
+        }),
     ]);
     // Sede: la marcada (Convenio Multilateral) o, si el cliente tiene una sola jurisdicción, esa.
     const headquarters = jurisdictions.find((j) => j.isHeadquarters)?.jurisdictionCode ?? (jurisdictions.length === 1 ? jurisdictions[0].jurisdictionCode : null);
@@ -186,8 +259,30 @@ export async function reconcileInvoicePerceptions(
     const dec = (v: Prisma.Decimal | number | string | null | undefined) => (v === null || v === undefined ? null : new Prisma.Decimal(v));
     const purchases = invoices
         .filter((i) => (i as { category?: string }).category === undefined || (i as { category?: string }).category === "PURCHASES")
-        .map((i) => ({ ...i, vatPerceptionAmount: dec(i.vatPerceptionAmount), iibbPerceptionAmount: dec(i.iibbPerceptionAmount) }));
-    const actions = planInvoicePerceptions(purchases, records.map((r) => ({ ...r, amount: new Prisma.Decimal(r.amount) })), headquarters);
+        .map((i) => ({
+            ...i, vatPerceptionAmount: dec(i.vatPerceptionAmount), iibbPerceptionAmount: dec(i.iibbPerceptionAmount),
+            otherTaxesAmount: dec(i.otherTaxesAmount), internalTaxesAmount: dec(i.internalTaxesAmount),
+        }));
+    const decRecords = records.map((r) => ({ ...r, amount: new Prisma.Decimal(r.amount) }));
+    const ruleMap = new Map((rules ?? []).filter((r) => (OTHER_TAXES_KINDS as readonly string[]).includes(r.kind)).map((r) => [r.supplierCuit, r.kind as OtherTaxesKind]));
+
+    // 1) «Otros tributos» -> percepción de IVA (ARCA), percepción de IIBB o impuestos internos.
+    const splits = planOtherTaxesSplit(purchases, decRecords, ruleMap);
+    for (const split of splits) {
+        await tx.invoice.updateMany({
+            where: { id: split.invoiceId, organizationId: scope.organizationId, periodId: scope.periodId },
+            data: {
+                otherTaxesAmount: split.otherTaxesAmount, vatPerceptionAmount: split.vatPerceptionAmount,
+                iibbPerceptionAmount: split.iibbPerceptionAmount, internalTaxesAmount: split.internalTaxesAmount,
+                updatedById: scope.profileId,
+            },
+        });
+        const inv = purchases.find((p) => p.id === split.invoiceId)!;
+        Object.assign(inv, split);
+    }
+
+    // 2) Percepciones del comprobante -> Retenciones/Percepciones.
+    const actions = planInvoicePerceptions(purchases, decRecords, headquarters);
     const by = scope.profileId;
     // Primero las bajas y desvinculaciones: liberan el índice único (comprobante, tipo).
     const order = { delete: 0, unlink: 1, link: 2, update: 3, create: 4 } as const;
@@ -221,7 +316,7 @@ export async function reconcileInvoicePerceptions(
                 break;
         }
     }
-    return actions.length;
+    return splits.length + actions.length;
 }
 
 /**
