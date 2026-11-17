@@ -389,6 +389,8 @@ details > :not(summary) { margin: var(--spacing-md); }
 }
 
 .num,
+.table td.num,
+.table th.num,
 .data-table td.num,
 .data-table th.num {
   text-align: right;
