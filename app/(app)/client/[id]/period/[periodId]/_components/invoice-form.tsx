@@ -239,7 +239,7 @@ export function InvoiceForm(props: InvoiceFormProps) {
             <Link href={listHref} style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
                 &larr; Volver
             </Link>
-            <h1 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "var(--spacing-xs)" }}>{text.title}</h1>
+            <h1 style={{ marginBottom: "var(--spacing-xs)" }}>{text.title}</h1>
             <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-lg)" }}>
                 {clientName} · Período {formatPeriodLabel(period)}
             </p>
@@ -439,7 +439,7 @@ export function InvoiceEditUnavailable(props: {
             <Link href={listHref} style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
                 &larr; Volver
             </Link>
-            <h1 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "var(--spacing-xs)" }}>{INVOICE_EDIT_TEXT[direction].title}</h1>
+            <h1 style={{ marginBottom: "var(--spacing-xs)" }}>{INVOICE_EDIT_TEXT[direction].title}</h1>
             <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-lg)" }}>
                 {clientName} · Período {formatPeriodLabel(period)}
             </p>

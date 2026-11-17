@@ -22,8 +22,8 @@ export default async function UsersSettingsPage() {
                 <Link href="/settings" style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
                     &larr; Volver a Configuración
                 </Link>
-                <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>Usuarios</h1>
-                <p style={{ color: "var(--secondary)" }}>
+                <h1>Usuarios</h1>
+                <p className="muted">
                     Invitá personas del estudio y definí, por separado, su rol, los clientes que ven y los módulos que usan.
                 </p>
             </div>

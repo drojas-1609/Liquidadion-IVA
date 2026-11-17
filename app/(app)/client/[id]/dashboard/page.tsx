@@ -45,7 +45,7 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
                     <Link href="/clients" style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
                         &larr; Volver a Clientes
                     </Link>
-                    <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>{client.name}</h1>
+                    <h1>{client.name}</h1>
                     <div style={{ display: "flex", gap: "var(--spacing-md)", color: "var(--secondary)", marginTop: "var(--spacing-xs)" }}>
                         <span>{client.cuit}</span>
                         <span>•</span>

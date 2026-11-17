@@ -382,24 +382,30 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
 
     return (
         <div>
-            <div className="card" style={{ marginBottom: "var(--spacing-lg)" }}>
-                <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-sm)" }}>
+            <div className="card stack" style={{ marginBottom: "var(--spacing-lg)" }}>
+                <div className="section-head" style={{ marginBottom: 0 }}>
+                    <div>
+                        <h2>Importación manual de archivos</h2>
+                        <p>Para subir un archivo descargado a mano o del Libro IVA Digital.</p>
+                    </div>
+                </div>
+                <p className="muted text-sm">
                     {format === "LID_TXT"
                         ? <>Archivos TXT del Libro IVA Digital (R.G. 4597): el de comprobantes y el de alícuotas del <strong>mismo período y libro</strong>, en ANSI, hasta 2 MB cada uno.</>
                         : format === "PORTAL_CSV"
                             ? <>Descarga de comprobantes del período de Portal IVA: el ZIP <code>comprobantes_periodo_AAAAMM_…</code> tal como se descarga, o el CSV que contiene (montos expresados en pesos), hasta 2 MB.</>
                             : <>Consulta de Mis Comprobantes exportada como CSV: el ZIP <code>comprobantes_consulta_csv_emitidos_…</code> (ventas) o <code>…_recibidos_…</code> (compras), o el CSV que contiene, hasta 2 MB. No informa percepciones de IVA (van agrupadas en «Otros Tributos»): registralas como retención/percepción.</>}
-                    Régimen TurIVA del período: <strong>{turivaIncluded ? "incluido" : "no incluido"}</strong>. Prorrateo del crédito: <strong>{prorationMode}</strong>.
+                    {" "}Régimen TurIVA del período: <strong>{turivaIncluded ? "incluido" : "no incluido"}</strong>. Prorrateo del crédito: <strong>{prorationMode}</strong>.
                 </p>
-                <div style={{ display: "flex", gap: "var(--spacing-md)", flexWrap: "wrap", alignItems: "flex-end" }}>
-                    <label>Formato<br />
+                <div className="manual-form">
+                    <label className="field">Formato
                         <select value={format} onChange={(e) => { setFormat(e.target.value as Format); setPreview(null); setReimportDeleted(false); setVouchers(null); setAliquots(null); }} disabled={busy}>
                             <option value="LID_TXT">Libro IVA Digital (par de TXT)</option>
                             <option value="PORTAL_CSV">Descarga de Portal IVA (ZIP o CSV)</option>
                             <option value="MIS_COMPROBANTES">Mis Comprobantes (ZIP o CSV)</option>
                         </select>
                     </label>
-                    <label>Libro<br />
+                    <label className="field">Libro
                         <select value={category} onChange={(e) => { setCategory(e.target.value as Category); setPreview(null); setReimportDeleted(false); }} disabled={busy}>
                             <option value="SALES">Ventas</option>
                             <option value="PURCHASES">Compras</option>
@@ -407,15 +413,15 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                     </label>
                     {format === "LID_TXT" ? (
                         <>
-                            <label>Comprobantes (CBTE)<br />
+                            <label className="field">Comprobantes (CBTE)
                                 <input key="cbte" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
                             </label>
-                            <label>Alícuotas<br />
+                            <label className="field">Alícuotas
                                 <input key="ali" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setAliquots(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
                             </label>
                         </>
                     ) : (
-                        <label>{format === "PORTAL_CSV" ? "Descarga de Portal IVA" : "Consulta de Mis Comprobantes"}<br />
+                        <label className="field">{format === "PORTAL_CSV" ? "Descarga de Portal IVA" : "Consulta de Mis Comprobantes"}
                             <input key="portal" type="file" accept=".zip,.csv,application/zip,text/csv" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
                         </label>
                     )}
@@ -425,14 +431,14 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 </div>
             </div>
 
-            {error && <div role="alert" className="card" style={{ border: "1px solid var(--error)", marginBottom: "var(--spacing-md)" }}>{error}</div>}
-            {done && <div role="status" className="card" style={{ marginBottom: "var(--spacing-md)" }}>{done}</div>}
+            {error && <div role="alert" className="callout callout-error" style={{ marginBottom: "var(--spacing-md)" }}>{error}</div>}
+            {done && <div role="status" className="callout callout-success" style={{ marginBottom: "var(--spacing-md)" }}>{done}</div>}
             {done && donePending.length > 0 && (
                 <div className="card" style={{ marginBottom: "var(--spacing-md)" }}>
                     <h3 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-xs)" }}>No importados en esta confirmación ({donePending.length})</h3>
                     <p style={{ fontSize: "0.85rem", color: "var(--secondary)" }}>Quedan fuera de los totales importados. Corregí el archivo o cargalos a mano.</p>
-                    <table aria-label="No importados en esta confirmación" style={{ width: "100%", fontSize: "0.875rem" }}>
-                        <thead><tr><th style={{ textAlign: "left" }}>Línea</th><th style={{ textAlign: "left" }}>Estado</th><th style={{ textAlign: "left" }}>Comprobante</th><th style={{ textAlign: "left" }}>Fecha</th><th style={{ textAlign: "left" }}>Motivo</th></tr></thead>
+                    <table aria-label="No importados en esta confirmación" className="data-table">
+                        <thead><tr><th>Línea</th><th>Estado</th><th>Comprobante</th><th>Fecha</th><th>Motivo</th></tr></thead>
                         <tbody>
                             {donePending.map((r) => (
                                 <tr key={r.line}><td>{r.line}</td><td>{r.status === "REVIEW" ? "Revisar" : r.status === "ERROR" ? "Error" : "Ya cargado"}</td><td>{r.voucher}</td><td>{r.date ?? "—"}</td><td>{r.reason}</td></tr>
@@ -441,9 +447,9 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                     </table>
                 </div>
             )}
-            {tracking && <div role="status" data-tracking className="card" style={{ marginBottom: "var(--spacing-md)" }}>{trackingNote || "Verificando el resultado de la confirmación…"}</div>}
+            {tracking && <div role="status" data-tracking className="callout callout-info" style={{ marginBottom: "var(--spacing-md)" }}>{trackingNote || "Verificando el resultado de la confirmación…"}</div>}
             {unconfirmed && (
-                <div role="alert" data-unconfirmed className="card" style={{ border: "1px solid var(--accent)", marginBottom: "var(--spacing-md)" }}>
+                <div role="alert" data-unconfirmed className="card" style={{ borderLeft: "3px solid var(--warning)", marginBottom: "var(--spacing-md)" }}>
                     <strong>Resultado sin confirmar</strong>
                     <p style={{ margin: "var(--spacing-sm) 0" }}>
                         Operación <code data-operation-id>{unconfirmed.op.operationId}</code>. Pasaron más de {Math.round(RESULT_WAIT_MS / 1000)} s desde el último envío y {unconfirmed.reached
@@ -460,18 +466,18 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
             {preview && counts && (
                 <div>
                     {preview.fileErrors.length > 0 && (
-                        <div role="alert" className="card" style={{ border: "1px solid var(--error)", marginBottom: "var(--spacing-md)" }}>
+                        <div role="alert" className="callout callout-error" style={{ marginBottom: "var(--spacing-md)" }}>
                             <strong>No se puede confirmar:</strong>
                             <ul>{preview.fileErrors.map((e) => <li key={e}>{e}</li>)}</ul>
                         </div>
                     )}
                     <div className="card" style={{ marginBottom: "var(--spacing-md)" }}>
-                        <h2 style={{ fontSize: "1.25rem", marginBottom: "var(--spacing-sm)" }}>Conciliación {preview.turivaFile ? "(archivo TurIVA)" : ""}</h2>
+                        <h2 style={{ marginBottom: "var(--spacing-sm)" }}>Conciliación {preview.turivaFile ? "(archivo TurIVA)" : ""}</h2>
                         <p>
                             Registros: {preview.reconciliation.files.voucherRecords} comprobantes, {preview.reconciliation.files.aliquotRecords} alícuotas.
                             Se importan {counts.OK} · ya cargados {counts.DUPLICATE} · revisar {counts.REVIEW} · error {counts.ERROR}.
                         </p>
-                        <p style={{ color: "var(--secondary)" }}>
+                        <p className="muted">
                             Sumas del archivo, de todas las filas leídas y <strong>sin signo</strong> (las notas de crédito suman): total {preview.reconciliation.informed.voucherTotal} · neto de alícuotas {preview.reconciliation.informed.aliquotNet} · IVA de alícuotas {preview.reconciliation.informed.aliquotVat}.
                         </p>
                         <table className="table" style={{ marginBottom: "var(--spacing-sm)" }}>
@@ -539,7 +545,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                         {counts.ERROR > 0 && <>; con error <strong>{counts.ERROR}</strong></>}.
                     </p>
                     {(preview.deletedCount > 0 || reimportDeleted) && (
-                        <label style={{ display: "block", marginBottom: "var(--spacing-sm)" }}>
+                        <label className="check" style={{ marginBottom: "var(--spacing-sm)" }}>
                             <input
                                 type="checkbox"
                                 checked={reimportDeleted}
@@ -555,7 +561,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                         </label>
                     )}
                     {partial && (
-                        <label style={{ display: "block", marginBottom: "var(--spacing-sm)" }}>
+                        <label className="check" style={{ marginBottom: "var(--spacing-sm)" }}>
                             <input type="checkbox" checked={acceptPartial} onChange={(e) => setAcceptPartial(e.target.checked)} /> Importar sólo las {counts.OK} filas «Se importa»; las de «Revisar» y «Error» quedan fuera.
                         </label>
                     )}
@@ -567,7 +573,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
 
             {recent.length > 0 && (
                 <div className="card" style={{ marginTop: "var(--spacing-lg)", overflowX: "auto" }} data-recent-imports>
-                    <h2 style={{ fontSize: "1.1rem", marginBottom: "var(--spacing-sm)" }}>Confirmaciones registradas en este período</h2>
+                    <h2 style={{ marginBottom: "var(--spacing-sm)" }}>Confirmaciones registradas en este período</h2>
                     <table className="table">
                         <thead><tr><th>Fecha</th><th>Libro</th><th>Formato</th><th>Resultado</th><th>Importados</th><th>Ya cargados</th><th>No importados</th><th>Operación</th></tr></thead>
                         <tbody>

@@ -34,7 +34,7 @@ export default async function ClientsPage() {
         <div className="container">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--spacing-lg)", flexWrap: "wrap", gap: "var(--spacing-md)" }}>
                 <div>
-                    <h1 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>Clientes</h1>
+                    <h1>Clientes</h1>
                     <p style={{ color: "var(--secondary)", fontSize: "0.875rem" }}>Gestiona tus clientes y sus liquidaciones de IVA e IIBB.</p>
                 </div>
                 {canCreate && (

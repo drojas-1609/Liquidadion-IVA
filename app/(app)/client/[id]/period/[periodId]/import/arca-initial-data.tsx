@@ -78,10 +78,12 @@ export function ArcaInitialDataSection({ url, status, canSaveDefault, busy, onSa
 
     if (!open && status.period) {
         return (
-            <section aria-label="Datos iniciales de IVA Simple">
-                <h3>Datos iniciales de IVA Simple</h3>
-                <p>{describe(status.period)}</p>
-                <button type="button" className="btn" disabled={busy || saving} onClick={() => { setDraft(status.period!); setEditing(true); }}>Cambiar</button>
+            <section aria-label="Datos iniciales de IVA Simple" className="initial-data">
+                <div>
+                    <h3>Datos iniciales de IVA Simple <span className="badge badge-success">Confirmados</span></h3>
+                    <p className="muted">{describe(status.period)}</p>
+                </div>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={busy || saving} onClick={() => { setDraft(status.period!); setEditing(true); }}>Cambiar</button>
             </section>
         );
     }
@@ -91,37 +93,39 @@ export function ArcaInitialDataSection({ url, status, canSaveDefault, busy, onSa
         ...(field === "nonTaxedOrExempt" ? { creditComputation: value ? draft.creditComputation ?? appCredit ?? "DIRECT" : null } : {}),
     });
     return (
-        <section aria-label="Datos iniciales de IVA Simple">
-            <h3>Datos iniciales de IVA Simple</h3>
-            <p>
+        <section aria-label="Datos iniciales de IVA Simple" className="initial-data is-open stack">
+            <h3>Datos iniciales de IVA Simple {!status.period && <span className="badge badge-warning">Pendientes</span>}</h3>
+            <p className="muted">
                 Al abrir el borrador del período, IVA Simple pide estas respuestas antes de mostrar los libros. Confirmalas para la
                 primera importación del mes; el conector las completa tal cual. La registración es siempre «Con movimientos».
             </p>
-            {!status.period && status.client && <p>Se propone lo predeterminado del cliente.</p>}
-            <fieldset disabled={busy || saving}>
+            {!status.period && status.client && <p className="muted">Se propone lo predeterminado del cliente.</p>}
+            <fieldset disabled={busy || saving} className="stack">
                 <legend>Operaciones que realiza en el período</legend>
                 {OPERATION_FIELDS.map((field) => (
-                    <label key={field} style={{ display: "block" }}>
+                    <label key={field} className="check">
                         <input type="checkbox" checked={draft[field]} onChange={(event) => toggle(field, event.target.checked)} /> {OPERATION_LABELS[field]}
                     </label>
                 ))}
                 {draft.nonTaxedOrExempt && (
-                    <label style={{ display: "block" }}>
-                        Forma de cómputo del crédito fiscal{" "}
+                    <label className="field" style={{ maxWidth: 420 }}>
+                        Forma de cómputo del crédito fiscal
                         <select value={draft.creditComputation ?? "DIRECT"} onChange={(event) => setDraft({ ...draft, creditComputation: event.target.value as CreditComputation })}>
                             {CREDIT_COMPUTATIONS.map((value) => <option key={value} value={value}>{CREDIT_COMPUTATION_LABELS[value]}</option>)}
                         </select>
                     </label>
                 )}
                 {OPERATION_FIELDS.every((field) => !draft[field]) && <p>Se informará «{NO_OPERATIONS_LABEL}».</p>}
-                {warnings.map((warning) => <p key={warning} role="note">{warning} Revisá si corresponde; esta elección no la cambia.</p>)}
+                {warnings.map((warning) => <p key={warning} role="note" className="callout callout-warning">{warning} Revisá si corresponde; esta elección no la cambia.</p>)}
                 {canSaveDefault && (
-                    <label style={{ display: "block" }}>
+                    <label className="check">
                         <input type="checkbox" checked={saveDefault} onChange={(event) => setSaveDefault(event.target.checked)} /> Guardar también como predeterminado del cliente
                     </label>
                 )}
-                <button type="button" className="btn btn-primary" onClick={() => void save()}>{saving ? "Guardando…" : "Confirmar datos iniciales del período"}</button>
-                {editing && <> <button type="button" className="btn" onClick={() => setEditing(false)}>Cancelar</button></>}
+                <div className="toolbar">
+                    <button type="button" className="btn btn-primary" onClick={() => void save()}>{saving ? "Guardando…" : "Confirmar datos iniciales del período"}</button>
+                    {editing && <button type="button" className="btn btn-secondary" onClick={() => setEditing(false)}>Cancelar</button>}
+                </div>
             </fieldset>
         </section>
     );

@@ -54,7 +54,7 @@ export default async function TaxesPage({ params }: { params: Promise<{ id: stri
                     <Link href={`/client/${id}/period/${periodId}`} style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
                         &larr; Volver al Periodo
                     </Link>
-                    <h1 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>Retenciones y Percepciones</h1>
+                    <h1>Retenciones y Percepciones</h1>
                 </div>
                 {canCreate && (
                     <Link href={`/client/${id}/period/${periodId}/taxes/new`} className="btn btn-primary">

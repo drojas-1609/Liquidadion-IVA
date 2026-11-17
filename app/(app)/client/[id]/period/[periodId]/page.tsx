@@ -99,7 +99,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
         <div role="status" className="card" style={{ marginBottom: "var(--spacing-xl)" }}>
             <h3 style={{ fontSize: "1.125rem", marginBottom: "var(--spacing-sm)" }}>Período cerrado</h3>
             <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-sm)" }}>{PERIOD_CLOSE_SCOPE_NOTICE}</p>
-            <p style={{ color: "var(--secondary)" }}>{PERIOD_CLOSE_IIBB_NOTICE}</p>
+            <p className="muted">{PERIOD_CLOSE_IIBB_NOTICE}</p>
         </div>
     ) : null;
     const manageText = closed ? "Ver" : "Gestionar";
@@ -116,7 +116,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
         return (
             <div className="container">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--spacing-md)", flexWrap: "wrap", marginBottom: "var(--spacing-xl)" }}>
-                    <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>
+                    <h1>
                         Período {formatPeriodLabel(period)}
                         {statusBadge}
                     </h1>
@@ -146,7 +146,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
                     <Link href={`/client/${id}/dashboard`} style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
                         &larr; Volver al Cliente
                     </Link>
-                    <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>
+                    <h1>
                         Período {formatPeriodLabel(period)}
                         {statusBadge}
                     </h1>

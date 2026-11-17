@@ -153,22 +153,22 @@ export function ArcaPendingCorrections({ url, source, legend, busy, onRevised, o
 
     if (!data) {
         return (
-            <p>
-                <button type="button" className="btn" disabled={busy || loading} onClick={() => void load()}>
+            <div className="toolbar">
+                <button type="button" className="btn btn-secondary" disabled={busy || loading} onClick={() => void load()}>
                     {loading ? "Leyendo filas pendientes…" : "Revisar y corregir las filas pendientes"}
                 </button>
-            </p>
+            </div>
         );
     }
 
     return (
-        <section aria-label="Corrección de filas pendientes">
-            <h4>Filas pendientes ({data.total})</h4>
-            {data.truncated && <p>Se muestran las primeras {data.rows.length}.</p>}
-            <fieldset>
+        <section aria-label="Corrección de filas pendientes" className="stack">
+            <h4>Filas pendientes <span className="badge badge-warning">{data.total}</span></h4>
+            {data.truncated && <p className="muted">Se muestran las primeras {data.rows.length}.</p>}
+            <fieldset className="stack">
                 <legend>Correcciones (se aplican sólo si las elegís)</legend>
                 {rounding > 0 && (
-                    <label>
+                    <label className="check">
                         <input type="checkbox" checked={corrections.acceptRounding === true} disabled={saving}
                             onChange={(event) => setCorrections({ ...corrections, acceptRounding: event.target.checked || undefined })} />
                         {` Aceptar las diferencias de redondeo de hasta $ 0,02 (${rounding} filas): se guarda el total calculado y la fila conserva en sus notas el total de ARCA y la diferencia.`}
@@ -176,7 +176,7 @@ export function ArcaPendingCorrections({ url, source, legend, busy, onRevised, o
                 )}
                 {exemptRows > 0 && (
                     <p>
-                        <label>
+                        <label className="field">
                             {`Código de operación para las ${exemptRows} ventas B exentas o no gravadas sin código: `}
                             <select value={corrections.exemptSaleOperationCode ?? ""} disabled={saving}
                                 onChange={(event) => setCorrections({ ...corrections, exemptSaleOperationCode: event.target.value || undefined })}>
@@ -188,7 +188,7 @@ export function ArcaPendingCorrections({ url, source, legend, busy, onRevised, o
                 )}
                 {zeroRows > 0 && (
                     <p>
-                        <label>
+                        <label className="field">
                             {`Código de operación para las ${zeroRows} filas con neto gravado al 0 % sin código: `}
                             <select value={corrections.zeroRateOperationCode ?? ""} disabled={saving}
                                 onChange={(event) => setCorrections({ ...corrections, zeroRateOperationCode: event.target.value || undefined })}>
@@ -198,18 +198,21 @@ export function ArcaPendingCorrections({ url, source, legend, busy, onRevised, o
                         </label>
                     </p>
                 )}
-                <p>Importes corregidos a mano: {lineCount} filas. Corregilos con «Corregir importes» en cada fila, según el comprobante.</p>
-                <button type="button" className="btn btn-primary" disabled={busy || saving} onClick={() => void revise()}>
-                    {saving ? "Recalculando…" : "Recalcular la vista previa con estas correcciones"}
-                </button>
+                <p className="muted">Importes corregidos a mano: {lineCount} filas. Corregilos con «Corregir importes» en cada fila, según el comprobante.</p>
+                <div>
+                    <button type="button" className="btn btn-primary" disabled={busy || saving} onClick={() => void revise()}>
+                        {saving ? "Recalculando…" : "Recalcular la vista previa con estas correcciones"}
+                    </button>
+                </div>
             </fieldset>
             {groups.map(([reason, rows]) => {
                 const page = pages[reason] ?? 0;
                 return (
                     <details key={reason}>
-                        <summary>{reason} — {rows.length} filas</summary>
-                        <table className="table">
-                            <thead><tr><th>Línea</th><th>Comprobante</th><th>Fecha</th><th>Contraparte</th><th>Total ARCA</th><th>Motivos</th><th /></tr></thead>
+                        <summary>{reason} <span className="badge badge-plain">{rows.length} filas</span></summary>
+                        <div className="table-wrap">
+                        <table className="data-table">
+                            <thead><tr><th>Línea</th><th>Comprobante</th><th>Fecha</th><th>Contraparte</th><th className="num">Total ARCA</th><th>Motivos</th><th /></tr></thead>
                             <tbody>
                                 {rows.slice(page * PAGE, (page + 1) * PAGE).map((row) => (
                                     <tr key={`${reason}-${row.line}`}>
@@ -217,23 +220,25 @@ export function ArcaPendingCorrections({ url, source, legend, busy, onRevised, o
                                         <td>{voucher(row)}</td>
                                         <td>{row.date ?? "—"}</td>
                                         <td>{row.name || row.docNumber || "—"}</td>
-                                        <td>{row.informedTotal ? `$ ${formatMoney(row.informedTotal)}` : "—"}</td>
+                                        <td className="num">{row.informedTotal ? `$ ${formatMoney(row.informedTotal)}` : "—"}</td>
                                         <td>{row.messages.join(" · ")}{corrections.lineAmounts?.[String(row.line)] && " · importes corregidos en la app"}</td>
                                         <td>
                                             {row.amounts && editing !== row.line && (
-                                                <button type="button" className="btn" disabled={saving} onClick={() => startEdit(row)}>Corregir importes</button>
+                                                <button type="button" className="btn btn-secondary btn-sm" disabled={saving} onClick={() => startEdit(row)}>Corregir importes</button>
                                             )}
                                             {editing === row.line && (
-                                                <span>
+                                                <span className="stack" style={{ display: "block", minWidth: 200 }}>
                                                     {CORRECTABLE.map(([field, label]) => (
-                                                        <label key={field} style={{ display: "block" }}>
-                                                            {label}{" "}
+                                                        <label key={field} className="field">
+                                                            {label}
                                                             <input inputMode="decimal" value={draft[field] ?? ""} size={12}
                                                                 onChange={(event) => setDraft({ ...draft, [field]: event.target.value })} />
                                                         </label>
                                                     ))}
-                                                    <button type="button" className="btn btn-primary" onClick={() => saveEdit(row)}>Guardar</button>{" "}
-                                                    <button type="button" className="btn" onClick={() => setEditing(null)}>Cancelar</button>
+                                                    <span className="toolbar">
+                                                        <button type="button" className="btn btn-primary btn-sm" onClick={() => saveEdit(row)}>Guardar</button>
+                                                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditing(null)}>Cancelar</button>
+                                                    </span>
                                                 </span>
                                             )}
                                         </td>
@@ -241,11 +246,12 @@ export function ArcaPendingCorrections({ url, source, legend, busy, onRevised, o
                                 ))}
                             </tbody>
                         </table>
+                        </div>
                         {rows.length > PAGE && (
-                            <p>
-                                <button type="button" className="btn" disabled={page === 0} onClick={() => setPages({ ...pages, [reason]: page - 1 })}>Anterior</button>{" "}
+                            <p className="toolbar">
+                                <button type="button" className="btn btn-secondary btn-sm" disabled={page === 0} onClick={() => setPages({ ...pages, [reason]: page - 1 })}>Anterior</button>{" "}
                                 Página {page + 1} de {Math.ceil(rows.length / PAGE)}{" "}
-                                <button type="button" className="btn" disabled={(page + 1) * PAGE >= rows.length} onClick={() => setPages({ ...pages, [reason]: page + 1 })}>Siguiente</button>
+                                <button type="button" className="btn btn-secondary btn-sm" disabled={(page + 1) * PAGE >= rows.length} onClick={() => setPages({ ...pages, [reason]: page + 1 })}>Siguiente</button>
                             </p>
                         )}
                     </details>
