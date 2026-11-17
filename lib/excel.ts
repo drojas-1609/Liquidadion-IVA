@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { Prisma } from "@prisma/client";
 import type { LiquidationDTO } from "./serializers";
 import { LIQUIDATION_RATE_NOTE } from "./legacy-iibb-rate";
+import { appendDetailSheets, type DetailInvoice, type DetailTaxRecord } from "./excel-detail";
 
 /**
  * Todos los importes entran como STRING decimal (contrato de la app). La
@@ -19,6 +20,8 @@ type LiquidationData = LiquidationDTO & {
     period: string;
     client: string;
     cuit: string;
+    /** Comprobantes, retenciones y percepciones del período: hojas de detalle y control. */
+    detail?: { invoices: DetailInvoice[]; taxRecords: DetailTaxRecord[] };
 };
 
 const MAX_SAFE = new Prisma.Decimal(Number.MAX_SAFE_INTEGER);
@@ -77,6 +80,34 @@ export const generateLiquidationExcel = (data: LiquidationData) => {
     const ws = XLSX.utils.aoa_to_sheet(displayData);
     ws["!cols"] = [{ wch: 75 }, { wch: 20 }, { wch: 100 }];
     XLSX.utils.book_append_sheet(wb, ws, "Liquidacion");
+
+    if (data.detail) {
+        // Celda (columna B) de cada importe de la hoja «Liquidacion» que cruza «Control».
+        const rowOf = (label: string) => {
+            const i = displayData.findIndex((row) => row[0] === label || (typeof row[0] === "string" && row[0].startsWith(label)));
+            return i < 0 ? undefined : `B${i + 1}`;
+        };
+        appendDetailSheets(wb, {
+            invoices: data.detail.invoices,
+            taxRecords: data.detail.taxRecords,
+            totals: {
+                salesTotal: data.sales.total,
+                purchasesTotal: data.purchases.total,
+                debit: data.iva.debit,
+                creditDirect: data.iva.creditDirect,
+                creditProrated: data.iva.creditProrated,
+                iibbBase: data.iibb.base,
+                ivaWithholdings: data.iva.withholdings,
+                ivaPerceptions: new Prisma.Decimal(data.iva.perceptions).plus(data.iva.customsPerceptions).toFixed(2),
+                iibbRetentions: data.iibb.retentions,
+            },
+        }, {
+            debit: rowOf("Total del débito fiscal del período"),
+            iibbBase: rowOf("Base Imponible IIBB"),
+            ivaWithholdings: rowOf("Retenciones IVA"),
+            iibbRetentions: rowOf("Retenciones/Percepciones IIBB"),
+        }, n);
+    }
 
     const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
     return excelBuffer;
