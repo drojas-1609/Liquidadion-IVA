@@ -45,6 +45,7 @@ const EXPECTED = {
   "app/api/periods/[id]/vat-position/route.ts": { models: [], serializer: null },
   // Clasificación por lote: responde sólo el conteo. Paquete: binario ZIP (sin JSON con importes).
   "app/api/periods/[id]/invoice-classification/route.ts": { models: [], serializer: null },
+  "app/api/periods/[id]/invoice-note/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/invoice-perceptions/route.ts": { models: [], serializer: null },
   "app/api/internal/arca-sync/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/arca-sync/route.ts": { models: [], serializer: null },

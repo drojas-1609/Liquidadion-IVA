@@ -367,6 +367,9 @@ model Invoice {
   // ── Modelo contable (Fase A, M1: nullable hasta M2) ──────────────────────
   clientId                          String?
   purchaseAccount                   String?        @db.VarChar(120)
+  /// Nota del papel de trabajo (aclaraciones del control del comprobante físico).
+  /// No se informa a ARCA; se exporta en las hojas de detalle del Excel.
+  workNote                          String?        @db.VarChar(500)
   source                            InvoiceSource?
   /// Código oficial de tipo de comprobante (ARCA). Define el signo contable.
   voucherCode                       Int?

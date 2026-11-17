@@ -107,7 +107,7 @@ export default async function PurchasesPage({ params, searchParams }: { params: 
                                         <td className="nowrap">{formatIsoDate(view.voucherDate)}</td>
                                         <td>{view.voucherLabel}</td>
                                         <td className="nowrap">{number}{range}</td>
-                                        <td>{view.counterpartyName}</td>
+                                        <td>{view.counterpartyName}{invoice.workNote && <div className="muted text-sm" title="Nota del papel de trabajo">Nota: {invoice.workNote}</div>}</td>
                                         <td className="num">${formatMoney(view.signedNet.toFixed(2))}</td>
                                         <td className="num">${formatMoney(view.signedVat.toFixed(2))}</td>
                                         <td>

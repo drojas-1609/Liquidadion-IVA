@@ -1,4 +1,6 @@
+import prisma from "@/lib/prisma";
 import { guardPage } from "@/lib/auth/authz";
+import { InvoiceNoteForm } from "../../../_components/invoice-note-form";
 import { loadInvoiceEditContext } from "@/lib/invoice-form-context";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { InvoiceEditUnavailable, InvoiceForm } from "../../../_components/invoice-form";
@@ -23,13 +25,19 @@ export default async function EditSalePage({
     // Período cerrado: aviso en lugar del formulario (la API rechaza igual).
     if (periodClosed) return <PeriodClosedNotice clientId={id} periodId={periodId} />;
 
+    const sale = await prisma.invoice.findFirst({
+        where: { id: invoiceId, periodId, category: "SALES", period: { clientId: id } },
+        select: { workNote: true, updatedAt: true },
+    });
+    const noteForm = sale && <InvoiceNoteForm key={`note-${sale.updatedAt.toISOString()}`} periodId={periodId} invoiceId={invoiceId} updatedAt={sale.updatedAt.toISOString()} current={sale.workNote} />;
+
     if (edit.status === "IMPORTED") {
         // Importado: formulario detallado (todas las alícuotas e importes); key con el token para remontar tras recargar.
-        return <ImportedInvoiceForm key={edit.detail.updatedAt} clientId={id} periodId={periodId} clientName={form.clientName} period={form.period} detail={edit.detail} />;
+        return <>{noteForm}<ImportedInvoiceForm key={edit.detail.updatedAt} clientId={id} periodId={periodId} clientName={form.clientName} period={form.period} detail={edit.detail} /></>;
     }
     if (edit.status === "NOT_EDITABLE") {
         return <InvoiceEditUnavailable direction="SALES" clientId={id} periodId={periodId} clientName={form.clientName} period={form.period} message={edit.message} />;
     }
     // key: un updatedAt nuevo (p. ej. tras "Recargar datos") remonta el formulario con los datos actuales.
-    return <InvoiceForm key={edit.form.updatedAt} direction="SALES" clientId={id} periodId={periodId} {...form} edit={edit.form} />;
+    return <>{noteForm}<InvoiceForm key={edit.form.updatedAt} direction="SALES" clientId={id} periodId={periodId} {...form} edit={edit.form} /></>;
 }

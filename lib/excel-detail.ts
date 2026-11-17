@@ -43,6 +43,8 @@ export interface DetailInvoice {
     counterpartyName?: string | null;
     operationCode?: string | null;
     purchaseAccount?: string | null;
+    /** Nota del papel de trabajo (no se informa a ARCA). */
+    workNote?: string | null;
     taxedNetAmount?: Prisma.Decimal | null;
     totalVatAmount?: Prisma.Decimal | null;
     directComputableVatCreditAmount?: Prisma.Decimal | null;
@@ -258,6 +260,7 @@ function invoiceSheet(category: "SALES" | "PURCHASES", invoices: DetailInvoice[]
         );
     }
     columns.push({ header: "Origen", width: 14, value: (i) => rows[i].inv.source ?? "" });
+    columns.push({ header: "Observaciones", width: 60, value: (i) => rows[i].inv.workNote ?? "" });
     const title = category === "SALES" ? "Comprobantes de ventas del período" : "Comprobantes de compras del período";
     return buildSheet(title, "Las notas de crédito restan (importes negativos). Totales con fórmula SUM al pie.", columns, rows.length, n);
 }

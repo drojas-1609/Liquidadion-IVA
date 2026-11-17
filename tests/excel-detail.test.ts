@@ -26,7 +26,7 @@ const purchase = {
     ...base, category: "PURCHASES", date: new Date("2027-10-07T00:00:00Z"), voucherDate: new Date("2027-10-07T00:00:00Z"),
     pointOfSale: 10, number: 555, voucherCode: 81, counterpartyDocNumber: "30222222223", counterpartyName: "PROVEEDOR SINTETICO SRL",
     netAmount: D("1000.00"), vatAmount: D("210.00"), totalAmount: D("1306.00"), taxedNetAmount: D("1000.00"), totalVatAmount: D("210.00"),
-    internalTaxesAmount: D("96.00"), voucherTotalAmount: D("1306.00"), grossIncomeTaxBaseAmount: D("0"), directComputableVatCreditAmount: D("210.00"),
+    internalTaxesAmount: D("96.00"), voucherTotalAmount: D("1306.00"), workNote: "Nota sintética: descuento incluido en el neto", grossIncomeTaxBaseAmount: D("0"), directComputableVatCreditAmount: D("210.00"),
     reportedComputableVatCreditAmount: null, vatLines: [{ vatRateCode: 5, netAmount: D("1000.00"), vatAmount: D("210.00"), creditAllocation: "DIRECT_COMPUTABLE", computableVatAmount: D("210.00") }],
 };
 const taxRecords = [
@@ -92,5 +92,11 @@ describe("exportación: hojas de detalle para el control cruzado", () => {
         const dto = serializeLiquidation(computeLiquidation(period as never));
         const wb = XLSX.read(generateLiquidationExcel({ ...dto, period: "10/2027", client: "X", cuit: "30-55555555-5" }), { type: "buffer" });
         expect(wb.SheetNames).toEqual(["Liquidacion"]);
+    });
+    it("la nota del papel de trabajo sale en «Observaciones» de cada comprobante", () => {
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(build().Sheets["Compras"], { range: 3 });
+        expect(rows[0]).toMatchObject({ Observaciones: "Nota sintética: descuento incluido en el neto" });
+        const ventas = XLSX.utils.sheet_to_json<Record<string, unknown>>(build().Sheets["Ventas"], { range: 3 });
+        expect(ventas[0].Observaciones ?? "").toBe("");
     });
 });
