@@ -26,6 +26,7 @@ export const ISSUE_HELP: Record<IssueCode, { title: string; fix: string }> = {
     TAX_RECORD_DETAIL_MISSING: { title: "Retención o percepción sin datos del F.2051", fix: "Editala desde Retenciones/Percepciones y completá naturaleza, régimen, agente, comprobante y certificado." },
     TAX_RECORD_NOT_IVA: { title: "Retención de otro impuesto", fix: "Informativo." },
     INVOICE_PERCEPTIONS_NOT_REGISTERED: { title: "Percepción de IVA del comprobante sin registrar", fix: "Registrala desde Retenciones/Percepciones eligiendo el comprobante (no se duplica). Si ya la cargaste por separado, vinculala al comprobante." },
+    INVOICE_PERCEPTION_AMOUNT_DIFFERS: { title: "Percepción de IVA: el comprobante y ARCA difieren", fix: "Se computa lo informado por ARCA. Si el comprobante físico es el correcto, pedí al agente que rectifique su declaración." },
 };
 
 export const LEVEL_LABEL = { LIQUIDATION: "Impide liquidar", EXPORT: "Impide exportar", WARNING: "Advertencia", INFO: "Información" } as const;

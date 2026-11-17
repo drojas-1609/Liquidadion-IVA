@@ -367,6 +367,9 @@ model Invoice {
   // ── Modelo contable (Fase A, M1: nullable hasta M2) ──────────────────────
   clientId                          String?
   purchaseAccount                   String?        @db.VarChar(120)
+  /// Nota del papel de trabajo (aclaraciones del control del comprobante físico).
+  /// No se informa a ARCA; se exporta en las hojas de detalle del Excel.
+  workNote                          String?        @db.VarChar(500)
   source                            InvoiceSource?
   /// Código oficial de tipo de comprobante (ARCA). Define el signo contable.
   voucherCode                       Int?
@@ -688,11 +691,18 @@ model TaxRecord {
   certificateNumber String?          @db.VarChar(40)
   /// Percepción aduanera: liquidación o despacho 99-999-XXXX-999999-X.
   customsDocument   String?          @db.VarChar(24)
-  /// Percepción tomada de un comprobante de compra (campo de percepciones de
-  /// IVA): a lo sumo un TaxRecord por comprobante. RESTRICT: el comprobante no
+  /// Percepción tomada de un comprobante de compra: a lo sumo un TaxRecord por
+  /// comprobante y tipo (una de IVA y una de IIBB; índice TaxRecord_invoice_type_key). RESTRICT: el comprobante no
   /// se borra mientras tenga la percepción vinculada.
   invoiceId         String?
   invoice           Invoice?         @relation(fields: [invoiceId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Restrict)
+  /// Registro creado por la app a partir de la percepción cargada en el comprobante
+  /// (`invoiceId`). Se actualiza o se borra con el comprobante; si ARCA informa la
+  /// misma percepción, la de ARCA la reemplaza (computa lo informado por el agente).
+  fromInvoice       Boolean          @default(false)
+  /// Jurisdicción de IIBB (código CM 901-924) de una percepción de IIBB tomada del
+  /// comprobante: la sede del cliente. NULL en los demás registros.
+  jurisdictionCode  String?          @db.VarChar(3)
 
   // Tarea 3B: relación COMPUESTA. Un TaxRecord sólo puede referenciar un Period
   // de la MISMA organización.

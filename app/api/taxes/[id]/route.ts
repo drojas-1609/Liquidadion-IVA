@@ -116,8 +116,12 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
             throw new ValidationError(`la fecha debe pertenecer al período ${formatPeriodLabel(period)}`, "date");
         }
 
-        const currentDetail = await tx.taxRecord.findFirst({ where: { id, organizationId }, select: TAX_DETAIL_SELECT });
+        const currentDetail = await tx.taxRecord.findFirst({ where: { id, organizationId }, select: { ...TAX_DETAIL_SELECT, fromInvoice: true } });
         if (!currentDetail) throw new NotFoundError();
+        // Tomada del comprobante: el importe y el vínculo salen del comprobante (se corrigen ahí).
+        if (currentDetail.fromInvoice === true && (!locked.amount.equals(input.amount) || currentDetail.invoiceId !== input.invoiceId)) {
+            throw new ValidationError("esta percepción se toma del comprobante: corregí el importe en el comprobante de compra", "amount");
+        }
         await assertPerceptionLink(tx, { periodId: authorized.periodId, organizationId }, input, input.amount);
         await assertTaxIdentityFree(tx, { organizationId, clientId: period.clientId }, input, id);
         const changed = changedFieldsOf(locked, input);
@@ -204,6 +208,10 @@ export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
             throw new ConflictError(STALE_MESSAGE);
         }
 
+        const origin = await tx.taxRecord.findFirst({ where: { id, organizationId }, select: { fromInvoice: true } });
+        if (origin?.fromInvoice === true) {
+            throw new ConflictError("Esta percepción se toma del comprobante de compra: para quitarla, corregí o eliminá la percepción en el comprobante.");
+        }
         const removed = await tx.taxRecord.deleteMany({ where: { id, organizationId } });
         if (removed.count !== 1) {
             throw new Error(`baja de retención/percepción: se esperaba borrar 1 fila y se borraron ${removed.count}`);

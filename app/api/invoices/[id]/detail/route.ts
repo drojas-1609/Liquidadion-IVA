@@ -25,6 +25,7 @@ import {
 import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_UPDATE } from "@/lib/auth/roles";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/auth/errors";
+import { reconcileInvoicePerceptions } from "@/lib/invoice-perceptions";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -188,6 +189,7 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 source: "IMPORT",
             },
         });
+        await reconcileInvoicePerceptions(tx, { organizationId, periodId, clientId, profileId });
         return { saved, warnings: built.warnings };
     }, { maxWait: 5000, timeout: 10000 });
 

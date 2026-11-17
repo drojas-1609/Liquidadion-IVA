@@ -31,6 +31,7 @@ import {
     STALE_PREVIEW_MESSAGE,
 } from "@/lib/libro-iva-import/service";
 import { startConfirmTiming } from "@/lib/libro-iva-import/timing";
+import { reconcileInvoicePerceptions } from "@/lib/invoice-perceptions";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -107,6 +108,8 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
             }
             await tx.invoice.createMany({ data: data.invoices });
             if (data.vatLines.length > 0) await tx.invoiceVatLine.createMany({ data: data.vatLines });
+            // Percepciones de las compras importadas -> Retenciones/Percepciones (lib/invoice-perceptions).
+            if (files.category === "PURCHASES") await reconcileInvoicePerceptions(tx, { organizationId, periodId: scope.periodId, clientId: scope.clientId, profileId });
             timing.mark("write");
             await recordAudit(tx, {
                 organizationId,

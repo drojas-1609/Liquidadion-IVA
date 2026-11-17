@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { supplierAccountCuit } from "@/lib/supplier-purchase-account";
 import { PurchaseAccountForm } from "../../../_components/purchase-account-form";
+import { InvoiceNoteForm } from "../../../_components/invoice-note-form";
 import { guardPage } from "@/lib/auth/authz";
 import { loadInvoiceEditContext } from "@/lib/invoice-form-context";
 import { AccessNotice } from "@/app/_components/access-notice";
@@ -28,22 +29,23 @@ export default async function EditPurchasePage({
 
     const purchase = await prisma.invoice.findFirst({
         where: { id: invoiceId, periodId, category: "PURCHASES", period: { clientId: id } },
-        select: { organizationId: true, purchaseAccount: true, updatedAt: true, counterpartyDocType: true, counterpartyDocNumber: true },
+        select: { organizationId: true, purchaseAccount: true, workNote: true, updatedAt: true, counterpartyDocType: true, counterpartyDocNumber: true },
     });
     const supplierCuit = purchase && supplierAccountCuit(purchase.counterpartyDocType, purchase.counterpartyDocNumber ?? null);
     const rule = purchase && supplierCuit ? await prisma.supplierPurchaseAccount.findUnique({
         where: { organizationId_clientId_supplierCuit: { organizationId: purchase.organizationId, clientId: id, supplierCuit } },
         select: { account: true },
     }) : null;
+    const noteForm = purchase && <InvoiceNoteForm key={`note-${purchase.updatedAt.toISOString()}`} periodId={periodId} invoiceId={invoiceId} updatedAt={purchase.updatedAt.toISOString()} current={purchase.workNote} />;
     const accountForm = purchase && <PurchaseAccountForm key={purchase.updatedAt.toISOString()} periodId={periodId} invoiceId={invoiceId} updatedAt={purchase.updatedAt.toISOString()} cuit={supplierCuit} current={purchase.purchaseAccount} supplierRule={rule?.account ?? null} />;
 
     if (edit.status === "IMPORTED") {
         // Importado: formulario detallado (todas las alícuotas e importes); key con el token para remontar tras recargar.
-        return <>{accountForm}<ImportedInvoiceForm key={edit.detail.updatedAt} clientId={id} periodId={periodId} clientName={form.clientName} period={form.period} detail={edit.detail} /></>;
+        return <>{noteForm}{accountForm}<ImportedInvoiceForm key={edit.detail.updatedAt} clientId={id} periodId={periodId} clientName={form.clientName} period={form.period} detail={edit.detail} /></>;
     }
     if (edit.status === "NOT_EDITABLE") {
         return <InvoiceEditUnavailable direction="PURCHASES" clientId={id} periodId={periodId} clientName={form.clientName} period={form.period} message={edit.message} />;
     }
     // key: un updatedAt nuevo (p. ej. tras "Recargar datos") remonta el formulario con los datos actuales.
-    return <>{accountForm}<InvoiceForm key={edit.form.updatedAt} direction="PURCHASES" clientId={id} periodId={periodId} {...form} edit={edit.form} /></>;
+    return <>{noteForm}{accountForm}<InvoiceForm key={edit.form.updatedAt} direction="PURCHASES" clientId={id} periodId={periodId} {...form} edit={edit.form} /></>;
 }

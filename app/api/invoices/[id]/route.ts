@@ -34,6 +34,7 @@ import {
 import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_DELETE, ROLES_UPDATE } from "@/lib/auth/roles";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/auth/errors";
+import { reconcileInvoicePerceptions, releaseInvoicePerceptions } from "@/lib/invoice-perceptions";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -195,6 +196,7 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 changedFields: changed.join(","),
             },
         });
+        await reconcileInvoicePerceptions(tx, { organizationId, periodId, clientId, profileId });
         return updated;
     }, { maxWait: 5000, timeout: 10000 }).catch(async (err: unknown) => {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
@@ -277,9 +279,9 @@ export const DELETE = withApiAuthz(async (request: Request, ctx: Ctx) => {
         const row = editableRowOf(locked, lockedLines.map((l) => l.vatRateCode));
         const deletability = invoiceDeletability(row);
         if (!deletability.ok) throw notEditable(deletability.reason);
-        // Percepción registrada desde este comprobante (FK RESTRICT): se quita primero.
-        const linked = await tx.taxRecord.count({ where: { invoiceId: id, organizationId } });
-        if (linked > 0) throw new ConflictError("El comprobante tiene una percepción registrada a partir de él: eliminá o desvinculá esa percepción antes de eliminarlo.");
+        // Percepciones vinculadas (FK RESTRICT): las tomadas del comprobante se borran
+        // con él; las informadas por ARCA quedan registradas, sin vínculo.
+        await releaseInvoicePerceptions(tx, { organizationId, invoiceId: id, profileId }, { unlinkReported: true });
 
         const lines = await tx.invoiceVatLine.deleteMany({ where: { invoiceId: id, organizationId } });
         if (lines.count !== row.vatRateCodes.length) {

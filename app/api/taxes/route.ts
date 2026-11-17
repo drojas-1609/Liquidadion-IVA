@@ -17,6 +17,7 @@ import { lockPeriodForWrite } from "@/lib/period-lock";
 import { assertTaxIdentityFree } from "@/lib/tax-identity";
 import { assertPerceptionLink } from "@/lib/tax-record-link";
 import { formatPeriodLabel } from "@/lib/period";
+import { reconcileInvoicePerceptions, releaseInvoicePerceptions } from "@/lib/invoice-perceptions";
 
 // POST /api/taxes — alta de retención/percepción en un período de la
 // organización activa. Mismo orden y garantías que /api/invoices.
@@ -57,6 +58,10 @@ export const POST = withApiAuthz(async (request: Request) => {
         }
         await assertPerceptionLink(tx, { periodId: parsed.data.periodId, organizationId }, parsed.data, parsed.data.amount);
         await assertTaxIdentityFree(tx, { organizationId, clientId: period.clientId }, parsed.data);
+        // Vinculada a mano a un comprobante: reemplaza la tomada de ese comprobante (mismo tipo).
+        if (parsed.data.invoiceId !== null) {
+            await releaseInvoicePerceptions(tx, { organizationId, invoiceId: parsed.data.invoiceId, profileId }, { type: parsed.data.type, unlinkReported: false });
+        }
         const taxRecord = await tx.taxRecord.create({
             data: {
                 ...parsed.data,
@@ -73,6 +78,7 @@ export const POST = withApiAuthz(async (request: Request) => {
             targetId: taxRecord.id,
             metadata: { periodId: parsed.data.periodId, type: parsed.data.type },
         });
+        await reconcileInvoicePerceptions(tx, { organizationId, periodId: parsed.data.periodId, clientId: period.clientId, profileId });
         return taxRecord;
     }, { maxWait: 5000, timeout: 10000 });
 

@@ -2,8 +2,15 @@ import Link from "next/link";
 import type { PageWindow } from "@/lib/pagination";
 
 /** Navegación del detalle paginado (enlaces del servidor, sin estado del cliente). */
-export function InvoicePager({ basePath, window, noun }: { basePath: string; window: PageWindow; noun: string }) {
-    const href = (page: number) => (page === 1 ? basePath : `${basePath}?page=${page}`);
+export function InvoicePager({ basePath, window, noun, query = "" }: { basePath: string; window: PageWindow; noun: string; query?: string }) {
+    // La búsqueda se conserva al cambiar de página.
+    const href = (page: number) => {
+        const params = new URLSearchParams();
+        if (query) params.set("q", query);
+        if (page > 1) params.set("page", String(page));
+        const qs = params.toString();
+        return qs ? `${basePath}?${qs}` : basePath;
+    };
     const { page, pageCount, from, to, total } = window;
     return (
         <nav aria-label={`Páginas de ${noun}`} data-invoice-pager style={{ display: "flex", gap: "var(--spacing-md)", alignItems: "center", flexWrap: "wrap", margin: "var(--spacing-md) 0" }}>

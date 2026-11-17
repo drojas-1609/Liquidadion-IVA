@@ -14,6 +14,7 @@ import {
 import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_CREATE } from "@/lib/auth/roles";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/auth/errors";
+import { reconcileInvoicePerceptions } from "@/lib/invoice-perceptions";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -95,6 +96,9 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 })),
             });
         }
+        // Percepciones informadas por ARCA: se vinculan a sus comprobantes y
+        // reemplazan a las tomadas del comprobante (lib/invoice-perceptions).
+        if (kind === "PERCEPTIONS") await reconcileInvoicePerceptions(tx, { organizationId, periodId: id, clientId: period.clientId, profileId });
         await recordAudit(tx, {
             organizationId,
             actorProfileId: profileId,

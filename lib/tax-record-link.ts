@@ -7,8 +7,8 @@ import type { TaxDetailData } from "./api-input";
  * Percepción tomada de un comprobante de compra (fuente única, sin duplicar):
  * se valida BAJO el bloqueo del Period que ya tomó el llamador. El comprobante
  * debe ser una COMPRA del MISMO período y organización, con percepción de IVA
- * informada, y el importe debe ser exactamente esa percepción. El índice único
- * parcial TaxRecord_invoice_key impide vincularlo dos veces (409).
+ * informada. El índice único parcial TaxRecord_invoice_type_key impide
+ * vincularlo dos veces con el mismo tipo (409).
  */
 export async function assertPerceptionLink(
     tx: Pick<Prisma.TransactionClient, "invoice">,
@@ -23,9 +23,10 @@ export async function assertPerceptionLink(
     });
     if (!inv || inv.category !== "PURCHASES") throw new ValidationError("el comprobante vinculado debe ser una compra de este período", "invoiceId");
     if (!inv.vatPerceptionAmount || inv.vatPerceptionAmount.isZero()) throw new ValidationError("el comprobante no informa percepción de IVA", "invoiceId");
-    if (!inv.vatPerceptionAmount.equals(amount)) {
-        throw new ValidationError(`el importe debe ser la percepción informada en el comprobante (${inv.vatPerceptionAmount.toFixed(2)})`, "amount");
-    }
+    // El importe puede diferir del comprobante: computa el registrado (lo informado
+    // por ARCA, decisión del estudio del 17/11/2026) y el control de la
+    // presentación muestra la diferencia (lib/vat-export/classification).
+    void amount;
 }
 
 export const TAX_DETAIL_SELECT = {

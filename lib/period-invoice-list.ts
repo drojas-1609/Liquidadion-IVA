@@ -1,6 +1,7 @@
 import "server-only";
 import type { PrismaClient } from "@prisma/client";
 import { pageWindow, type PageWindow } from "./pagination";
+import { invoiceSearchWhere } from "./invoice-search";
 
 /**
  * Detalle paginado de comprobantes de un período (ventas o compras). Filtra por
@@ -14,8 +15,11 @@ export async function listPeriodInvoices(
     scope: { organizationId: string; periodId: string },
     category: "SALES" | "PURCHASES",
     requestedPage: number,
+    search = "",
 ) {
-    const where = { periodId: scope.periodId, organizationId: scope.organizationId, category };
+    // La búsqueda (lib/invoice-search) se aplica sobre TODO el período, antes de paginar.
+    const filter = invoiceSearchWhere(search);
+    const where = { periodId: scope.periodId, organizationId: scope.organizationId, category, ...(filter ?? {}) };
     const total = await db.invoice.count({ where });
     const window: PageWindow = pageWindow(requestedPage, total);
     const invoices = await db.invoice.findMany({

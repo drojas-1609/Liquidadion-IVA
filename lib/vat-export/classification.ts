@@ -50,6 +50,7 @@ export type IssueCode =
     | "TAX_RECORD_DETAIL_MISSING"
     | "TAX_RECORD_NOT_IVA"
     | "INVOICE_PERCEPTIONS_NOT_REGISTERED"
+    | "INVOICE_PERCEPTION_AMOUNT_DIFFERS"
     | "LIQUIDATION_NOT_COMPUTABLE";
 
 export interface ExportIssue {
@@ -198,21 +199,42 @@ export function taxRecordIssues(t: ExportTaxRecord): ExportIssue[] {
 /**
  * Percepciones de IVA informadas EN comprobantes de compra frente a las
  * registradas como retención/percepción. La liquidación computa SÓLO las
- * registradas (fuente única, sin duplicar): una percepción del comprobante sin
- * registrar no se computa hasta que se registre (vinculada o no).
+ * registradas (fuente única, sin duplicar). Las de facturas y notas de débito se
+ * registran o vinculan solas (lib/invoice-perceptions); queda el aviso para:
+ *  - una percepción del comprobante sin registrar (p. ej. nota de crédito, o dos
+ *    percepciones de ARCA candidatas): no se computa hasta registrarla;
+ *  - una vinculada con otro importe: computa el registrado (lo informado por
+ *    ARCA, decisión del estudio del 17/11/2026) y se muestra la diferencia.
  */
-export function perceptionControl(invoices: Pick<ExportInvoice, "id" | "category" | "voucherCode" | "vatPerceptionAmount">[], records: Pick<ExportTaxRecord, "invoiceId" | "type">[]): ExportIssue[] {
-    const linked = new Set(records.filter((r) => r.invoiceId !== null).map((r) => r.invoiceId));
+export function perceptionControl(
+    invoices: Pick<ExportInvoice, "id" | "category" | "voucherCode" | "vatPerceptionAmount">[],
+    records: Pick<ExportTaxRecord, "invoiceId" | "type" | "amount">[],
+): ExportIssue[] {
+    const linked = new Map<string, Pick<ExportTaxRecord, "amount">>();
+    for (const r of records) {
+        if (r.invoiceId !== null && r.type.includes("IVA")) linked.set(r.invoiceId, r);
+    }
     const out: ExportIssue[] = [];
     for (const i of invoices) {
         if (i.category !== "PURCHASES" || i.voucherCode === null) continue;
-        if (z(i.vatPerceptionAmount).isZero() || linked.has(i.id)) continue;
-        out.push({
-            level: "WARNING",
-            code: "INVOICE_PERCEPTIONS_NOT_REGISTERED",
-            invoiceId: i.id,
-            message: `percepción de IVA de ${z(i.vatPerceptionAmount).toFixed(2)} informada en el comprobante y no registrada: no se computa. Registrarla desde el comprobante o confirmar que ya está cargada por separado`,
-        });
+        const informed = z(i.vatPerceptionAmount);
+        if (informed.isZero()) continue;
+        const record = linked.get(i.id);
+        if (record === undefined) {
+            out.push({
+                level: "WARNING",
+                code: "INVOICE_PERCEPTIONS_NOT_REGISTERED",
+                invoiceId: i.id,
+                message: `percepción de IVA de ${informed.toFixed(2)} informada en el comprobante y no registrada: no se computa. Registrarla desde el comprobante o confirmar que ya está cargada por separado`,
+            });
+        } else if (!record.amount.equals(informed)) {
+            out.push({
+                level: "WARNING",
+                code: "INVOICE_PERCEPTION_AMOUNT_DIFFERS",
+                invoiceId: i.id,
+                message: `percepción de IVA: el comprobante informa ${informed.toFixed(2)} y ARCA ${record.amount.toFixed(2)} (diferencia ${informed.minus(record.amount).abs().toFixed(2)}). Se computa lo informado por ARCA`,
+            });
+        }
     }
     return out;
 }
