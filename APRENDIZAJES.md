@@ -131,3 +131,33 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Causa:** `XLSX.write` de SheetJS no comprime el archivo si no se le pide.
 - **Regla:** exportar siempre con `compression: true` (el mismo libro quedó en 1,96 MB). Al
   agregar hojas grandes, medir el tamaño del archivo en la Preview con datos reales.
+
+## Percepciones de las compras
+
+### 2026-11-17 · «Percepción de IVA del comprobante sin registrar» con la percepción ya cargada
+
+- **Qué pasó:** la presentación de OOSHEN 10/2026 avisaba dos percepciones sin registrar que ya
+  estaban en Retenciones/Percepciones (importadas de ARCA), pero sin vínculo con su factura.
+- **Causa:** la vinculación era manual. Crear un registro por cada percepción de factura las
+  hubiera duplicado (factura + ARCA).
+- **Regla:** las percepciones de las compras se concilian solas (lib/invoice-perceptions): si
+  ARCA ya la informó (mismo CUIT y comprobante) se vincula y computa ARCA; si no, se toma del
+  comprobante y la de ARCA la reemplaza cuando llega. Nunca crear registros sin buscar antes
+  el informado por el agente.
+
+### 2026-11-17 · Tique con descuento: la diferencia era el descuento, no la percepción
+
+- **Qué pasó:** FERRARI 00007-00013442 mostraba $ 26,26 de diferencia entre la percepción del
+  comprobante y la de ARCA.
+- **Causa:** el emisor calculó el IVA sobre el neto antes del descuento; ARCA informa ese neto
+  y, para cerrar el total, el descuento quedó restado de la percepción del comprobante.
+- **Regla:** ante una diferencia de percepción, revisar primero el comprobante físico
+  (descuentos, redondeos). El criterio de registración es del estudio (acá: neto antes del
+  descuento, computa ARCA) y se documenta con la nota del papel de trabajo.
+
+### 2026-11-17 · Error de tipos que sólo aparece en el build de Netlify
+
+- **Qué pasó:** la Deploy Preview del PR #60 falló en «Running TypeScript»: `Invoice.date` admite null.
+- **Causa:** en el entorno de trabajo el cliente de Prisma no se genera y `tsc` local no ve los tipos reales.
+- **Regla:** al leer columnas de Prisma, revisar en `schema.prisma` si son opcionales (`?`) antes de
+  tiparlas, y esperar el build de la Preview antes de dar algo por listo.
