@@ -48,7 +48,7 @@ export interface PerceptionInvoice {
     pointOfSale: number;
     number: number;
     voucherDate: Date | null;
-    date: Date;
+    date: Date | null;
     counterpartyDocType: number | null;
     counterpartyDocNumber: string | null;
     vatPerceptionAmount: Prisma.Decimal | null;
@@ -103,6 +103,7 @@ export function planInvoicePerceptions(invoices: PerceptionInvoice[], records: P
         const f2051Type = eligibleKind(inv);
         if (f2051Type === null) continue;
         const date = inv.voucherDate ?? inv.date;
+        if (date === null) continue; // sin fecha no se puede registrar (no se supone una)
         const agentCuit = inv.counterpartyDocType === 80 ? inv.counterpartyDocNumber : null;
 
         // ── IVA ──
