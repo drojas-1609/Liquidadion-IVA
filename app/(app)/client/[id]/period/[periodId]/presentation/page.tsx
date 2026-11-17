@@ -78,8 +78,8 @@ export default async function PresentationPage({ params }: { params: Promise<{ i
         <div className="container" style={{ maxWidth: "1100px" }}>
             <div style={{ marginBottom: "var(--spacing-xl)" }}>
                 <Link href={`/client/${id}/period/${periodId}`} style={{ color: "var(--secondary)", fontSize: "0.875rem" }}>&larr; Volver al período</Link>
-                <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>Presentación ARCA — IVA</h1>
-                <p style={{ color: "var(--secondary)" }}>
+                <h1>Presentación ARCA — IVA</h1>
+                <p className="muted">
                     {data.client.name} · CUIT {data.client.cuit} · Período {per} · {open ? "Abierto (borrador)" : current ? `Cerrado — versión ${current.version}` : "Cerrado"}
                 </p>
                 <p style={{ color: "var(--secondary)", fontSize: "0.875rem" }}>

@@ -477,7 +477,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                             Registros: {preview.reconciliation.files.voucherRecords} comprobantes, {preview.reconciliation.files.aliquotRecords} alícuotas.
                             Se importan {counts.OK} · ya cargados {counts.DUPLICATE} · revisar {counts.REVIEW} · error {counts.ERROR}.
                         </p>
-                        <p style={{ color: "var(--secondary)" }}>
+                        <p className="muted">
                             Sumas del archivo, de todas las filas leídas y <strong>sin signo</strong> (las notas de crédito suman): total {preview.reconciliation.informed.voucherTotal} · neto de alícuotas {preview.reconciliation.informed.aliquotNet} · IVA de alícuotas {preview.reconciliation.informed.aliquotVat}.
                         </p>
                         <table className="table" style={{ marginBottom: "var(--spacing-sm)" }}>

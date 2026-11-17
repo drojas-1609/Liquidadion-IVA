@@ -45,7 +45,7 @@ export default async function SalesPage({ params, searchParams }: { params: Prom
                     <Link href={`/client/${id}/period/${periodId}`} style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
                         &larr; Volver al Periodo
                     </Link>
-                    <h1 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>Ventas</h1>
+                    <h1>Ventas</h1>
                 </div>
                 {closed ? (
                     <span role="status" style={{ color: "var(--secondary)" }}>Período cerrado: sólo consulta</span>

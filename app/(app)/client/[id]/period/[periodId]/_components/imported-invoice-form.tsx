@@ -98,7 +98,7 @@ export function ImportedInvoiceForm(props: {
     return (
         <div className="container" style={{ maxWidth: "900px" }}>
             <Link href={listHref} style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>&larr; Volver</Link>
-            <h1 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "var(--spacing-xs)" }}>Corregir {purchases ? "compra" : "venta"} importada</h1>
+            <h1 style={{ marginBottom: "var(--spacing-xs)" }}>Corregir {purchases ? "compra" : "venta"} importada</h1>
             <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-lg)" }}>{clientName} · Período {formatPeriodLabel(period)}</p>
 
             <form onSubmit={onSubmit} className="card" aria-busy={busy} noValidate style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--spacing-md)" }}>

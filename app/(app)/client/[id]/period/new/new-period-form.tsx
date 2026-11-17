@@ -56,7 +56,7 @@ export function NewPeriodForm({
             <Link href={dashboardHref} style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
                 &larr; Volver a {clientName}
             </Link>
-            <h1 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "var(--spacing-lg)" }}>
+            <h1 style={{ marginBottom: "var(--spacing-lg)" }}>
                 Nuevo período
             </h1>
 

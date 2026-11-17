@@ -19,8 +19,8 @@ export default function SettingsPage() {
         <Link href="/" style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-xs)", display: "inline-block" }}>
           &larr; Volver al Inicio
         </Link>
-        <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>Configuración</h1>
-        <p style={{ color: "var(--secondary)" }}>Parámetros globales de liquidación de impuestos.</p>
+        <h1>Configuración</h1>
+        <p className="muted">Parámetros globales de liquidación de impuestos.</p>
       </div>
 
       <div className="card" style={{ marginBottom: "var(--spacing-lg)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-md)", flexWrap: "wrap" }}>

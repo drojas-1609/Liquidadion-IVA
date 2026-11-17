@@ -573,7 +573,7 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                     &larr; Volver al cliente
                 </Link>
             )}
-            <h1 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "var(--spacing-lg)" }}>
+            <h1 style={{ marginBottom: "var(--spacing-lg)" }}>
                 {mode === "create" ? "Nuevo Cliente" : "Editar Cliente"}
             </h1>
 

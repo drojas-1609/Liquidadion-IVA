@@ -149,7 +149,7 @@ export function TaxForm({ clientId, periodId, periodLabel, dateMin, dateMax, ini
 
     return (
         <div className="container" style={{ maxWidth: "600px" }}>
-            <h1 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "var(--spacing-xs)" }}>{text.title}</h1>
+            <h1 style={{ marginBottom: "var(--spacing-xs)" }}>{text.title}</h1>
             <p style={{ color: "var(--secondary)", marginBottom: "var(--spacing-lg)" }}>Período {periodLabel}</p>
 
             <form onSubmit={handleSubmit} aria-busy={busy} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>

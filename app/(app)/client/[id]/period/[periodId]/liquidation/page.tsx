@@ -66,7 +66,7 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
                     &larr; Volver al Periodo
                 </Link>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>Liquidación de Impuestos</h1>
+                    <h1>Liquidación de Impuestos</h1>
                     <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
                         <Link href={`/client/${id}/period/${periodId}/presentation`} className="btn btn-secondary">
                             Presentación ARCA
@@ -76,7 +76,7 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
                         </a>
                     </div>
                 </div>
-                <p style={{ color: "var(--secondary)" }}>
+                <p className="muted">
                     Cliente: {period.client.name} - Periodo: {period.month.toString().padStart(2, "0")}/{period.year}
                 </p>
             </div>
