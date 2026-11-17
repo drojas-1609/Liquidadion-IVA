@@ -109,6 +109,6 @@ export const generateLiquidationExcel = (data: LiquidationData) => {
         }, n);
     }
 
-    const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
+    const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer", compression: true });
     return excelBuffer;
 };
