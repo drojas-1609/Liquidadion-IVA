@@ -32,13 +32,14 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
     const period = guard.data;
 
     return (
-        <div className="container">
-            <p style={{ marginBottom: "var(--spacing-md)" }}>
-                <Link href={`/client/${id}/period/${periodId}`}>← Volver al período</Link>
-            </p>
-            <h1 style={{ fontSize: "2rem", fontWeight: "bold", marginBottom: "var(--spacing-md)" }}>
-                Importar Libro IVA Digital · {formatPeriodLabel(period)}
-            </h1>
+        <div className="container stack-lg">
+            <header className="page-header" style={{ marginBottom: 0 }}>
+                <div>
+                    <p className="eyebrow"><Link href={`/client/${id}/period/${periodId}`}>← Volver al período</Link></p>
+                    <h1>Importar comprobantes · {formatPeriodLabel(period)}</h1>
+                    <p className="subtitle">Traé los comprobantes desde ARCA o subí los archivos del Libro IVA Digital. Siempre revisás la vista previa antes de incorporar.</p>
+                </div>
+            </header>
             <ArcaSyncPanel periodId={periodId} canSchedule={period.canSchedule} />
             <LibroIvaImport
                 clientId={id}

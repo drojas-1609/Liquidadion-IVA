@@ -23,42 +23,66 @@ const money = (value: string) => `$ ${formatMoney(value)}`;
 function Variant({ variant }: { variant: SyncVariant }) {
     const { counts, invoices, taxes, reasons } = variant;
     return (
-        <>
-            <table className="table">
-                <thead><tr><th>Nuevas</th><th>Duplicadas</th><th>Pendientes</th><th>Errores</th></tr></thead>
-                <tbody><tr><td>{counts.OK}</td><td>{counts.DUPLICATE}</td><td>{counts.REVIEW}</td><td>{counts.ERROR}</td></tr></tbody>
-            </table>
+        <div className="stack">
+            <div className="stats">
+                <div className={`stat ${counts.OK ? "is-success" : "is-muted"}`}><div className="label">Nuevas</div><div className="value">{counts.OK}</div></div>
+                <div className="stat is-muted"><div className="label">Ya incorporadas</div><div className="value">{counts.DUPLICATE}</div></div>
+                <div className={`stat ${counts.REVIEW ? "is-warning" : "is-muted"}`}><div className="label">Pendientes</div><div className="value">{counts.REVIEW}</div></div>
+                <div className={`stat ${counts.ERROR ? "is-error" : "is-muted"}`}><div className="label">Errores</div><div className="value">{counts.ERROR}</div></div>
+            </div>
             {invoices && counts.OK > 0 && (
-                <table className="table">
-                    <caption>Filas nuevas (las notas de crédito restan)</caption>
-                    <thead><tr><th>Concepto</th><th>Neto</th><th>IVA</th></tr></thead>
-                    <tbody>
-                        {invoices.byRate.map((rate) => <tr key={rate.code}><td>{RATE_LABELS[rate.code] ?? `Alícuota ${rate.code}`}</td><td>{money(rate.net)}</td><td>{money(rate.vat)}</td></tr>)}
-                        <tr><td>No gravado</td><td>{money(invoices.importable.nonTaxed)}</td><td /></tr>
-                        <tr><td>Exento</td><td>{money(invoices.importable.exempt)}</td><td /></tr>
-                        <tr><td>Otros tributos y percepciones</td><td>{money(invoices.importable.otherTaxes)}</td><td /></tr>
-                        <tr><th scope="row">Total</th><td>{money(invoices.importable.total)}</td><td>{money(invoices.importable.vat)}</td></tr>
-                    </tbody>
-                </table>
+                <div className="table-wrap">
+                    <table className="data-table">
+                        <thead><tr><th>Filas nuevas (las notas de crédito restan)</th><th className="num">Neto</th><th className="num">IVA</th></tr></thead>
+                        <tbody>
+                            {invoices.byRate.map((rate) => <tr key={rate.code}><td>{RATE_LABELS[rate.code] ?? `Alícuota ${rate.code}`}</td><td className="num">{money(rate.net)}</td><td className="num">{money(rate.vat)}</td></tr>)}
+                            {invoices.importable.nonTaxed !== "0.00" && <tr><td>No gravado</td><td className="num">{money(invoices.importable.nonTaxed)}</td><td /></tr>}
+                            {invoices.importable.exempt !== "0.00" && <tr><td>Exento</td><td className="num">{money(invoices.importable.exempt)}</td><td /></tr>}
+                            {invoices.importable.otherTaxes !== "0.00" && <tr><td>Otros tributos y percepciones</td><td className="num">{money(invoices.importable.otherTaxes)}</td><td /></tr>}
+                            <tr className="total"><th scope="row">Total</th><td className="num">{money(invoices.importable.total)}</td><td className="num">{money(invoices.importable.vat)}</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             )}
             {invoices && (counts.REVIEW > 0 || counts.DUPLICATE > 0 || counts.ERROR > 0) && (
-                <p>
+                <p className="muted">
                     Sin incorporar: pendientes {money(invoices.pendingTotal)}
-                    {counts.DUPLICATE > 0 && ` · duplicadas ${money(invoices.duplicateTotal)}`}
+                    {counts.DUPLICATE > 0 && ` · ya incorporadas ${money(invoices.duplicateTotal)}`}
                     {counts.ERROR > 0 && ` · con error ${money(invoices.errorInformedTotal)} (total informado)`}
                 </p>
             )}
-            {taxes && <p>Total de filas nuevas: {money(taxes.importableTotal)}{taxes.excludedTotal !== "0.00" && ` · sin incorporar: ${money(taxes.excludedTotal)}`}</p>}
+            {taxes && <p className="muted">Total de filas nuevas: {money(taxes.importableTotal)}{taxes.excludedTotal !== "0.00" && ` · sin incorporar: ${money(taxes.excludedTotal)}`}</p>}
             {reasons.length > 0 && (
-                <table className="table">
-                    <caption>Filas sin incorporar, por motivo (una fila puede tener más de uno)</caption>
-                    <thead><tr><th>Estado</th><th>Motivo</th><th>Filas</th></tr></thead>
-                    <tbody>{reasons.map((reason) => <tr key={`${reason.status}-${reason.message}`}><td>{STATUS_LABELS[reason.status]}</td><td>{reason.message}</td><td>{reason.rows}</td></tr>)}</tbody>
-                </table>
+                <details>
+                    <summary>Filas sin incorporar, por motivo <span className="muted">(una fila puede tener más de uno)</span></summary>
+                    <div className="table-wrap">
+                        <table className="data-table">
+                            <thead><tr><th>Estado</th><th>Motivo</th><th className="num">Filas</th></tr></thead>
+                            <tbody>{reasons.map((reason) => (
+                                <tr key={`${reason.status}-${reason.message}`}>
+                                    <td><span className={`badge ${REASON_BADGE[reason.status] ?? ""}`}>{STATUS_LABELS[reason.status]}</span></td>
+                                    <td>{reason.message}</td>
+                                    <td className="num">{reason.rows}</td>
+                                </tr>
+                            ))}</tbody>
+                        </table>
+                    </div>
+                </details>
             )}
-        </>
+        </div>
     );
 }
+
+/** Color de la insignia de cada estado de la corrida. */
+const TASK_BADGE: Record<string, string> = {
+    PENDING: "", RUNNING: "badge-info", CONFIRMING: "badge-info", PREVIEW: "badge-warning", REVIEW: "badge-warning",
+    DONE: "badge-success", EMPTY: "badge-success", DISCARDED: "", AUTH_REQUIRED: "badge-error", FAILED: "badge-error",
+};
+const SHORT_STATUS: Record<string, string> = {
+    PENDING: "En espera", RUNNING: "Descargando", CONFIRMING: "Incorporando", PREVIEW: "Falta confirmar", REVIEW: "Con pendientes",
+    DONE: "Incorporada", EMPTY: "Sin datos en ARCA", DISCARDED: "Descartada", AUTH_REQUIRED: "Sesión vencida", FAILED: "Falló",
+};
+const REASON_BADGE: Record<string, string> = { REVIEW: "badge-warning", ERROR: "badge-error", DUPLICATE: "" };
 
 const ERROR_LABELS: Record<string, string> = {
     REPRESENTATION_REQUIRED: "ARCA no confirmó el CUIT representado. Revisá los permisos del administrador para este servicio.",
@@ -211,88 +235,128 @@ export function ArcaSyncPanel({ periodId, canSchedule }: { periodId: string; can
         }
     }
 
+    const needsInitial = Boolean(status?.initialData.required && !status.initialData.period);
+    const running = status?.tasks.some((task) => task.status === "RUNNING" || task.status === "PENDING") ?? false;
+    const canImport = Boolean(status?.configured) && !busy && !running && !(awaiting && !retryable) && !needsInitial;
+    const hasTasks = (status?.tasks.length ?? 0) > 0;
+    const step = needsInitial ? 1 : !hasTasks ? 2 : 3;
     return (
-        <section className="card" style={{ marginBlock: "var(--spacing-md)" }} aria-label="Importación automática de ARCA">
-            <h2>Importación automática de ARCA</h2>
-            {status && !status.configured && <p>Falta conectar el servicio de descarga de ARCA.</p>}
+        <section className="card arca-panel" aria-label="Importación automática de ARCA">
+            <div className="section-head">
+                <div>
+                    <h2>Importación automática de ARCA</h2>
+                    <p>Descarga de ARCA y prepara una vista previa por fuente. Nada se incorpora hasta que la confirmes.</p>
+                </div>
+                <div className="toolbar">
+                    <button type="button" className="btn btn-primary btn-lg" disabled={!canImport} onClick={() => void submit("POST")}>
+                        {running ? "Descargando de ARCA…" : "Importar ahora"}
+                    </button>
+                </div>
+            </div>
+            {status?.initialData.required && (
+                <ol className="steps" aria-label="Pasos">
+                    <li className={step > 1 ? "is-done" : "is-current"}>Datos iniciales</li>
+                    <li className={step > 2 ? "is-done" : step === 2 ? "is-current" : ""}>Importar</li>
+                    <li className={step === 3 ? "is-current" : ""}>Revisar y confirmar</li>
+                </ol>
+            )}
+            {status && !status.configured && <p className="callout callout-warning">Falta conectar el servicio de descarga de ARCA.</p>}
+            {needsInitial && <p className="callout callout-info">Confirmá los datos iniciales de IVA Simple del período para importar.</p>}
+            {awaiting && !retryable && <p className="callout callout-warning">Hay vistas previas sin resolver: confirmá o descartá cada una para poder descargar de nuevo.</p>}
+            {message && <p role="status" className="callout callout-info">{message}</p>}
+            {!message && <p role="status" className="sr-only" />}
             {status && (
                 <ArcaInitialDataSection key={JSON.stringify(status.initialData.period)} url={url} status={status.initialData} canSaveDefault={canSchedule} busy={busy}
                     onSaved={(value) => apply(value as Status)} onMessage={setMessage} />
             )}
-            <button type="button" disabled={!status?.configured || busy || status.tasks.some((task) => task.status === "RUNNING") || (awaiting && !retryable)
-                || (status.initialData.required && !status.initialData.period)} onClick={() => void submit("POST")}>Importar ahora</button>
-            {status?.initialData.required && !status.initialData.period && <p>Confirmá los datos iniciales de IVA Simple del período para importar.</p>}
-            <p>«Importar ahora» descarga de ARCA y prepara una vista previa por fuente. Nada se incorpora hasta que la confirmes.</p>
-            {awaiting && !retryable && <p>Hay vistas previas sin resolver: confirmá o descartá cada una para poder descargar de nuevo.</p>}
             {canSchedule && (
-                <form onSubmit={(event) => { event.preventDefault(); void submit("PUT"); }}>
-                    <label><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Importar el día 25 de cada mes</label>
-                    <p>El calendario importa el período abierto del mes en curso, en hora argentina.</p>
-                    {days.map((day, index) => (
-                        <label key={index}>Día adicional {index + 1}
-                            <input type="number" min={1} max={31} value={day}
-                                onChange={(event) => setDays(days.map((value, position) => position === index ? event.target.value : value))} />
-                        </label>
-                    ))}
-                    <button type="submit" disabled={!status || busy}>Guardar calendario</button>
-                </form>
+                <details className="schedule">
+                    <summary>
+                        Importación programada
+                        <span className={`badge ${status?.schedule?.enabled ? "badge-success" : ""}`}>{status?.schedule?.enabled ? "Activa" : "Inactiva"}</span>
+                    </summary>
+                    <form className="stack" onSubmit={(event) => { event.preventDefault(); void submit("PUT"); }}>
+                        <label className="check"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Importar el día 25 de cada mes</label>
+                        <div className="toolbar">
+                            {days.map((day, index) => (
+                                <label key={index} className="field">Día adicional {index + 1}
+                                    <input type="number" min={1} max={31} value={day}
+                                        onChange={(event) => setDays(days.map((value, position) => position === index ? event.target.value : value))} />
+                                </label>
+                            ))}
+                        </div>
+                        <small>El calendario importa el período abierto del mes en curso, en hora argentina.</small>
+                        <div><button type="submit" className="btn btn-secondary" disabled={!status || busy}>Guardar calendario</button></div>
+                    </form>
+                </details>
             )}
-            <p role="status">{message}</p>
+            {hasTasks && (
+                <div className="source-list">
             {status?.tasks.map((task) => {
-                const preview = task.preview;
-                const offersLegend = (task.status === "PREVIEW" || (task.status === "REVIEW" && task.correctable)) && task.source === "SALES" && preview?.consumerFinal !== undefined;
-                const confirmed = preview?.confirmed;
-                const shown: SyncVariant | null = !preview ? null
-                    : (task.status === "PREVIEW" ? offersLegend && legend : (confirmed?.consumerFinalLegend ?? preview.consumerFinalApplied)) && preview.consumerFinal ? preview.consumerFinal : preview;
-                const correctsPending = task.correctable && (task.source === "SALES" || task.source === "PURCHASES") && task.pending > 0;
-                return (
-                    <section key={task.source} aria-label={LABELS[task.source]}>
-                        <h3>{LABELS[task.source]}</h3>
-                        <p>
-                            {LABELS[task.status]}
-                            {task.downloaded !== null && task.status !== "EMPTY" && ` · ${task.downloaded} filas descargadas`}
-                            {task.imported ? ` · ${task.imported} incorporadas` : ""}
-                            {(confirmed?.consumerFinalLegend ?? preview?.consumerFinalApplied) && " con la leyenda «CONSUMIDOR FINAL»"}
-                        </p>
-                        {task.errorCode && <p>{ERROR_LABELS[task.errorCode]}</p>}
-                        {offersLegend && preview?.consumerFinal && (
-                            <label>
-                                <input type="checkbox" checked={legend} disabled={busy} onChange={(event) => setLegend(event.target.checked)} />
-                                {` Aplicar la leyenda «CONSUMIDOR FINAL» a las ${preview.consumerFinal.rows} ventas con documento 99 sin denominación `}
-                                ({preview.consumerFinal.counts.OK} quedan aptas y {preview.consumerFinal.counts.REVIEW + preview.consumerFinal.counts.ERROR} siguen pendientes).
-                                Sólo completa la denominación: no cambia importes, alícuotas ni códigos.
-                            </label>
-                        )}
-                        {task.status === "PREVIEW" && (preview?.importedBefore ?? 0) > 0 && (
-                            <p>Corrección de pendientes: las {preview?.importedBefore} filas ya incorporadas de esta fuente aparecen como duplicadas y no se vuelven a incorporar.</p>
-                        )}
-                        {shown && task.status !== "DISCARDED" && <Variant variant={shown} />}
-                        {correctsPending && task.status === "REVIEW" && (
-                            <>
-                                <ArcaPendingCorrections url={url} source={task.source as "SALES" | "PURCHASES"} legend={legend} busy={busy}
-                                    onRevised={(value) => apply(value as Status)} onMessage={setMessage} />
-                                <p>
-                                    <button type="button" className="btn" disabled={busy} onClick={() => void decide(task.source, "discard")}>Cerrar sin corregir</button>
-                                    {" "}Borra el archivo guardado; lo ya incorporado se mantiene.
-                                </p>
-                            </>
-                        )}
-                        {correctsPending && task.status === "PREVIEW" && (
-                            <ArcaPendingCorrections url={url} source={task.source as "SALES" | "PURCHASES"} legend={legend} busy={busy}
-                                onRevised={(value) => apply(value as Status)} onMessage={setMessage} />
-                        )}
-                        {task.status === "PREVIEW" && shown && (
-                            <p>
-                                <button type="button" className="btn btn-primary" disabled={busy || shown.counts.OK === 0} onClick={() => void decide(task.source, "confirm")}>
-                                    Confirmar e incorporar {shown.counts.OK} filas
-                                </button>{" "}
-                                <button type="button" className="btn" disabled={busy} onClick={() => void decide(task.source, "discard")}>Descartar</button>
-                                {shown.counts.OK === 0 && " No hay filas aptas para incorporar."}
-                            </p>
-                        )}
-                    </section>
-                );
-            })}
+                        const preview = task.preview;
+                        const offersLegend = (task.status === "PREVIEW" || (task.status === "REVIEW" && task.correctable)) && task.source === "SALES" && preview?.consumerFinal !== undefined;
+                        const confirmed = preview?.confirmed;
+                        const shown: SyncVariant | null = !preview ? null
+                            : (task.status === "PREVIEW" ? offersLegend && legend : (confirmed?.consumerFinalLegend ?? preview.consumerFinalApplied)) && preview.consumerFinal ? preview.consumerFinal : preview;
+                        const correctsPending = task.correctable && (task.source === "SALES" || task.source === "PURCHASES") && task.pending > 0;
+                        return (
+                            <section key={task.source} aria-label={LABELS[task.source]} className="card source-card">
+                                <div className="section-head">
+                                    <div>
+                                        <h3>{LABELS[task.source]}</h3>
+                                        <p>
+                                            {LABELS[task.status]}
+                                            {task.downloaded !== null && task.status !== "EMPTY" && ` · ${task.downloaded} filas descargadas`}
+                                            {task.imported ? ` · ${task.imported} incorporadas` : ""}
+                                            {(confirmed?.consumerFinalLegend ?? preview?.consumerFinalApplied) && " con la leyenda «CONSUMIDOR FINAL»"}
+                                            {preview?.files?.[0]?.format && ` · ${preview.files[0].format === "PORTAL_CSV" ? "Portal IVA" : preview.files[0].format === "MIS_COMPROBANTES" ? "Mis Comprobantes" : "Mis Retenciones"}`}
+                                        </p>
+                                    </div>
+                                    <span className={`badge ${TASK_BADGE[task.status] ?? ""}`}>{SHORT_STATUS[task.status] ?? task.status}</span>
+                                </div>
+                                {task.errorCode && <p className="callout callout-error">{ERROR_LABELS[task.errorCode]}</p>}
+                                {offersLegend && preview?.consumerFinal && (
+                                    <label className="check callout">
+                                        <input type="checkbox" checked={legend} disabled={busy} onChange={(event) => setLegend(event.target.checked)} />
+                                        <span>
+                                            <strong>Aplicar la leyenda «CONSUMIDOR FINAL»</strong> a las {preview.consumerFinal.rows} ventas con documento 99 sin denominación
+                                            ({preview.consumerFinal.counts.OK} quedan aptas y {preview.consumerFinal.counts.REVIEW + preview.consumerFinal.counts.ERROR} siguen pendientes).
+                                            <br /><small>Sólo completa la denominación: no cambia importes, alícuotas ni códigos.</small>
+                                        </span>
+                                    </label>
+                                )}
+                                {task.status === "PREVIEW" && (preview?.importedBefore ?? 0) > 0 && (
+                                    <p className="callout callout-info">Corrección de pendientes: las {preview?.importedBefore} filas ya incorporadas de esta fuente aparecen como ya incorporadas y no se vuelven a incorporar.</p>
+                                )}
+                                {shown && task.status !== "DISCARDED" && <Variant variant={shown} />}
+                                {correctsPending && task.status === "REVIEW" && (
+                                    <>
+                                        <ArcaPendingCorrections url={url} source={task.source as "SALES" | "PURCHASES"} legend={legend} busy={busy}
+                                            onRevised={(value) => apply(value as Status)} onMessage={setMessage} />
+                                        <div className="toolbar">
+                                            <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void decide(task.source, "discard")}>Cerrar sin corregir</button>
+                                            <small>Borra el archivo guardado; lo ya incorporado se mantiene.</small>
+                                        </div>
+                                    </>
+                                )}
+                                {correctsPending && task.status === "PREVIEW" && (
+                                    <ArcaPendingCorrections url={url} source={task.source as "SALES" | "PURCHASES"} legend={legend} busy={busy}
+                                        onRevised={(value) => apply(value as Status)} onMessage={setMessage} />
+                                )}
+                                {task.status === "PREVIEW" && shown && (
+                                    <div className="toolbar source-actions">
+                                        <button type="button" className="btn btn-primary" disabled={busy || shown.counts.OK === 0} onClick={() => void decide(task.source, "confirm")}>
+                                            Confirmar e incorporar {shown.counts.OK} filas
+                                        </button>
+                                        <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => void decide(task.source, "discard")}>Descartar</button>
+                                        {shown.counts.OK === 0 && <small>No hay filas aptas para incorporar.</small>}
+                                    </div>
+                                )}
+                            </section>
+                        );
+                    })}
+                </div>
+            )}
         </section>
     );
 }

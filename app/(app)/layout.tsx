@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { NavLink } from "./_components/nav-link";
 
 import { getAuthClaims } from "@/lib/auth/claims";
 
@@ -25,47 +25,25 @@ export default async function AppShellLayout({
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
-      <aside
-        style={{
-          width: "250px",
-          backgroundColor: "var(--surface)",
-          borderRight: "1px solid var(--border)",
-          padding: "var(--spacing-md)",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <div style={{ marginBottom: "var(--spacing-xl)", padding: "0 var(--spacing-sm)" }}>
-          <h1 style={{ fontSize: "1.25rem", fontWeight: "bold", color: "var(--primary)" }}>
-            Dero Company Gestión
-          </h1>
+    <div className="app-shell">
+      <aside className="app-sidebar">
+        <div className="app-brand">
+          <span className="app-brand-mark" aria-hidden="true">DC</span>
+          <span>
+            <strong>Dero Company</strong>
+            <small>Gestión</small>
+          </span>
         </div>
-        <nav style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+        <nav className="app-nav" aria-label="Secciones">
           <NavLink href="/">Dashboard</NavLink>
           <NavLink href="/clients">Clientes</NavLink>
           <NavLink href="/settings">Configuración</NavLink>
         </nav>
         {userLabel && (
-          <div
-            style={{
-              marginTop: "auto",
-              paddingTop: "var(--spacing-lg)",
-              borderTop: "1px solid var(--border)",
-            }}
-          >
-            <p
-              style={{
-                fontSize: "0.8rem",
-                color: "var(--secondary)",
-                marginBottom: "var(--spacing-sm)",
-                wordBreak: "break-all",
-              }}
-            >
-              {userLabel}
-            </p>
+          <div className="app-user">
+            <p title={userLabel}>{userLabel}</p>
             <form method="post" action="/logout">
-              <button type="submit" className="btn btn-secondary" style={{ width: "100%" }}>
+              <button type="submit" className="btn btn-secondary btn-sm" style={{ width: "100%" }}>
                 Cerrar sesión
               </button>
             </form>
@@ -75,29 +53,10 @@ export default async function AppShellLayout({
       {/* Espacio inferior: el último control (p. ej. «Confirmar importación») puede
           desplazarse por encima de barras flotantes (en las Deploy Previews, la de
           Netlify lo tapaba y el clic no llegaba a la página: SMOKE-PREVIEW.md). */}
-      <main style={{ flex: 1, padding: "var(--spacing-xl)", paddingBottom: "8rem", overflowY: "auto" }}>
+      <main className="app-main">
         {process.env.ARCA_LOCAL_HOMO==='1'&&<p role="status" style={{padding:"1rem",border:"1px solid var(--primary)",marginBottom:"1rem"}}>Prueba local · ARCA homologación · DEV. Guardar y modificar datos está deshabilitado. Los datos propuestos quedan sólo en el formulario.</p>}
         {children}
       </main>
     </div>
-  );
-}
-
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      style={{
-        display: "block",
-        padding: "var(--spacing-sm) var(--spacing-md)",
-        borderRadius: "var(--radius-md)",
-        color: "var(--foreground)",
-        textDecoration: "none",
-        transition: "background-color 0.2s",
-      }}
-      className="nav-link"
-    >
-      {children}
-    </Link>
   );
 }
