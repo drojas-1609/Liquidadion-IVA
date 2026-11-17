@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { NavLink } from "./_components/nav-link";
 
 import { getAuthClaims } from "@/lib/auth/claims";
@@ -28,7 +29,7 @@ export default async function AppShellLayout({
     <div className="app-shell">
       <aside className="app-sidebar">
         <div className="app-brand">
-          <span className="app-brand-mark" aria-hidden="true">DC</span>
+          <span className="app-brand-mark"><Image src="/branding/dero-company-isotipo.png" alt="" width={146} height={140} priority /></span>
           <span>
             <strong>Dero Company</strong>
             <small>Gestión</small>
