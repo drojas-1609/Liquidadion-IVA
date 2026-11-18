@@ -65,4 +65,23 @@ describe("conciliación por tramos (tope de escrituras por transacción)", () =>
         expect(w.writes.count).toBe(1);
         expect(w.records.every((t) => t.invoiceId && t.jurisdictionCode === "902")).toBe(true);
     });
+
+    it("plazo por tiempo: pasado el plazo no inicia otra escritura y queda pendiente", async () => {
+        const w = world(30);
+        let t = 0;
+        const now = () => t;
+        // Cada escritura «tarda» 1 s: con plazo de 3,5 s entran 4 (0 s, 1 s, 2 s, 3 s).
+        const tx = w.tx as unknown as { invoice: { updateMany: (a: unknown) => Promise<unknown> } };
+        const orig = tx.invoice.updateMany;
+        tx.invoice.updateMany = async (a: unknown) => { const r = await orig(a); t += 1000; return r; };
+        const r = await reconcileInvoicePerceptions(w.tx, scope, { deadlineMs: 3500, now });
+        expect(r).toEqual({ changes: 4, pending: true });
+    });
+
+    it("con el plazo ya vencido igual hace una escritura (siempre avanza)", async () => {
+        const w = world(3);
+        let t = 0;
+        const r = await reconcileInvoicePerceptions(w.tx, scope, { deadlineMs: 0, now: () => (t += 10_000) });
+        expect(r).toEqual({ changes: 1, pending: true });
+    });
 });
