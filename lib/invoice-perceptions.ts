@@ -253,14 +253,29 @@ type Tx = Pick<Prisma.TransactionClient, "invoice" | "taxRecord" | "clientJurisd
  * (`pending`). Es idempotente: el tramo siguiente recalcula el plan y sigue.
  */
 export const RECONCILE_MAX_WRITES = 8;
+/**
+ * Plazo de escritura por tramo, contado desde que empieza la conciliación (las
+ * lecturas incluidas). Pasado el plazo no se inicia otra escritura: el tramo
+ * cierra con `pending` y el siguiente sigue. Medido en producción: ~0,5 s por
+ * ida y vuelta, y un tramo de 8 escrituras rozó los 10 s de la transacción.
+ * Cada tramo hace al menos una escritura, para avanzar siempre.
+ */
+export const RECONCILE_DEADLINE_MS = 3500;
 
 /** Concilia las percepciones del período (ver arriba), en tramos acotados. */
 export async function reconcileInvoicePerceptions(
     tx: Tx,
     scope: { organizationId: string; periodId: string; clientId: string; profileId: string | null },
-    opts: { maxWrites?: number } = {},
+    opts: { maxWrites?: number; deadlineMs?: number; now?: () => number } = {},
 ): Promise<{ changes: number; pending: boolean }> {
     let budget = Math.max(1, opts.maxWrites ?? RECONCILE_MAX_WRITES);
+    const now = opts.now ?? Date.now;
+    const start = now();
+    const deadline = opts.deadlineMs ?? RECONCILE_DEADLINE_MS;
+    let writes = 0;
+    /** ¿Se puede iniciar otra escritura en este tramo? (tope y plazo; la primera siempre). */
+    const canWrite = () => budget > 0 && (writes === 0 || now() - start < deadline);
+    const spend = () => { budget--; writes++; };
     const [invoices, records, jurisdictions, rules] = await Promise.all([
         tx.invoice.findMany({
             where: { organizationId: scope.organizationId, periodId: scope.periodId, category: "PURCHASES" },
@@ -298,8 +313,11 @@ export async function reconcileInvoicePerceptions(
 
     // 1) «Otros tributos» -> percepción de IVA (ARCA), percepción de IIBB o impuestos internos.
     const splits = planOtherTaxesSplit(purchases, decRecords, ruleMap);
-    const splitsNow = splits.slice(0, budget);
-    for (const split of splitsNow) {
+    const splitsNow: OtherTaxesSplit[] = [];
+    for (const split of splits) {
+        if (!canWrite()) break;
+        splitsNow.push(split);
+        spend();
         await tx.invoice.updateMany({
             where: { id: split.invoiceId, organizationId: scope.organizationId, periodId: scope.periodId },
             data: {
@@ -311,9 +329,8 @@ export async function reconcileInvoicePerceptions(
         const inv = purchases.find((p) => p.id === split.invoiceId)!;
         Object.assign(inv, split);
     }
-    budget -= splitsNow.length;
     // Las percepciones dependen de la separación completa: si faltan tramos, siguen después.
-    if (splitsNow.length < splits.length || budget === 0) {
+    if (splitsNow.length < splits.length || !canWrite()) {
         return { changes: splitsNow.length, pending: splitsNow.length < splits.length || planInvoicePerceptions(purchases, decRecords, headquarters).length > 0 };
     }
 
@@ -325,28 +342,34 @@ export async function reconcileInvoicePerceptions(
     const of = <K extends PerceptionAction["kind"]>(kind: K) => actions.filter((a): a is Extract<PerceptionAction, { kind: K }> => a.kind === kind);
     // Primero las bajas y desvinculaciones (una sentencia cada una): liberan el índice único (comprobante, tipo).
     const deletes = of("delete"), unlinks = of("unlink");
-    if (deletes.length > 0 && budget > 0) {
+    if (deletes.length > 0) {
+        if (!canWrite()) return { changes: splitsNow.length + applied, pending: true };
+        spend();
         await tx.taxRecord.deleteMany({ where: { id: { in: deletes.map((a) => a.recordId) }, organizationId: org, fromInvoice: true } });
-        applied += deletes.length; budget--;
+        applied += deletes.length;
     }
-    if (unlinks.length > 0 && budget > 0) {
+    if (unlinks.length > 0) {
+        if (!canWrite()) return { changes: splitsNow.length + applied, pending: true };
+        spend();
         await tx.taxRecord.updateMany({ where: { id: { in: unlinks.map((a) => a.recordId) }, organizationId: org }, data: { invoiceId: null, updatedById: by } });
-        applied += unlinks.length; budget--;
+        applied += unlinks.length;
     }
     // Vínculos y actualizaciones: una por registro, hasta el tope.
     const singles = [...of("link"), ...of("update")];
     for (const a of singles) {
-        if (budget === 0) break;
+        if (!canWrite()) break;
+        spend();
         if (a.kind === "link") {
             await tx.taxRecord.updateMany({ where: { id: a.recordId, organizationId: org }, data: { invoiceId: a.invoiceId, updatedById: by } });
         } else {
             await tx.taxRecord.updateMany({ where: { id: a.recordId, organizationId: org, fromInvoice: true }, data: { amount: a.amount, date: a.date, ...(a.jurisdictionCode !== undefined ? { jurisdictionCode: a.jurisdictionCode } : {}), updatedById: by } });
         }
-        applied++; budget--;
+        applied++;
     }
     // Altas: todas en una sentencia.
     const creates = of("create");
-    if (creates.length > 0 && budget > 0) {
+    if (creates.length > 0 && canWrite()) {
+        spend();
         await tx.taxRecord.createMany({
             data: creates.map((a) => ({
                 organizationId: org, periodId: scope.periodId, type: a.type, amount: a.amount, date: a.date,
@@ -360,7 +383,7 @@ export async function reconcileInvoicePerceptions(
                 createdById: by, updatedById: by,
             })),
         });
-        applied += creates.length; budget--;
+        applied += creates.length;
     }
     return { changes: splitsNow.length + applied, pending: applied < actions.length };
 }
