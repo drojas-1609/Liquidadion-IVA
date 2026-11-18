@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { finishInvoicePerceptions } from "@/lib/invoice-perceptions-client";
 
 /**
  * Importación de retenciones, percepciones y recaudaciones bancarias de IIBB
@@ -52,14 +53,16 @@ export function IibbDeductionsImport({ periodId }: { periodId: string }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ file: await toBase64(file), confirm, ...(confirm ? { token: preview?.token } : {}) }),
             });
-            const json = (await res.json().catch(() => null)) as (Preview & { imported?: number; error?: { message?: string } }) | null;
+            const json = (await res.json().catch(() => null)) as (Preview & { imported?: number; reconciled?: { changes: number; pending: boolean }; error?: { message?: string } }) | null;
             if (!res.ok) {
                 setMessage({ tone: "alert", text: typeof json?.error?.message === "string" ? json.error.message : "No se pudo procesar el archivo." });
                 return;
             }
             if (confirm) {
+                // La conciliación con las compras puede quedar en tramos: se termina acá.
+                const linked = json?.reconciled ? await finishInvoicePerceptions(periodId, json.reconciled) : 0;
                 const notImported = json ? json.rows.filter((r) => r.status !== "OK").length : 0;
-                setMessage({ tone: "status", text: `Importadas ${json?.imported ?? 0} deducciones.${notImported > 0 ? ` No se importaron ${notImported}: quedan listadas abajo.` : ""}` });
+                setMessage({ tone: "status", text: `Importadas ${json?.imported ?? 0} deducciones.${linked > 0 ? ` Conciliación con las compras: ${linked} cambios.` : ""}${notImported > 0 ? ` No se importaron ${notImported}: quedan listadas abajo.` : ""}` });
                 setPreview(json);
                 setDone(true);
                 router.refresh();
