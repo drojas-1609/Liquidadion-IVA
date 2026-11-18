@@ -228,11 +228,12 @@ type Tx = Pick<Prisma.TransactionClient, "invoice" | "taxRecord" | "clientJurisd
 
 /**
  * Escrituras por tramo. Cada ida y vuelta a la base cuesta ~0,25 s desde
- * Netlify y la transacción del llamador vence a los 10 s (lib/period-lock):
+ * Netlify (medido: ~9 s por tramo de 12 en DEV) y la transacción del llamador
+ * vence a los 10 s (lib/period-lock):
  * la conciliación aplica a lo sumo este tope y avisa si quedó trabajo
  * (`pending`). Es idempotente: el tramo siguiente recalcula el plan y sigue.
  */
-export const RECONCILE_MAX_WRITES = 12;
+export const RECONCILE_MAX_WRITES = 8;
 
 /** Concilia las percepciones del período (ver arriba), en tramos acotados. */
 export async function reconcileInvoicePerceptions(
