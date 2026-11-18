@@ -979,6 +979,8 @@ ${body}
     const helperSrc = read("lib/invoice-perceptions.ts");
     expect(codes("lib/invoice-perceptions.ts", helperSrc)).toEqual([]);
     expect(codes("lib/invoice-perceptions.ts", helperSrc + "\nexport async function otra(tx: any) { await tx.taxRecord.create({ data: {} }); }")).toContain("HELPER_WRITE_OUTSIDE_FUNCTION");
-    expect(codes("lib/invoice-perceptions.ts", helperSrc.replace("await tx.taxRecord.deleteMany({ where: { ...where, fromInvoice: true } });", "await tx.invoiceVatLine.deleteMany({ where });"))).toContain("HELPER_WRITE_OUTSIDE_FUNCTION");
+    const target = "await tx.taxRecord.deleteMany({ where: { id: { in: deletes.map((a) => a.recordId) }, organizationId: org, fromInvoice: true } });";
+    expect(helperSrc).toContain(target); // si cambia el helper, actualizar este ensayo
+    expect(codes("lib/invoice-perceptions.ts", helperSrc.replace(target, "await tx.invoiceVatLine.deleteMany({ where: {} });"))).toContain("HELPER_WRITE_OUTSIDE_FUNCTION");
   });
 });

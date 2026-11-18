@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { finishInvoicePerceptions } from "@/lib/invoice-perceptions-client";
 import { useState } from "react";
 import { formatMoney } from "@/lib/format";
 
@@ -45,7 +46,8 @@ export function OtherTaxesRules({ periodId, rows, canEdit }: { periodId: string;
             });
             const body = await response.json().catch(() => null);
             if (!response.ok) throw new Error(body?.error?.message ?? "No se pudo guardar la regla.");
-            setMessage(`Regla guardada: ${body.changes} cambios en el período.`);
+            const total = await finishInvoicePerceptions(periodId, { changes: Number(body?.changes ?? 0), pending: body?.pending === true });
+            setMessage(`Regla guardada: ${total} cambios en el período.`);
             router.refresh();
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "No se pudo guardar la regla.");

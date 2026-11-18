@@ -26,7 +26,7 @@ export const PUT = withApiAuthz(async (request: Request, ctx: { params: Promise<
     const kind = body?.kind;
     if (typeof kind !== "string" || !(OTHER_TAXES_KINDS as readonly string[]).includes(kind)) throw new ValidationError("Elegí cómo se imputa el resto", "kind");
 
-    const changes = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
         await lockPeriodForWrite(tx, id, organizationId);
         const scope = { organizationId, clientId: period.clientId, supplierCuit };
         await tx.supplierOtherTaxesRule.upsert({
@@ -34,12 +34,12 @@ export const PUT = withApiAuthz(async (request: Request, ctx: { params: Promise<
             create: { ...scope, kind: kind as OtherTaxesKind },
             update: { kind: kind as OtherTaxesKind },
         });
-        const count = await reconcileInvoicePerceptions(tx, { organizationId, periodId: id, clientId: period.clientId, profileId });
+        const { changes: count, pending } = await reconcileInvoicePerceptions(tx, { organizationId, periodId: id, clientId: period.clientId, profileId });
         await recordAudit(tx, {
             organizationId, actorProfileId: profileId, action: "supplier.other_taxes_rule",
             targetType: "Period", targetId: id, metadata: { periodId: id, kind, changes: count },
         });
-        return count;
+        return { changes: count, pending };
     }, { maxWait: 5000, timeout: 10000 });
-    return NextResponse.json({ changes });
+    return NextResponse.json(result);
 });
