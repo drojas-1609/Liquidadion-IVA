@@ -142,7 +142,36 @@ describe("separación de «Otros tributos» de las compras", () => {
         expect(planOtherTaxesSplit([done], [arca("300.00")], new Map([[AGENT, "IIBB_PERCEPTION"]]))).toEqual([]);
     });
 
-    it("notas de crédito: no se separan", () => {
-        expect(planOtherTaxesSplit([other({ voucherCode: 3 })], [arca("300.00")], new Map([[AGENT, "IIBB_PERCEPTION"]]))).toEqual([]);
+    it("notas de crédito: sin regla no se separan, y nunca toman la percepción de IVA de ARCA", () => {
+        expect(planOtherTaxesSplit([other({ voucherCode: 3 })], [arca("300.00")], new Map())).toEqual([]);
+        const [s] = planOtherTaxesSplit([other({ voucherCode: 3 })], [arca("300.00")], new Map([[AGENT, "IIBB_PERCEPTION"]]));
+        expect(s.vatPerceptionAmount.toFixed(2)).toBe("0.00");
+        expect(s.iibbPerceptionAmount.toFixed(2)).toBe("1000.00");
+        expect(s.otherTaxesAmount.toFixed(2)).toBe("0.00");
+    });
+});
+
+describe("notas de crédito: la percepción de IIBB resta (criterio del estudio)", () => {
+    const nc = (over: Partial<PerceptionInvoice> = {}) => inv({ id: "nc1", voucherCode: 3, vatPerceptionAmount: null, iibbPerceptionAmount: d("525.62"), ...over });
+
+    it("crea el registro de IIBB con importe negativo, a la jurisdicción sede", () => {
+        const [a] = planInvoicePerceptions([nc()], [], "901");
+        expect(a).toMatchObject({ kind: "create", invoiceId: "nc1", type: IIBB_PERCEPTION_TYPE, jurisdictionCode: "901" });
+        expect(a.kind === "create" && a.amount.toFixed(2)).toBe("-525.62");
+    });
+
+    it("idempotente: con el registro negativo ya creado no hay cambios", () => {
+        const done = rec({ id: "t1", type: IIBB_PERCEPTION_TYPE, nature: null, amount: d("-525.62"), invoiceId: "nc1", fromInvoice: true, jurisdictionCode: "901" });
+        expect(planInvoicePerceptions([nc()], [done], "901")).toEqual([]);
+    });
+
+    it("si cambia el importe de la NC, actualiza con signo negativo", () => {
+        const done = rec({ id: "t1", type: IIBB_PERCEPTION_TYPE, nature: null, amount: d("-525.62"), invoiceId: "nc1", fromInvoice: true, jurisdictionCode: "901" });
+        const [a] = planInvoicePerceptions([nc({ iibbPerceptionAmount: d("500.00") })], [done], "901");
+        expect(a.kind === "update" && a.amount.toFixed(2)).toBe("-500.00");
+    });
+
+    it("la percepción de IVA de una NC no se registra (tabla del F.2051: facturas y notas de débito)", () => {
+        expect(planInvoicePerceptions([nc({ vatPerceptionAmount: d("100.00"), iibbPerceptionAmount: null })], [], "901")).toEqual([]);
     });
 });

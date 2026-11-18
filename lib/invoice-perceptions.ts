@@ -92,7 +92,7 @@ export function planInvoicePerceptions(invoices: PerceptionInvoice[], records: P
         if (r.invoiceId === null) continue;
         const inv = byId.get(r.invoiceId);
         const amount = inv ? (r.type === IIBB_PERCEPTION_TYPE ? inv.iibbPerceptionAmount : inv.vatPerceptionAmount) : null;
-        const eligible = inv !== undefined && eligibleKind(inv) !== null && positive(amount);
+        const eligible = inv !== undefined && (r.type === IIBB_PERCEPTION_TYPE ? iibbEligible(inv) : eligibleKind(inv) !== null) && positive(amount);
         if (!eligible && (r.type === IVA_PERCEPTION_TYPE || r.type === IIBB_PERCEPTION_TYPE)) {
             actions.push(r.fromInvoice ? { kind: "delete", recordId: r.id } : { kind: "unlink", recordId: r.id });
             taken.add(r.id);
@@ -101,13 +101,13 @@ export function planInvoicePerceptions(invoices: PerceptionInvoice[], records: P
 
     for (const inv of invoices) {
         const f2051Type = eligibleKind(inv);
-        if (f2051Type === null) continue;
+        if (f2051Type === null && !iibbEligible(inv)) continue;
         const date = inv.voucherDate ?? inv.date;
         if (date === null) continue; // sin fecha no se puede registrar (no se supone una)
         const agentCuit = inv.counterpartyDocType === 80 ? inv.counterpartyDocNumber : null;
 
-        // ── IVA ──
-        if (positive(inv.vatPerceptionAmount)) {
+        // ── IVA ── (sólo facturas y notas de débito: tabla del F.2051)
+        if (f2051Type !== null && positive(inv.vatPerceptionAmount)) {
             const linked = records.find((r) => r.invoiceId === inv.id && r.type === IVA_PERCEPTION_TYPE && !taken.has(r.id));
             if (!linked || linked.fromInvoice) {
                 // Sólo con una coincidencia única: ante dos candidatas no se elige.
@@ -136,14 +136,15 @@ export function planInvoicePerceptions(invoices: PerceptionInvoice[], records: P
 
         // ── IIBB ──
         if (positive(inv.iibbPerceptionAmount)) {
+            const amount = signedIibb(inv, inv.iibbPerceptionAmount);
             const linked = records.find((r) => r.invoiceId === inv.id && r.type === IIBB_PERCEPTION_TYPE && !taken.has(r.id));
             if (!linked) {
                 actions.push({
-                    kind: "create", invoiceId: inv.id, type: IIBB_PERCEPTION_TYPE, amount: inv.iibbPerceptionAmount, date,
+                    kind: "create", invoiceId: inv.id, type: IIBB_PERCEPTION_TYPE, amount, date,
                     agentCuit, voucherTypeCode: f2051Type, voucherNumber: f2051VoucherNumber(inv.pointOfSale, inv.number), jurisdictionCode: headquarters,
                 });
-            } else if (linked.fromInvoice && (!linked.amount.equals(inv.iibbPerceptionAmount) || linked.date.getTime() !== date.getTime() || linked.jurisdictionCode === null && headquarters !== null)) {
-                actions.push({ kind: "update", recordId: linked.id, amount: inv.iibbPerceptionAmount, date, jurisdictionCode: linked.jurisdictionCode ?? headquarters });
+            } else if (linked.fromInvoice && (!linked.amount.equals(amount) || linked.date.getTime() !== date.getTime() || linked.jurisdictionCode === null && headquarters !== null)) {
+                actions.push({ kind: "update", recordId: linked.id, amount, date, jurisdictionCode: linked.jurisdictionCode ?? headquarters });
             }
         }
     }
@@ -177,7 +178,9 @@ const dz = (v: Prisma.Decimal | null) => v ?? ZERO;
  *     tributos», ese importe pasa a «Percepción de IVA».
  *  2. Resto: según la regla del proveedor, pasa a «Percepción de IIBB» o a
  *     «Impuestos internos»; sin regla (u «OTHER») queda en «Otros tributos».
- * Sólo facturas y notas de débito (las notas de crédito las define el estudio).
+ * Facturas y notas de débito; las notas de crédito sólo por la regla (paso 2):
+ * su percepción de IIBB resta la de la factura asociada (criterio del estudio,
+ * 2026-11-17); la percepción de IVA de ARCA no se busca para ellas.
  */
 export function planOtherTaxesSplit(
     invoices: OtherTaxesInvoice[],
@@ -187,7 +190,8 @@ export function planOtherTaxesSplit(
     const out: OtherTaxesSplit[] = [];
     const taken = new Set<string>();
     for (const inv of invoices) {
-        if (eligibleKind(inv) === null) continue;
+        const credit = isCreditNote(inv);
+        if (eligibleKind(inv) === null && !credit) continue;
         let other = dz(inv.otherTaxesAmount);
         if (!other.greaterThan(0)) continue;
         let vat = dz(inv.vatPerceptionAmount);
@@ -196,7 +200,7 @@ export function planOtherTaxesSplit(
         const agentCuit = inv.counterpartyDocType === 80 ? inv.counterpartyDocNumber : null;
         if (agentCuit === null) continue;
 
-        if (vat.isZero()) {
+        if (vat.isZero() && !credit) {
             const candidates = records.filter((r) =>
                 !taken.has(r.id) && !r.fromInvoice && r.type === IVA_PERCEPTION_TYPE && r.nature === "PERCEPTION"
                 && (r.invoiceId === null || r.invoiceId === inv.id)
@@ -222,6 +226,21 @@ export function planOtherTaxesSplit(
 function eligibleKind(inv: Pick<PerceptionInvoice, "voucherCode">): number | null {
     if (inv.voucherCode === null) return null;
     return F2051_TYPE_BY_KIND[voucherType(inv.voucherCode).kind] ?? null;
+}
+
+/** ¿Nota de crédito? (criterio del estudio: su percepción de IIBB resta la aplicada en la factura asociada). */
+function isCreditNote(inv: Pick<PerceptionInvoice, "voucherCode">): boolean {
+    return inv.voucherCode !== null && voucherType(inv.voucherCode).kind === "CREDIT_NOTE";
+}
+
+/** Percepción de IIBB: facturas y notas de débito suman; notas de crédito restan. */
+function iibbEligible(inv: Pick<PerceptionInvoice, "voucherCode">): boolean {
+    return eligibleKind(inv) !== null || isCreditNote(inv);
+}
+
+/** Importe con signo del registro de IIBB tomado del comprobante (negativo en notas de crédito). */
+function signedIibb(inv: Pick<PerceptionInvoice, "voucherCode">, amount: Prisma.Decimal): Prisma.Decimal {
+    return isCreditNote(inv) ? amount.negated() : amount;
 }
 
 type Tx = Pick<Prisma.TransactionClient, "invoice" | "taxRecord" | "clientJurisdiction" | "supplierOtherTaxesRule">;
@@ -334,7 +353,9 @@ export async function reconcileInvoicePerceptions(
                 nature: a.type === IVA_PERCEPTION_TYPE ? "PERCEPTION" as const : null,
                 agentCuit: a.agentCuit, voucherTypeCode: a.type === IVA_PERCEPTION_TYPE ? a.voucherTypeCode : null,
                 voucherNumber: a.type === IVA_PERCEPTION_TYPE ? a.voucherNumber : null,
-                description: a.type === IVA_PERCEPTION_TYPE ? "Tomada del comprobante (percepción de IVA)" : "Tomada del comprobante (percepción de IIBB, jurisdicción sede)",
+                description: a.type === IVA_PERCEPTION_TYPE ? "Tomada del comprobante (percepción de IVA)"
+                    : a.amount.isNegative() ? "Tomada de la nota de crédito (resta la percepción de IIBB, jurisdicción sede)"
+                    : "Tomada del comprobante (percepción de IIBB, jurisdicción sede)",
                 invoiceId: a.invoiceId, fromInvoice: true, jurisdictionCode: a.jurisdictionCode,
                 createdById: by, updatedById: by,
             })),
