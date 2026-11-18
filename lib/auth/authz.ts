@@ -389,6 +389,8 @@ export function withApiAuthz<Ctx extends unknown[]>(
       console.error(
         "[withApiAuthz] error no clasificado:",
         err instanceof Error ? err.name : typeof err,
+        // Sólo el código de Prisma (p. ej. P2028): diagnóstico sin datos ni mensaje.
+        ...(err instanceof Prisma.PrismaClientKnownRequestError ? [err.code] : []),
       );
       return authErrorResponse(err); // -> 500 INTERNAL genérico + no-store
     }
