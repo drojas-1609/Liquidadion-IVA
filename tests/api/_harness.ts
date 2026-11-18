@@ -251,9 +251,10 @@ export interface DbMock {
   membershipClient: { findUnique: Fn };
   client: { findMany: Fn; findUnique: Fn; findFirst: Fn; create: Fn; update: Fn; delete: Fn };
   period: { findUnique: Fn; findFirst: Fn; create: Fn; count: Fn; delete: Fn; update: Fn };
-  invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; delete: Fn };
+  invoice: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; updateMany: Fn; delete: Fn };
+  supplierOtherTaxesRule: { findMany: Fn; upsert: Fn };
   invoiceVatLine: { findMany: Fn; deleteMany: Fn };
-  taxRecord: { findMany: Fn; findFirst: Fn; create: Fn; count: Fn; update: Fn; updateMany: Fn; deleteMany: Fn };
+  taxRecord: { findMany: Fn; findFirst: Fn; create: Fn; createMany: Fn; count: Fn; update: Fn; updateMany: Fn; deleteMany: Fn };
   auditLog: { create: Fn };
   periodVatSettings: { findUnique: Fn; create: Fn; update: Fn };
   periodVatCreditAdjustment: { findMany: Fn; deleteMany: Fn; upsert: Fn };
@@ -281,9 +282,10 @@ export function freshDbMock(): DbMock {
       delete: vi.fn(),
     },
     period: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), delete: vi.fn(), update: vi.fn() },
-    invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    invoice: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), updateMany: vi.fn(async () => ({ count: 0 })), delete: vi.fn() },
+    supplierOtherTaxesRule: { findMany: vi.fn(async () => []), upsert: vi.fn() },
     invoiceVatLine: { findMany: vi.fn(), deleteMany: vi.fn() },
-    taxRecord: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), count: vi.fn(), update: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
+    taxRecord: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), createMany: vi.fn(), count: vi.fn(), update: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     auditLog: { create: vi.fn() },
     periodVatSettings: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     periodVatCreditAdjustment: { findMany: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn() },
@@ -446,7 +448,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   });
   // Igualdad simple por cada clave de `where` (sin `where`: todas las filas).
   const taxRecordsWhere = (where: any) =>
-    (world.taxRecords ?? []).filter((t) => Object.entries(where ?? {}).every(([k, v]) => t[k] === v));
+    (world.taxRecords ?? []).filter((t) => Object.entries(where ?? {}).every(([k, v]) => (v && typeof v === "object" && Array.isArray((v as { in?: unknown[] }).in)) ? (v as { in: unknown[] }).in.includes(t[k]) : t[k] === v));
   const pick = (row: any, select: any) => (select ? Object.fromEntries(Object.keys(select).map((k) => [k, row[k]])) : row);
   db.taxRecord.findMany.mockImplementation(async ({ where }: AnyArgs = {}) => taxRecordsWhere(where).map((t) => ({ ...t })));
   db.taxRecord.findFirst.mockImplementation(async ({ where, select }: AnyArgs) => {
@@ -692,6 +694,13 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       createdAt: new Date(0),
       updatedAt: new Date(0),
     };
+  });
+
+  db.taxRecord.createMany.mockImplementation(async ({ data }: AnyArgs) => {
+    const rows = Array.isArray(data) ? data : [data];
+    world.taxRecords = [...(world.taxRecords ?? []), ...rows.map((d: any) => ({ id: mkId("t"), ...d, amount: new Prisma.Decimal(String(d.amount)) }))];
+    rec.created.taxRecordCreateMany = rows;
+    return { count: rows.length };
   });
 
   // update con where extendido { id, organizationId }; P2025 si no existe.

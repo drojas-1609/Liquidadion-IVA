@@ -92,7 +92,7 @@ export function planInvoicePerceptions(invoices: PerceptionInvoice[], records: P
         if (r.invoiceId === null) continue;
         const inv = byId.get(r.invoiceId);
         const amount = inv ? (r.type === IIBB_PERCEPTION_TYPE ? inv.iibbPerceptionAmount : inv.vatPerceptionAmount) : null;
-        const eligible = inv !== undefined && eligibleKind(inv) !== null && positive(amount);
+        const eligible = inv !== undefined && (r.type === IIBB_PERCEPTION_TYPE ? iibbEligible(inv) : eligibleKind(inv) !== null) && positive(amount);
         if (!eligible && (r.type === IVA_PERCEPTION_TYPE || r.type === IIBB_PERCEPTION_TYPE)) {
             actions.push(r.fromInvoice ? { kind: "delete", recordId: r.id } : { kind: "unlink", recordId: r.id });
             taken.add(r.id);
@@ -101,13 +101,13 @@ export function planInvoicePerceptions(invoices: PerceptionInvoice[], records: P
 
     for (const inv of invoices) {
         const f2051Type = eligibleKind(inv);
-        if (f2051Type === null) continue;
+        if (f2051Type === null && !iibbEligible(inv)) continue;
         const date = inv.voucherDate ?? inv.date;
         if (date === null) continue; // sin fecha no se puede registrar (no se supone una)
         const agentCuit = inv.counterpartyDocType === 80 ? inv.counterpartyDocNumber : null;
 
-        // ── IVA ──
-        if (positive(inv.vatPerceptionAmount)) {
+        // ── IVA ── (sólo facturas y notas de débito: tabla del F.2051)
+        if (f2051Type !== null && positive(inv.vatPerceptionAmount)) {
             const linked = records.find((r) => r.invoiceId === inv.id && r.type === IVA_PERCEPTION_TYPE && !taken.has(r.id));
             if (!linked || linked.fromInvoice) {
                 // Sólo con una coincidencia única: ante dos candidatas no se elige.
@@ -136,18 +136,90 @@ export function planInvoicePerceptions(invoices: PerceptionInvoice[], records: P
 
         // ── IIBB ──
         if (positive(inv.iibbPerceptionAmount)) {
+            const amount = signedIibb(inv, inv.iibbPerceptionAmount);
             const linked = records.find((r) => r.invoiceId === inv.id && r.type === IIBB_PERCEPTION_TYPE && !taken.has(r.id));
             if (!linked) {
                 actions.push({
-                    kind: "create", invoiceId: inv.id, type: IIBB_PERCEPTION_TYPE, amount: inv.iibbPerceptionAmount, date,
+                    kind: "create", invoiceId: inv.id, type: IIBB_PERCEPTION_TYPE, amount, date,
                     agentCuit, voucherTypeCode: f2051Type, voucherNumber: f2051VoucherNumber(inv.pointOfSale, inv.number), jurisdictionCode: headquarters,
                 });
-            } else if (linked.fromInvoice && (!linked.amount.equals(inv.iibbPerceptionAmount) || linked.date.getTime() !== date.getTime() || linked.jurisdictionCode === null && headquarters !== null)) {
-                actions.push({ kind: "update", recordId: linked.id, amount: inv.iibbPerceptionAmount, date, jurisdictionCode: linked.jurisdictionCode ?? headquarters });
+            } else if (linked.fromInvoice && (!linked.amount.equals(amount) || linked.date.getTime() !== date.getTime() || linked.jurisdictionCode === null && headquarters !== null)) {
+                actions.push({ kind: "update", recordId: linked.id, amount, date, jurisdictionCode: linked.jurisdictionCode ?? headquarters });
             }
         }
     }
     return actions;
+}
+
+export type OtherTaxesKind = "IIBB_PERCEPTION" | "INTERNAL_TAXES" | "OTHER";
+export const OTHER_TAXES_KINDS: readonly OtherTaxesKind[] = ["IIBB_PERCEPTION", "INTERNAL_TAXES", "OTHER"];
+
+export interface OtherTaxesInvoice extends PerceptionInvoice {
+    otherTaxesAmount: Prisma.Decimal | null;
+    internalTaxesAmount: Prisma.Decimal | null;
+}
+
+export interface OtherTaxesSplit {
+    invoiceId: string;
+    otherTaxesAmount: Prisma.Decimal;
+    vatPerceptionAmount: Prisma.Decimal;
+    iibbPerceptionAmount: Prisma.Decimal;
+    internalTaxesAmount: Prisma.Decimal;
+}
+
+const ZERO = new Prisma.Decimal(0);
+const dz = (v: Prisma.Decimal | null) => v ?? ZERO;
+
+/**
+ * Separación de «Otros tributos» (Portal IVA los informa en un solo importe).
+ * Función pura, idempotente; el total del comprobante no cambia:
+ *  1. Percepción de IVA: si el comprobante no la tiene cargada y ARCA informó
+ *     UNA percepción del mismo agente y comprobante, menor o igual a «Otros
+ *     tributos», ese importe pasa a «Percepción de IVA».
+ *  2. Resto: según la regla del proveedor, pasa a «Percepción de IIBB» o a
+ *     «Impuestos internos»; sin regla (u «OTHER») queda en «Otros tributos».
+ * Facturas y notas de débito; las notas de crédito sólo por la regla (paso 2):
+ * su percepción de IIBB resta la de la factura asociada (criterio del estudio,
+ * 2026-11-17); la percepción de IVA de ARCA no se busca para ellas.
+ */
+export function planOtherTaxesSplit(
+    invoices: OtherTaxesInvoice[],
+    records: PerceptionRecord[],
+    rules: ReadonlyMap<string, OtherTaxesKind>,
+): OtherTaxesSplit[] {
+    const out: OtherTaxesSplit[] = [];
+    const taken = new Set<string>();
+    for (const inv of invoices) {
+        const credit = isCreditNote(inv);
+        if (eligibleKind(inv) === null && !credit) continue;
+        let other = dz(inv.otherTaxesAmount);
+        if (!other.greaterThan(0)) continue;
+        let vat = dz(inv.vatPerceptionAmount);
+        let iibb = dz(inv.iibbPerceptionAmount);
+        let internal = dz(inv.internalTaxesAmount);
+        const agentCuit = inv.counterpartyDocType === 80 ? inv.counterpartyDocNumber : null;
+        if (agentCuit === null) continue;
+
+        if (vat.isZero() && !credit) {
+            const candidates = records.filter((r) =>
+                !taken.has(r.id) && !r.fromInvoice && r.type === IVA_PERCEPTION_TYPE && r.nature === "PERCEPTION"
+                && (r.invoiceId === null || r.invoiceId === inv.id)
+                && r.agentCuit === agentCuit && sameVoucherNumber(r.voucherNumber, inv.pointOfSale, inv.number));
+            if (candidates.length === 1 && candidates[0].amount.greaterThan(0) && candidates[0].amount.lessThanOrEqualTo(other)) {
+                vat = candidates[0].amount;
+                other = other.minus(vat);
+                taken.add(candidates[0].id);
+            }
+        }
+        const kind = rules.get(agentCuit);
+        if (other.greaterThan(0) && kind === "IIBB_PERCEPTION") { iibb = iibb.plus(other); other = ZERO; }
+        if (other.greaterThan(0) && kind === "INTERNAL_TAXES") { internal = internal.plus(other); other = ZERO; }
+
+        if (!other.equals(dz(inv.otherTaxesAmount))) {
+            out.push({ invoiceId: inv.id, otherTaxesAmount: other, vatPerceptionAmount: vat, iibbPerceptionAmount: iibb, internalTaxesAmount: internal });
+        }
+    }
+    return out;
 }
 
 /** Tipo de comprobante del F.2051 si corresponde crear o vincular automáticamente (facturas y notas de débito). */
@@ -156,19 +228,46 @@ function eligibleKind(inv: Pick<PerceptionInvoice, "voucherCode">): number | nul
     return F2051_TYPE_BY_KIND[voucherType(inv.voucherCode).kind] ?? null;
 }
 
-type Tx = Pick<Prisma.TransactionClient, "invoice" | "taxRecord" | "clientJurisdiction">;
+/** ¿Nota de crédito? (criterio del estudio: su percepción de IIBB resta la aplicada en la factura asociada). */
+function isCreditNote(inv: Pick<PerceptionInvoice, "voucherCode">): boolean {
+    return inv.voucherCode !== null && voucherType(inv.voucherCode).kind === "CREDIT_NOTE";
+}
 
-/** Concilia las percepciones del período (ver arriba). Devuelve la cantidad de cambios. */
+/** Percepción de IIBB: facturas y notas de débito suman; notas de crédito restan. */
+function iibbEligible(inv: Pick<PerceptionInvoice, "voucherCode">): boolean {
+    return eligibleKind(inv) !== null || isCreditNote(inv);
+}
+
+/** Importe con signo del registro de IIBB tomado del comprobante (negativo en notas de crédito). */
+function signedIibb(inv: Pick<PerceptionInvoice, "voucherCode">, amount: Prisma.Decimal): Prisma.Decimal {
+    return isCreditNote(inv) ? amount.negated() : amount;
+}
+
+type Tx = Pick<Prisma.TransactionClient, "invoice" | "taxRecord" | "clientJurisdiction" | "supplierOtherTaxesRule">;
+
+/**
+ * Escrituras por tramo. Cada ida y vuelta a la base cuesta ~0,25 s desde
+ * Netlify (medido: ~9 s por tramo de 12 en DEV) y la transacción del llamador
+ * vence a los 10 s (lib/period-lock):
+ * la conciliación aplica a lo sumo este tope y avisa si quedó trabajo
+ * (`pending`). Es idempotente: el tramo siguiente recalcula el plan y sigue.
+ */
+export const RECONCILE_MAX_WRITES = 8;
+
+/** Concilia las percepciones del período (ver arriba), en tramos acotados. */
 export async function reconcileInvoicePerceptions(
     tx: Tx,
     scope: { organizationId: string; periodId: string; clientId: string; profileId: string | null },
-): Promise<number> {
-    const [invoices, records, jurisdictions] = await Promise.all([
+    opts: { maxWrites?: number } = {},
+): Promise<{ changes: number; pending: boolean }> {
+    let budget = Math.max(1, opts.maxWrites ?? RECONCILE_MAX_WRITES);
+    const [invoices, records, jurisdictions, rules] = await Promise.all([
         tx.invoice.findMany({
             where: { organizationId: scope.organizationId, periodId: scope.periodId, category: "PURCHASES" },
             select: {
                 id: true, voucherCode: true, pointOfSale: true, number: true, voucherDate: true, date: true,
                 counterpartyDocType: true, counterpartyDocNumber: true, vatPerceptionAmount: true, iibbPerceptionAmount: true,
+                otherTaxesAmount: true, internalTaxesAmount: true,
             },
         }),
         tx.taxRecord.findMany({
@@ -179,6 +278,10 @@ export async function reconcileInvoicePerceptions(
             where: { organizationId: scope.organizationId, clientId: scope.clientId },
             select: { jurisdictionCode: true, isHeadquarters: true },
         }),
+        tx.supplierOtherTaxesRule.findMany({
+            where: { organizationId: scope.organizationId, clientId: scope.clientId },
+            select: { supplierCuit: true, kind: true },
+        }),
     ]);
     // Sede: la marcada (Convenio Multilateral) o, si el cliente tiene una sola jurisdicción, esa.
     const headquarters = jurisdictions.find((j) => j.isHeadquarters)?.jurisdictionCode ?? (jurisdictions.length === 1 ? jurisdictions[0].jurisdictionCode : null);
@@ -186,42 +289,80 @@ export async function reconcileInvoicePerceptions(
     const dec = (v: Prisma.Decimal | number | string | null | undefined) => (v === null || v === undefined ? null : new Prisma.Decimal(v));
     const purchases = invoices
         .filter((i) => (i as { category?: string }).category === undefined || (i as { category?: string }).category === "PURCHASES")
-        .map((i) => ({ ...i, vatPerceptionAmount: dec(i.vatPerceptionAmount), iibbPerceptionAmount: dec(i.iibbPerceptionAmount) }));
-    const actions = planInvoicePerceptions(purchases, records.map((r) => ({ ...r, amount: new Prisma.Decimal(r.amount) })), headquarters);
-    const by = scope.profileId;
-    // Primero las bajas y desvinculaciones: liberan el índice único (comprobante, tipo).
-    const order = { delete: 0, unlink: 1, link: 2, update: 3, create: 4 } as const;
-    for (const a of [...actions].sort((x, y) => order[x.kind] - order[y.kind])) {
-        const where = { id: "recordId" in a ? a.recordId : "", organizationId: scope.organizationId };
-        switch (a.kind) {
-            case "delete":
-                await tx.taxRecord.deleteMany({ where: { ...where, fromInvoice: true } });
-                break;
-            case "unlink":
-                await tx.taxRecord.updateMany({ where, data: { invoiceId: null, updatedById: by } });
-                break;
-            case "link":
-                await tx.taxRecord.updateMany({ where, data: { invoiceId: a.invoiceId, updatedById: by } });
-                break;
-            case "update":
-                await tx.taxRecord.updateMany({ where: { ...where, fromInvoice: true }, data: { amount: a.amount, date: a.date, ...(a.jurisdictionCode !== undefined ? { jurisdictionCode: a.jurisdictionCode } : {}), updatedById: by } });
-                break;
-            case "create":
-                await tx.taxRecord.create({
-                    data: {
-                        organizationId: scope.organizationId, periodId: scope.periodId, type: a.type, amount: a.amount, date: a.date,
-                        nature: a.type === IVA_PERCEPTION_TYPE ? "PERCEPTION" : null,
-                        agentCuit: a.agentCuit, voucherTypeCode: a.type === IVA_PERCEPTION_TYPE ? a.voucherTypeCode : null,
-                        voucherNumber: a.type === IVA_PERCEPTION_TYPE ? a.voucherNumber : null,
-                        description: a.type === IVA_PERCEPTION_TYPE ? "Tomada del comprobante (percepción de IVA)" : "Tomada del comprobante (percepción de IIBB, jurisdicción sede)",
-                        invoiceId: a.invoiceId, fromInvoice: true, jurisdictionCode: a.jurisdictionCode,
-                        createdById: by, updatedById: by,
-                    },
-                });
-                break;
-        }
+        .map((i) => ({
+            ...i, vatPerceptionAmount: dec(i.vatPerceptionAmount), iibbPerceptionAmount: dec(i.iibbPerceptionAmount),
+            otherTaxesAmount: dec(i.otherTaxesAmount), internalTaxesAmount: dec(i.internalTaxesAmount),
+        }));
+    const decRecords = records.map((r) => ({ ...r, amount: new Prisma.Decimal(r.amount) }));
+    const ruleMap = new Map((rules ?? []).filter((r) => (OTHER_TAXES_KINDS as readonly string[]).includes(r.kind)).map((r) => [r.supplierCuit, r.kind as OtherTaxesKind]));
+
+    // 1) «Otros tributos» -> percepción de IVA (ARCA), percepción de IIBB o impuestos internos.
+    const splits = planOtherTaxesSplit(purchases, decRecords, ruleMap);
+    const splitsNow = splits.slice(0, budget);
+    for (const split of splitsNow) {
+        await tx.invoice.updateMany({
+            where: { id: split.invoiceId, organizationId: scope.organizationId, periodId: scope.periodId },
+            data: {
+                otherTaxesAmount: split.otherTaxesAmount, vatPerceptionAmount: split.vatPerceptionAmount,
+                iibbPerceptionAmount: split.iibbPerceptionAmount, internalTaxesAmount: split.internalTaxesAmount,
+                updatedById: scope.profileId,
+            },
+        });
+        const inv = purchases.find((p) => p.id === split.invoiceId)!;
+        Object.assign(inv, split);
     }
-    return actions.length;
+    budget -= splitsNow.length;
+    // Las percepciones dependen de la separación completa: si faltan tramos, siguen después.
+    if (splitsNow.length < splits.length || budget === 0) {
+        return { changes: splitsNow.length, pending: splitsNow.length < splits.length || planInvoicePerceptions(purchases, decRecords, headquarters).length > 0 };
+    }
+
+    // 2) Percepciones del comprobante -> Retenciones/Percepciones.
+    const actions = planInvoicePerceptions(purchases, decRecords, headquarters);
+    const by = scope.profileId;
+    const org = scope.organizationId;
+    let applied = 0;
+    const of = <K extends PerceptionAction["kind"]>(kind: K) => actions.filter((a): a is Extract<PerceptionAction, { kind: K }> => a.kind === kind);
+    // Primero las bajas y desvinculaciones (una sentencia cada una): liberan el índice único (comprobante, tipo).
+    const deletes = of("delete"), unlinks = of("unlink");
+    if (deletes.length > 0 && budget > 0) {
+        await tx.taxRecord.deleteMany({ where: { id: { in: deletes.map((a) => a.recordId) }, organizationId: org, fromInvoice: true } });
+        applied += deletes.length; budget--;
+    }
+    if (unlinks.length > 0 && budget > 0) {
+        await tx.taxRecord.updateMany({ where: { id: { in: unlinks.map((a) => a.recordId) }, organizationId: org }, data: { invoiceId: null, updatedById: by } });
+        applied += unlinks.length; budget--;
+    }
+    // Vínculos y actualizaciones: una por registro, hasta el tope.
+    const singles = [...of("link"), ...of("update")];
+    for (const a of singles) {
+        if (budget === 0) break;
+        if (a.kind === "link") {
+            await tx.taxRecord.updateMany({ where: { id: a.recordId, organizationId: org }, data: { invoiceId: a.invoiceId, updatedById: by } });
+        } else {
+            await tx.taxRecord.updateMany({ where: { id: a.recordId, organizationId: org, fromInvoice: true }, data: { amount: a.amount, date: a.date, ...(a.jurisdictionCode !== undefined ? { jurisdictionCode: a.jurisdictionCode } : {}), updatedById: by } });
+        }
+        applied++; budget--;
+    }
+    // Altas: todas en una sentencia.
+    const creates = of("create");
+    if (creates.length > 0 && budget > 0) {
+        await tx.taxRecord.createMany({
+            data: creates.map((a) => ({
+                organizationId: org, periodId: scope.periodId, type: a.type, amount: a.amount, date: a.date,
+                nature: a.type === IVA_PERCEPTION_TYPE ? "PERCEPTION" as const : null,
+                agentCuit: a.agentCuit, voucherTypeCode: a.type === IVA_PERCEPTION_TYPE ? a.voucherTypeCode : null,
+                voucherNumber: a.type === IVA_PERCEPTION_TYPE ? a.voucherNumber : null,
+                description: a.type === IVA_PERCEPTION_TYPE ? "Tomada del comprobante (percepción de IVA)"
+                    : a.amount.isNegative() ? "Tomada de la nota de crédito (resta la percepción de IIBB, jurisdicción sede)"
+                    : "Tomada del comprobante (percepción de IIBB, jurisdicción sede)",
+                invoiceId: a.invoiceId, fromInvoice: true, jurisdictionCode: a.jurisdictionCode,
+                createdById: by, updatedById: by,
+            })),
+        });
+        applied += creates.length; budget--;
+    }
+    return { changes: splitsNow.length + applied, pending: applied < actions.length };
 }
 
 /**

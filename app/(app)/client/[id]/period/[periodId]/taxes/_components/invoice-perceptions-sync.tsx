@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { finishInvoicePerceptions } from "@/lib/invoice-perceptions-client";
 
 /** Concilia a pedido las percepciones cargadas en los comprobantes de compra del período. */
 export function InvoicePerceptionsSync({ periodId }: { periodId: string }) {
@@ -14,8 +15,9 @@ export function InvoicePerceptionsSync({ periodId }: { periodId: string }) {
         try {
             const response = await fetch(`/api/periods/${encodeURIComponent(periodId)}/invoice-perceptions`, { method: "POST" });
             const body = await response.json().catch(() => null);
-            if (!response.ok) throw new Error(body?.error ?? "No se pudo conciliar.");
-            setMessage(body.changes === 0 ? "Ya estaba todo conciliado." : `Listo: ${body.changes} cambios.`);
+            if (!response.ok) throw new Error(body?.error?.message ?? "No se pudo conciliar.");
+            const total = await finishInvoicePerceptions(periodId, { changes: Number(body?.changes ?? 0), pending: body?.pending === true });
+            setMessage(total === 0 ? "Ya estaba todo conciliado." : `Listo: ${total} cambios.`);
             router.refresh();
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "No se pudo conciliar.");

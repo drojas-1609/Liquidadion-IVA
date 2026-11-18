@@ -47,6 +47,7 @@ const EXPECTED = {
   "app/api/periods/[id]/invoice-classification/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/invoice-note/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/invoice-perceptions/route.ts": { models: [], serializer: null },
+  "app/api/periods/[id]/other-taxes-rule/route.ts": { models: [], serializer: null },
   "app/api/internal/arca-sync/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/arca-sync/route.ts": { models: [], serializer: null },
   // Confirmar o descartar la vista previa: responde el estado de las fuentes; los importes del resumen ya son texto.

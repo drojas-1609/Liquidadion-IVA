@@ -161,3 +161,19 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Causa:** en el entorno de trabajo el cliente de Prisma no se genera y `tsc` local no ve los tipos reales.
 - **Regla:** al leer columnas de Prisma, revisar en `schema.prisma` si son opcionales (`?`) antes de
   tiparlas, y esperar el build de la Preview antes de dar algo por listo.
+
+### 2026-11-17 · «Error interno» al guardar la regla de «Otros tributos» (PR #62)
+
+- **Qué pasó:** al guardar una regla por proveedor, la pantalla mostraba «Error interno» y no
+  quedaba nada guardado.
+- **Causa (dos):** (1) la restricción `TaxRecord_f2051_detail_check` sólo admitía `invoiceId` en
+  percepciones de IVA, y la de IIBB tomada del comprobante se vincula a la compra; (2) la causa
+  principal: la primera conciliación del período hacía ~50 escrituras en serie y, con ~0,25–0,45 s
+  por ida y vuelta entre Netlify y la base (São Paulo), superaba el tope de 10 s de la transacción
+  → rollback completo. El primer arreglo (sólo la restricción) no alcanzó: el error se reprodujo
+  en la Preview y se midió el tiempo (13 s) antes de seguir.
+- **Regla:** todo proceso que escribe «una fila por comprobante» dentro de la transacción del
+  período se acota: agrupar en una sentencia lo que se pueda (`createMany`, `id in`) y trabajar
+  por tramos con un tope (`RECONCILE_MAX_WRITES`) e indicador `pending`, repitiendo desde la
+  pantalla. Medir en la Preview con datos de copia, no estimar. Y no dar por cerrado un arreglo
+  sin reproducir el caso que falló.

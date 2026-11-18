@@ -237,6 +237,7 @@ model Client {
   arcaSyncSchedule ArcaSyncSchedule?
   arcaCredentials ArcaClientCredential[]
   supplierAccounts SupplierPurchaseAccount[]
+  supplierOtherTaxesRules SupplierOtherTaxesRule[]
   periods         Period[]
   importDeletions InvoiceImportDeletion[]
   // Usuarias con alcance SELECTED que pueden ver este cliente.
@@ -997,6 +998,24 @@ model SupplierPurchaseAccount {
   clientId       String
   supplierCuit   String   @db.Char(11)
   account        String   @db.VarChar(120)
+  updatedAt      DateTime @updatedAt
+
+  client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@id([organizationId, clientId, supplierCuit])
+  @@index([clientId, organizationId])
+}
+
+/// Regla por proveedor para separar «Otros tributos» de las compras (Portal IVA
+/// los informa en un solo importe). Primero se separa la percepción de IVA
+/// informada por ARCA para ese comprobante; el resto se imputa según `kind`:
+/// IIBB_PERCEPTION (percepción de IIBB), INTERNAL_TAXES (impuestos internos) u
+/// OTHER (queda como otros tributos). Decisión del estudio (17/11/2026).
+model SupplierOtherTaxesRule {
+  organizationId String
+  clientId       String
+  supplierCuit   String   @db.Char(11)
+  kind           String   @db.VarChar(20)
   updatedAt      DateTime @updatedAt
 
   client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade)

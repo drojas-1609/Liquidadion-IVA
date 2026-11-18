@@ -14,6 +14,8 @@ import { invoiceEditHref } from "@/lib/invoice-form-client";
 import { InvoiceRowActions } from "../_components/invoice-row-actions";
 import { DeletableInvoiceRow, DeletableInvoiceRows } from "../_components/invoice-deletable-row";
 import { InvoicePager } from "../_components/invoice-pager";
+import { OtherTaxesRules } from "./_components/other-taxes-rules";
+import { otherTaxesBySupplier } from "@/lib/other-taxes-summary";
 import { InvoiceSearchForm } from "../_components/invoice-search-form";
 import { normalizeSearch } from "@/lib/invoice-search";
 
@@ -34,10 +36,11 @@ export default async function PurchasesPage({ params, searchParams }: { params: 
         // Detalle paginado (100 por página): con miles de comprobantes la lista
         // completa no entra en una respuesta.
         const { invoices, window } = await listPeriodInvoices(prisma, { organizationId, periodId }, "PURCHASES", requestedPage, query);
-        return { role, invoices, window, closed: isPeriodClosed(period.status) };
+        const otherTaxes = await otherTaxesBySupplier(prisma, { organizationId, periodId, clientId: id });
+        return { role, invoices, window, otherTaxes, closed: isPeriodClosed(period.status) };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { role, invoices, window, closed } = guard.data;
+    const { role, invoices, window, otherTaxes, closed } = guard.data;
     const pager = <InvoicePager basePath={`/client/${id}/period/${periodId}/purchases`} window={window} noun="compras" query={query} />;
     // VIEWER o período cerrado: sin columna de acciones ni alta (sólo consulta).
     const showActions = ROLES_UPDATE.includes(role) && !closed;
@@ -60,6 +63,7 @@ export default async function PurchasesPage({ params, searchParams }: { params: 
                 )}
             </div>
 
+            <OtherTaxesRules periodId={periodId} rows={otherTaxes} canEdit={ROLES_UPDATE.includes(role) && !closed} />
             <InvoiceSearchForm basePath={`/client/${id}/period/${periodId}/purchases`} query={query} noun="compras" matches={window.total} />
             {pager}
             <div className="card invoice-list" style={{ padding: 0, overflowX: "auto" }}>

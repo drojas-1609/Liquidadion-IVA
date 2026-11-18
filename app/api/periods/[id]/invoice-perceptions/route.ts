@@ -19,16 +19,16 @@ export const POST = withApiAuthz(async (_request: Request, ctx: { params: Promis
     const { period } = await requirePeriodAccess(profileId, id, ROLES_UPDATE);
     if (period.organizationId !== organizationId) throw new NotFoundError();
 
-    const changes = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
         await lockPeriodForWrite(tx, id, organizationId);
-        const count = await reconcileInvoicePerceptions(tx, { organizationId, periodId: id, clientId: period.clientId, profileId });
+        const { changes: count, pending } = await reconcileInvoicePerceptions(tx, { organizationId, periodId: id, clientId: period.clientId, profileId });
         if (count > 0) {
             await recordAudit(tx, {
                 organizationId, actorProfileId: profileId, action: "taxrecord.invoice_perceptions",
                 targetType: "Period", targetId: id, metadata: { periodId: id, changes: count },
             });
         }
-        return count;
+        return { changes: count, pending };
     }, { maxWait: 5000, timeout: 10000 });
-    return NextResponse.json({ changes });
+    return NextResponse.json(result);
 });

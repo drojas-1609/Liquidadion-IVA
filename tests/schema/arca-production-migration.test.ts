@@ -21,8 +21,8 @@ const code = sql.split("\n").map((l) => l.replace(/--.*$/, "")).join(" ").replac
 describe(`migración ${MIGRATION} — revisión estática`, () => {
     it("sigue a la migración ARCA previa sin cambiarla; sólo la siguen migraciones posteriores conocidas", () => {
         const allDirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-        expect(allDirs.slice(-7)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview", "20261116000000_arca_initial_data", "20261117120000_tax_record_invoice_perceptions", "20261117130000_invoice_work_note"]);
-        const dirs = allDirs.slice(0, -7);
+        expect(allDirs.slice(-9)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview", "20261116000000_arca_initial_data", "20261117120000_tax_record_invoice_perceptions", "20261117130000_invoice_work_note", "20261118120000_supplier_other_taxes_rule", "20261118130000_tax_record_iibb_invoice_link"]);
+        const dirs = allDirs.slice(0, -9);
         // Posteriores, revisadas en su propio test (tests/schema/*).
         const LATER = ["20261104120000_studio_users_permissions", "20261104230000_add_operator_role", "20261106120000_vat_credit_adjustments", "20261107120000_vat_export_close_versions", "20261108120000_invoice_import_deletions"];
         expect(dirs.slice(-1 - LATER.length)).toEqual([MIGRATION, ...LATER]);
