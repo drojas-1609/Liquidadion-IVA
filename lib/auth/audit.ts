@@ -49,6 +49,8 @@ export const AUDIT_ACTIONS = [
   "invoice.import.failed",
   // Importación de retenciones o percepciones de IVA (descargas de ARCA): una fila por confirmación.
   "taxrecord.import",
+  // Deducciones de IIBB informadas por el fisco (POST /api/periods/[id]/iibb-import).
+  "taxrecord.iibb_import",
   // Conciliación a pedido de las percepciones de las compras (lib/invoice-perceptions).
   "taxrecord.invoice_perceptions",
   // Clasificaciones para la presentación, por lote (PATCH /api/periods/[id]/invoice-classification).
@@ -130,6 +132,7 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "period.reopen": ["clientId", "month", "year", "version", "reasonLength"],
   // Conteos por estado y huella del archivo. NUNCA importes, CUIT ni números de comprobante.
   "taxrecord.import": ["periodId", "kind", "layout", "importedCount", "duplicateCount", "reviewCount", "errorCount", "fileSha256"],
+  "taxrecord.iibb_import": ["periodId", "format", "importedCount", "duplicateCount", "reviewCount", "errorCount", "fileSha256"],
   "taxrecord.invoice_perceptions": ["periodId", "changes"],
   // Por lote: cantidad de comprobantes y NOMBRES de los campos cambiados.
   "invoice.purchase_account_change": ["periodId", "savedSupplierRule"],

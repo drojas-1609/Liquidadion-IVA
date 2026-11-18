@@ -701,9 +701,30 @@ model TaxRecord {
   /// (`invoiceId`). Se actualiza o se borra con el comprobante; si ARCA informa la
   /// misma percepción, la de ARCA la reemplaza (computa lo informado por el agente).
   fromInvoice       Boolean          @default(false)
-  /// Jurisdicción de IIBB (código CM 901-924) de una percepción de IIBB tomada del
-  /// comprobante: la sede del cliente. NULL en los demás registros.
+  /// Jurisdicción de IIBB (código CM 901-924): la sede del cliente en una percepción
+  /// tomada del comprobante; la del fisco que la informó en una deducción importada
+  /// (lib/iibb-import). NULL en los demás registros.
   jurisdictionCode  String?          @db.VarChar(3)
+  // ── Deducciones de IIBB informadas por el fisco (lib/iibb-import). NULL en lo demás.
+  /// Formato de origen (IibbImportFormat), p. ej. ESICOL_PERCEPCIONES.
+  importSource      String?          @db.VarChar(40)
+  /// Identidad para no duplicar: la misma deducción informada en otro formato del
+  /// mismo fisco tiene la misma identidad. Única por período y jurisdicción.
+  importIdentity    String?          @db.VarChar(160)
+  /// Razón social del agente, tal como la informa el fisco.
+  agentName         String?          @db.VarChar(200)
+  /// Monto base de la retención o percepción.
+  baseAmount        Decimal?         @db.Decimal(18, 2)
+  /// Tipo (F, R, C, D) y letra (A, B, C, M, T) del comprobante, tabla de e-SICOL.
+  voucherKind       String?          @db.VarChar(1)
+  voucherLetter     String?          @db.VarChar(1)
+  /// Sucursal / punto de venta del comprobante, tal como lo informa el fisco.
+  pointOfSale       String?          @db.VarChar(5)
+  /// Recaudación bancaria: CBU/CVU completo (decisión del estudio, 18/11/2026: hace
+  /// falta para regenerar el archivo de importación) y los 6 caracteres sin
+  /// documentar del formato bancario de e-SICOL, tal cual.
+  cbu               String?          @db.VarChar(22)
+  bankExtra         String?          @db.VarChar(6)
 
   // Tarea 3B: relación COMPUESTA. Un TaxRecord sólo puede referenciar un Period
   // de la MISMA organización.

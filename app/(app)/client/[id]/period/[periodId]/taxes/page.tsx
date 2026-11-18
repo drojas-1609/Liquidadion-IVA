@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { TaxRecordsImport } from "./_components/tax-records-import";
 import { InvoicePerceptionsSync } from "./_components/invoice-perceptions-sync";
+import { IibbDeductionsImport } from "./_components/iibb-deductions-import";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/lib/auth/authz";
 import { ROLES_CREATE, ROLES_DELETE, ROLES_READ, ROLES_UPDATE } from "@/lib/auth/roles";
@@ -67,6 +68,7 @@ export default async function TaxesPage({ params }: { params: Promise<{ id: stri
 
             {canEdit && <InvoicePerceptionsSync periodId={periodId} />}
             {canCreate && <TaxRecordsImport periodId={periodId} />}
+            {canCreate && <IibbDeductionsImport periodId={periodId} />}
 
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>
                 <table className="table">
