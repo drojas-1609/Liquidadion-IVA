@@ -177,3 +177,16 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
   por tramos con un tope (`RECONCILE_MAX_WRITES`) e indicador `pending`, repitiendo desde la
   pantalla. Medir en la Preview con datos de copia, no estimar. Y no dar por cerrado un arreglo
   sin reproducir el caso que falló.
+
+### 2026-11-18 · Producción: tramos de conciliación vencían igual (P2028) — región de funciones
+
+- **Qué pasó:** al cargar las reglas en producción, un tramo de conciliación seguía fallando con
+  «Error interno» aun con tope de escrituras y plazo de 3,5 s.
+- **Causa:** las funciones de Netlify corrían en Ohio (CMH) y la base en São Paulo: cada consulta
+  cruzaba el continente y el bloqueo + lecturas + cierre ya rozaban los 10 s. El log sólo decía
+  «PrismaClientKnownRequestError»; recién al registrar el código se vio que era P2028 (vencimiento
+  de la transacción interactiva).
+- **Arreglo:** región de funciones en GRU (São Paulo), autorizado por el usuario, y redeploy. El
+  mismo tramo pasó de fallar a los 13–18 s a resolverse en 3,8 s.
+- **Regla:** las funciones van en la misma región que la base (GRU ↔ sa-east-1). Ante un 500, leer
+  el código de Prisma en el log de Netlify antes de cambiar código; no encadenar arreglos por hipótesis.
