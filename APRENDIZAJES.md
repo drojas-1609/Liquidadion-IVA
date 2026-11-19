@@ -217,3 +217,11 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Regla:** después de `tsc`, filtrar la salida por los archivos nuevos o tocados y revisar cada
   error que no sea del tipo «Decimal no exportado» o «any implícito»; las funciones auxiliares
   reciben el tipo mínimo que usan (p. ej. sólo `debit`/`credit`), no el tipo completo de la línea.
+
+### 2026-11-19 · Sueldos (PR #72): el schema de Prisma no validó en Netlify
+
+- **Qué pasó:** el build cortó en `prisma generate` (P1012): una relación 1:1 con FK compuesta
+  `(periodId, organizationId)` necesita un `@@unique` sobre esos mismos campos.
+- **Causa:** `prisma validate` no corre en este entorno (sin motores) y la regla no la cubren las pruebas.
+- **Regla:** toda relación 1:1 hacia `Period` por FK compuesta lleva `@@unique([periodId, organizationId])`
+  y su índice único en la migración (mismo patrón que `PeriodIibbPosition`). Revisarlo antes de subir.

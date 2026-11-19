@@ -1076,6 +1076,7 @@ model PayrollF931 {
 
   period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
 
+  @@unique([periodId, organizationId])
   @@index([clientId, organizationId])
 }
 

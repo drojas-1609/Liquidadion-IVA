@@ -21,6 +21,7 @@ CREATE TABLE "PayrollF931" (
     CONSTRAINT "PayrollF931_amounts_check" CHECK ("contributionsBase" >= 0 AND "employerContributions" >= 0 AND "creditAmount" >= 0 AND "annexIPercent" >= 0 AND "annexIPercent" < 100 AND "zoneCode" BETWEEN 1 AND 85)
 );
 CREATE UNIQUE INDEX "PayrollF931_periodId_key" ON "PayrollF931"("periodId");
+CREATE UNIQUE INDEX "PayrollF931_periodId_organizationId_key" ON "PayrollF931"("periodId", "organizationId");
 CREATE INDEX "PayrollF931_clientId_organizationId_idx" ON "PayrollF931"("clientId", "organizationId");
 ALTER TABLE "PayrollF931" ADD CONSTRAINT "PayrollF931_periodId_organizationId_fkey"
     FOREIGN KEY ("periodId", "organizationId") REFERENCES "Period"("id", "organizationId") ON DELETE CASCADE ON UPDATE CASCADE;
