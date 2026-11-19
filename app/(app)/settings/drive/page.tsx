@@ -16,9 +16,10 @@ const ERRORS: Record<string, string> = {
     google: "Google rechazó la autorización. Revisá que la URL de retorno esté registrada en el cliente OAuth.",
     sin_refresh: "Google no entregó un permiso permanente. Quitá el acceso de la app en la cuenta de Google y volvé a conectar.",
     carpeta: "No se pudo ubicar ni crear la carpeta raíz en Mi unidad.",
+    permiso_drive: "En la pantalla de Google no quedó tildado el permiso para ver y administrar Google Drive. Volvé a conectar y tildalo.",
 };
 
-export default async function DriveSettingsPage({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
+export default async function DriveSettingsPage({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; detalle?: string }> }) {
     const sp = await searchParams;
     const guard = await guardPage(async () => {
         const { profileId } = await requireAuthenticatedProfile();
@@ -42,7 +43,7 @@ export default async function DriveSettingsPage({ searchParams }: { searchParams
                 <p className="muted">Cada comprobante que se carga en el sistema se guarda en Drive con nombre estándar, en la carpeta del cliente, el impuesto y el período.</p>
             </div>
             {sp.ok && <p role="status">Google Drive quedó conectado.</p>}
-            {sp.error && <p role="alert">{ERRORS[sp.error] ?? "No se pudo conectar."}</p>}
+            {sp.error && <p role="alert">{ERRORS[sp.error] ?? "No se pudo conectar."}{sp.detalle ? ` Detalle de Google: ${sp.detalle.slice(0, 200)}` : ""}</p>}
             <section className="card stack">
                 {!configured && <p role="alert">Falta cargar en Netlify las variables GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_CLIENT_SECRET y DRIVE_TOKEN_KEY.</p>}
                 {conn ? (

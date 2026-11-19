@@ -10,7 +10,7 @@ describe("respaldo en Drive — carpetas y nombres", () => {
     it("IVA compras va a IVA/AAAA/AAAA MM/COMPRAS", () => {
         const t = { category: "IVA_COMPRAS" as const, client, month: 10, year: 2026, description: "Libro IVA Digital compras comprobantes", extension: "txt" };
         expect(backupFolderPath(t)).toEqual(["EMPRESA EJEMPLO S.A.S. - 30712345671", "IVA", "2026", "2026 10", "COMPRAS"]);
-        expect(backupFileName(t)).toBe("2026 10 LIBRO IVA DIGITAL COMPRAS COMPROBANTES EMPRESA EJEMPLO S.A.S..txt");
+        expect(backupFileName(t)).toBe("2026 10 LIBRO IVA DIGITAL COMPRAS COMPROBANTES EMPRESA EJEMPLO S.A.S.txt");
     });
     it("IIBB retenciones y percepciones", () => {
         expect(backupFolderPath({ category: "IIBB_RET_PERC", client, month: 1, year: 2027, description: "x", extension: "txt" }).slice(1)).toEqual(["IIBB", "2027", "2027 01", "RETENCIONES Y PERCEPCIONES"]);
@@ -18,7 +18,7 @@ describe("respaldo en Drive — carpetas y nombres", () => {
     it("bancos por banco y año; sin mes en el nombre", () => {
         const t = { category: "BANCOS" as const, client, year: 2026, bank: "Banco Santa Cruz cc/123", description: "extracto octubre", extension: "PDF" };
         expect(backupFolderPath(t).slice(1)).toEqual(["BANCOS", "BANCO SANTA CRUZ CC 123", "2026"]);
-        expect(backupFileName(t)).toBe("2026 EXTRACTO OCTUBRE EMPRESA EJEMPLO S.A.S..pdf");
+        expect(backupFileName(t)).toBe("2026 EXTRACTO OCTUBRE EMPRESA EJEMPLO S.A.S.pdf");
     });
     it("categoría mensual sin mes: error", () => {
         expect(() => backupFolderPath({ category: "SUELDOS", client, year: 2026, description: "F931", extension: "pdf" })).toThrow(/necesita mes/);

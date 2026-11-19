@@ -39,10 +39,18 @@ export const GET = withApiAuthz(async (request: Request) => {
     let tokens;
     try { tokens = await exchangeCode(cfg, code, `${origin}/api/drive/callback`); } catch { return back(origin, "error=google"); }
     if (!tokens.refresh_token) return back(origin, "error=sin_refresh");
+    // Con el consentimiento granular de Google el permiso de Drive puede quedar destildado.
+    if (tokens.scope && !tokens.scope.split(" ").includes("https://www.googleapis.com/auth/drive")) return back(origin, "error=permiso_drive");
     const email = await accountEmail(tokens.access_token).catch(() => null);
     const rootName = driveRootName();
     let rootId: string;
-    try { rootId = (await findFolder(tokens.access_token, "root", rootName)) ?? (await createFolder(tokens.access_token, "root", rootName)); } catch { return back(origin, "error=carpeta"); }
+    try { rootId = (await findFolder(tokens.access_token, "root", rootName)) ?? (await createFolder(tokens.access_token, "root", rootName)); }
+    catch (e) {
+        // El mensaje de la API de Drive (sin datos sensibles) ayuda a diagnosticar: API deshabilitada, permisos, etc.
+        const detail = e instanceof Error ? e.message.slice(0, 200) : "";
+        console.error("[drive-callback] carpeta raíz", detail);
+        return back(origin, `error=carpeta&detalle=${encodeURIComponent(detail)}`);
+    }
 
     await prisma.$transaction(async (tx) => {
         const data = { email, refreshTokenSealed: sealToken(tokens.refresh_token!, organizationId, key), rootFolderId: rootId, rootFolderName: rootName, connectedById: profileId, connectedAt: new Date() };
