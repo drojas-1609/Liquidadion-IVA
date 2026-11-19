@@ -16,8 +16,10 @@ export class DriveError extends Error {
 }
 
 export function driveOAuthConfig() {
-    const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET;
+    // trim: un espacio o salto de línea pegado con el valor hace que Google
+    // responda «invalid_client / The OAuth client was not found».
+    const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID?.trim();
+    const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET?.trim();
     return clientId && clientSecret ? { clientId, clientSecret } : null;
 }
 
