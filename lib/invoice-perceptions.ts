@@ -66,6 +66,17 @@ export interface PerceptionRecord {
     fromInvoice: boolean;
     jurisdictionCode: string | null;
     date: Date;
+    /** Deducción de IIBB informada por el fisco (lib/iibb-import); NULL en lo demás. */
+    importSource?: string | null;
+    /** Tipo de comprobante de e-SICOL (F, R, C, D) de la deducción informada. */
+    voucherKind?: string | null;
+}
+
+/** Últimos 8 dígitos: lo que comparten el número de la factura y el que informa el fisco (e-SICOL trae 8). */
+function last8Digits(v: string | number | null): string | null {
+    if (v === null) return null;
+    const d = String(v).replace(/\D/g, "");
+    return d === "" ? null : d.slice(-8).padStart(8, "0");
 }
 
 export type PerceptionAction =
@@ -138,7 +149,21 @@ export function planInvoicePerceptions(invoices: PerceptionInvoice[], records: P
         if (positive(inv.iibbPerceptionAmount)) {
             const amount = signedIibb(inv, inv.iibbPerceptionAmount);
             const linked = records.find((r) => r.invoiceId === inv.id && r.type === IIBB_PERCEPTION_TYPE && !taken.has(r.id));
-            if (!linked) {
+            // Informada por el fisco (e-SICOL, Rentas Ciudad…): mismo agente, mismo número
+            // (últimos 8 dígitos) y misma clase de comprobante (nota de crédito ↔ «C»). Se
+            // computa lo informado, como en IVA (criterio del estudio, 17/11/2026): la tomada
+            // del comprobante se borra y la informada se vincula. Sólo con una coincidencia única.
+            const number = last8Digits(inv.number);
+            const credit = isCreditNote(inv);
+            const candidates = (!linked || linked.fromInvoice) && agentCuit !== null && number !== null
+                ? records.filter((r) => r.invoiceId === null && !taken.has(r.id) && r.type === IIBB_PERCEPTION_TYPE && r.importSource
+                    && r.agentCuit === agentCuit && last8Digits(r.voucherNumber) === number && (r.voucherKind === "C") === credit)
+                : [];
+            if (candidates.length === 1) {
+                if (linked) actions.push({ kind: "delete", recordId: linked.id });
+                actions.push({ kind: "link", recordId: candidates[0].id, invoiceId: inv.id });
+                taken.add(candidates[0].id);
+            } else if (!linked) {
                 actions.push({
                     kind: "create", invoiceId: inv.id, type: IIBB_PERCEPTION_TYPE, amount, date,
                     agentCuit, voucherTypeCode: f2051Type, voucherNumber: f2051VoucherNumber(inv.pointOfSale, inv.number), jurisdictionCode: headquarters,
@@ -287,7 +312,7 @@ export async function reconcileInvoicePerceptions(
         }),
         tx.taxRecord.findMany({
             where: { organizationId: scope.organizationId, periodId: scope.periodId, type: { in: [IVA_PERCEPTION_TYPE, IIBB_PERCEPTION_TYPE] } },
-            select: { id: true, type: true, nature: true, amount: true, agentCuit: true, voucherNumber: true, invoiceId: true, fromInvoice: true, jurisdictionCode: true, date: true },
+            select: { id: true, type: true, nature: true, amount: true, agentCuit: true, voucherNumber: true, invoiceId: true, fromInvoice: true, jurisdictionCode: true, date: true, importSource: true, voucherKind: true },
         }),
         tx.clientJurisdiction.findMany({
             where: { organizationId: scope.organizationId, clientId: scope.clientId },

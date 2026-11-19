@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { lockPeriodForWrite } from "@/lib/period-lock";
 import { lockClientTaxIdentity } from "@/lib/tax-identity";
+import { reconcileInvoicePerceptions } from "@/lib/invoice-perceptions";
 import { buildIibbImportPreview, iibbImportDescription, registeredIibbDeductions, type IibbImportPreview } from "@/lib/iibb-import/service";
 import {
     requireAuthenticatedProfile,
@@ -34,8 +35,10 @@ function decode(v: unknown): Uint8Array {
 //  - { file, confirm: true, token } -> transacción: lockPeriodForWrite ->
 //    lockClientTaxIdentity -> relectura de lo registrado para el cliente BAJO el
 //    bloqueo -> la misma vista previa; token distinto: 409 sin escribir -> alta
-//    de las filas OK + AuditLog taxrecord.iibb_import (formato, conteos y
-//    huella; sin importes, CUIT ni CBU).
+//    de las filas OK -> conciliación con las percepciones de las compras (la
+//    informada reemplaza a la tomada del comprobante; lib/invoice-perceptions,
+//    en tramos: `pending` si quedó trabajo) + AuditLog taxrecord.iibb_import
+//    (formato, conteos y huella; sin importes, CUIT ni CBU).
 export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const { id } = await ctx.params;
     const { profileId } = await requireAuthenticatedProfile();
@@ -82,6 +85,9 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 })),
             });
         }
+        const reconciled = ok.length > 0
+            ? await reconcileInvoicePerceptions(tx, { organizationId, periodId: id, clientId: period.clientId, profileId })
+            : { changes: 0, pending: false };
         await recordAudit(tx, {
             organizationId,
             actorProfileId: profileId,
@@ -90,10 +96,10 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
             targetId: id,
             metadata: { periodId: id, format, importedCount: ok.length, duplicateCount: preview.counts.DUPLICATE, reviewCount: preview.counts.REVIEW, errorCount: preview.counts.ERROR, fileSha256: preview.fileSha256 },
         });
-        return { preview, imported: ok.length };
+        return { preview, imported: ok.length, reconciled };
     }, { maxWait: 5000, timeout: 10000 });
 
-    return NextResponse.json({ ...serialize(result.preview), imported: result.imported }, { status: 201 });
+    return NextResponse.json({ ...serialize(result.preview), imported: result.imported, reconciled: result.reconciled }, { status: 201 });
 });
 
 function serialize(p: IibbImportPreview) {

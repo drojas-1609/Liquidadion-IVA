@@ -175,3 +175,48 @@ describe("notas de crédito: la percepción de IIBB resta (criterio del estudio)
         expect(planInvoicePerceptions([nc({ vatPerceptionAmount: d("100.00"), iibbPerceptionAmount: null })], [], "901")).toEqual([]);
     });
 });
+
+describe("IIBB informada por el fisco (lib/iibb-import): reemplaza a la tomada del comprobante", () => {
+    // Factura A 0004-00488105 del agente, con percepción de IIBB cargada.
+    const factura = (over: Partial<PerceptionInvoice> = {}) => inv({ id: "f1", voucherCode: 1, pointOfSale: 4, number: 488105, vatPerceptionAmount: null, iibbPerceptionAmount: d("35219.82"), ...over });
+    const informada = (over: Partial<PerceptionRecord> = {}) => rec({
+        id: "imp1", type: IIBB_PERCEPTION_TYPE, nature: null, amount: d("35219.82"), voucherNumber: "04170000488105",
+        jurisdictionCode: "901", importSource: "RENTAS_CIUDAD_PERCEPCIONES", voucherKind: "F", ...over,
+    });
+    const tomada = rec({ id: "inv-rec", type: IIBB_PERCEPTION_TYPE, nature: null, amount: d("35219.82"), voucherNumber: null, invoiceId: "f1", fromInvoice: true, jurisdictionCode: "920" });
+
+    it("sin registro previo: se vincula la informada (no se crea otra)", () => {
+        expect(planInvoicePerceptions([factura()], [informada()], "920")).toEqual([{ kind: "link", recordId: "imp1", invoiceId: "f1" }]);
+    });
+
+    it("con la tomada del comprobante: se borra y se vincula la informada (aunque el importe difiera)", () => {
+        expect(planInvoicePerceptions([factura()], [tomada, informada({ amount: d("35000.00") })], "920")).toEqual([
+            { kind: "delete", recordId: "inv-rec" },
+            { kind: "link", recordId: "imp1", invoiceId: "f1" },
+        ]);
+    });
+
+    it("idempotente: con la informada ya vinculada no hay cambios", () => {
+        expect(planInvoicePerceptions([factura()], [informada({ invoiceId: "f1" })], "920")).toEqual([]);
+    });
+
+    it("otro agente, otro número o nota de crédito contra factura: no se vincula", () => {
+        const create = { kind: "create", invoiceId: "f1", type: IIBB_PERCEPTION_TYPE };
+        expect(planInvoicePerceptions([factura()], [informada({ agentCuit: "30888888885" })], "920")[0]).toMatchObject(create);
+        expect(planInvoicePerceptions([factura()], [informada({ voucherNumber: "04170000488106" })], "920")[0]).toMatchObject(create);
+        expect(planInvoicePerceptions([factura()], [informada({ voucherKind: "C" })], "920")[0]).toMatchObject(create);
+    });
+
+    it("dos informadas candidatas: no elige (queda la del comprobante)", () => {
+        expect(planInvoicePerceptions([factura()], [tomada, informada(), informada({ id: "imp2" })], "920")).toEqual([]);
+    });
+
+    it("nota de crédito con la informada «C»: se vincula", () => {
+        const nc = factura({ id: "nc1", voucherCode: 3, iibbPerceptionAmount: d("525.62"), number: 15790 });
+        expect(planInvoicePerceptions([nc], [informada({ voucherNumber: "00015790", voucherKind: "C", amount: d("-525.62") })], "920")).toEqual([{ kind: "link", recordId: "imp1", invoiceId: "nc1" }]);
+    });
+
+    it("si la compra deja de tener la percepción, la informada se desvincula (no se borra)", () => {
+        expect(planInvoicePerceptions([factura({ iibbPerceptionAmount: null })], [informada({ invoiceId: "f1" })], "920")).toEqual([{ kind: "unlink", recordId: "imp1" }]);
+    });
+});
