@@ -117,6 +117,48 @@ describe("Santa Cruz: descarga «retenciones-percepciones-diu.zip»", () => {
     });
 });
 
+describe("Santa Cruz: percepciones (53 caracteres, diseño de importación del F.5680)", () => {
+    const AGENT2 = cuit("3077777777");
+    it("variante codificada: letra 1=A, tipo 1=Factura / 3=Nota de crédito, número PPPP-NNNNNNNN", () => {
+        const p = parseIibbDeductions(enc([
+            `13/10/2026${AGENT}110015-00345804  000000000282,63`,
+            `30/10/2026${AGENT}130015-00015790  -00000000525,62`,
+        ].join("\r\n") + "\r\n"));
+        expect(p.format).toBe("SANTA_CRUZ_PERCEPCIONES");
+        expect(p.rows.map((r) => [r.status, r.voucherLetter, r.voucherKind, r.pointOfSale, r.voucherNumber, r.amount!.toFixed(2), r.jurisdictionCode]))
+            .toEqual([["OK", "A", "F", "0015", "00345804", "282.63", "920"], ["OK", "A", "C", "0015", "00015790", "-525.62", "920"]]);
+    });
+
+    it("variante de la descarga de ASIP: tipo/letra como texto, sin número; signo dentro del campo", () => {
+        const p = parseIibbDeductions(enc([
+            `30/10/2026${AGENT}6A00000000000001500000000-525,62`,
+            `06/10/2026${AGENT}1A000000000000015000000011341,55`,
+            `30/10/2026${AGENT2}F 00000000000A360000000001550,10`,
+        ].join("\r\n")));
+        expect(p.format).toBe("SANTA_CRUZ_PERCEPCIONES");
+        expect(p.rows.map((r) => [r.status, r.voucherKind, r.voucherLetter, r.voucherNumber, r.amount!.toFixed(2)]))
+            .toEqual([["OK", "C", "A", null, "-525.62"], ["OK", "F", "A", null, "11341.55"], ["OK", "F", null, null, "1550.10"]]);
+        expect(p.rows[0].messages.join(" ")).toMatch(/no trae el número/);
+    });
+
+    it("las dos variantes comparten identidad (importar ambas no duplica)", () => {
+        const a = parseIibbDeductions(enc(`06/10/2026${AGENT}1A000000000000015000000011341,55`)).rows[0];
+        const b = parseIibbDeductions(enc(`06/10/2026${AGENT}110015-00344985  000000011341,55`)).rows[0];
+        expect(a.identity).toBe(b.identity);
+    });
+
+    it("signo incoherente con el tipo o tipo desconocido: ERROR con motivo", () => {
+        const rows = parseIibbDeductions(enc([
+            `06/10/2026${AGENT}130015-00344985  000000011341,55`,
+            `06/10/2026${AGENT}9A000000000000015000000011341,55`,
+        ].join("\n"))).rows;
+        expect(rows[0].status).toBe("ERROR");
+        expect(rows[0].messages.join(" ")).toMatch(/signo/);
+        expect(rows[1].status).toBe("ERROR");
+        expect(rows[1].messages.join(" ")).toMatch(/tipo de comprobante «9»/);
+    });
+});
+
 describe("detección", () => {
     it("archivo vacío o de largo desconocido: error de archivo", () => {
         expect(parseIibbDeductions(enc("\n\n")).fileErrors).toEqual(["el archivo está vacío"]);

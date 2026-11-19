@@ -216,6 +216,16 @@ describe("IIBB informada por el fisco (lib/iibb-import): reemplaza a la tomada d
         expect(planInvoicePerceptions([nc], [informada({ voucherNumber: "00015790", voucherKind: "C", amount: d("-525.62") })], "920")).toEqual([{ kind: "link", recordId: "imp1", invoiceId: "nc1" }]);
     });
 
+    it("informada SIN número (descarga de ASIP): misma fecha e importe (±0,05) → se vincula; si el importe difiere, no", () => {
+        const sinNumero = (over: Partial<PerceptionRecord> = {}) => informada({ voucherNumber: null, importSource: "SANTA_CRUZ_PERCEPCIONES", jurisdictionCode: "920", ...over });
+        expect(planInvoicePerceptions([factura()], [tomada, sinNumero({ amount: d("35219.77") })], "920")).toEqual([
+            { kind: "delete", recordId: "inv-rec" },
+            { kind: "link", recordId: "imp1", invoiceId: "f1" },
+        ]);
+        expect(planInvoicePerceptions([factura()], [tomada, sinNumero({ amount: d("35219.70") })], "920")).toEqual([]);
+        expect(planInvoicePerceptions([factura()], [tomada, sinNumero({ date: new Date("2026-10-02T00:00:00Z") })], "920")).toEqual([]);
+    });
+
     it("si la compra deja de tener la percepción, la informada se desvincula (no se borra)", () => {
         expect(planInvoicePerceptions([factura({ iibbPerceptionAmount: null })], [informada({ invoiceId: "f1" })], "920")).toEqual([{ kind: "unlink", recordId: "imp1" }]);
     });

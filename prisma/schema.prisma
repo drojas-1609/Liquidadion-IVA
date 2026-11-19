@@ -275,6 +275,8 @@ model Period {
   // Ajustes al crédito fiscal por contribuciones a la Seguridad Social (Portal
   // IVA → Ajustes al Crédito Fiscal). A lo sumo uno por régimen.
   vatCreditAdjustments PeriodVatCreditAdjustment[]
+  /// Posición de IIBB del período (saldo anterior, pagos a cuenta, DDJJ presentada).
+  iibbPosition         PeriodIibbPosition?
   taxRecords           TaxRecord[]
   /// Versiones cerradas de la liquidación (historial de cierres).
   liquidationVersions  PeriodLiquidationVersion[]
@@ -660,6 +662,43 @@ model PeriodVatCreditAdjustment {
 
   @@unique([periodId, regime])
   @@index([periodId, organizationId])
+  @@index([organizationId])
+}
+
+/// Datos de la DDJJ de IIBB que carga el estudio (F.5680 Santa Cruz y
+/// equivalentes): saldo a favor del período anterior, pagos a cuenta, otros
+/// créditos y débitos, y lo efectivamente presentado para controlarlo contra
+/// el cálculo. Importes >= 0 (CHECK en la base). 1:1 con el período.
+model PeriodIibbPosition {
+  id                   String    @id @default(cuid())
+  organizationId       String
+  periodId             String    @unique
+  /// «Saldo a favor de períodos anteriores».
+  previousBalance      Decimal   @default(0) @db.Decimal(18, 2)
+  /// «Total de pagos a cuenta».
+  paymentsOnAccount    Decimal   @default(0) @db.Decimal(18, 2)
+  /// «Otros créditos»: restan del impuesto.
+  otherCredits         Decimal   @default(0) @db.Decimal(18, 2)
+  /// «Otros débitos»: suman al impuesto.
+  otherDebits          Decimal   @default(0) @db.Decimal(18, 2)
+  /// Referencia del origen (p. ej. «DDJJ 09/2026, verificador 123456»).
+  reference            String?   @db.VarChar(120)
+  /// DDJJ presentada: número de verificador, fecha y totales del formulario.
+  filedVerifier        String?   @db.VarChar(20)
+  filedDate            DateTime? @db.Date
+  filedTaxAmount       Decimal?  @db.Decimal(18, 2)
+  filedDeductionsAmount Decimal? @db.Decimal(18, 2)
+  filedBalanceDgr      Decimal?  @db.Decimal(18, 2)
+  filedBalanceTaxpayer Decimal?  @db.Decimal(18, 2)
+
+  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+
+  @@unique([periodId, organizationId])
   @@index([organizationId])
 }
 

@@ -372,3 +372,12 @@ describe("secuencias con TurIVA", () => {
   });
 });
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+describe("iibbSalesBase: base de IIBB de una venta", () => {
+  it("gravado + sin discriminar + no gravado + exento (sin IVA ni tributos)", async () => {
+    const { iibbSalesBase } = await import("@/lib/invoice-model");
+    const { Prisma } = await import("@prisma/client");
+    const D = (v: string) => new Prisma.Decimal(v);
+    expect(iibbSalesBase({ taxedNetAmount: D("1000"), netWithoutVatBreakdownAmount: D("10"), nonTaxedAmount: D("5"), exemptAmount: D("200") }).toFixed(2)).toBe("1215.00");
+  });
+});

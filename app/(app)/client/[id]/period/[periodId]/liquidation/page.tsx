@@ -5,6 +5,8 @@ import { requireAuthenticatedProfile, requirePeriodAccess, guardPage } from "@/l
 import { ROLES_READ, ROLES_UPDATE, roleAllows } from "@/lib/auth/roles";
 import { VAT_CREDIT_ADJUSTMENT_LABELS, VAT_CREDIT_ADJUSTMENT_REGIMES } from "@/lib/vat-position-input";
 import { VatPositionForm } from "./vat-position-form";
+import { IibbPositionForm } from "./iibb-position-form";
+import { jurisdictionLabel } from "@/lib/iibb/jurisdictions";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
 import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-calc";
@@ -16,7 +18,6 @@ import { LIQUIDATION_RATE_NOTE } from "@/lib/legacy-iibb-rate";
 export const dynamic = "force-dynamic";
 
 const m = (d: Prisma.Decimal) => formatMoney(d.toFixed(2));
-const clampPos = (d: Prisma.Decimal) => (d.isNegative() ? new Prisma.Decimal(0) : d);
 
 export default async function LiquidationPage({ params }: { params: Promise<{ id: string; periodId: string }> }) {
     const { id, periodId } = await params;
@@ -30,7 +31,8 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
         const found = await prisma.period.findFirst({
             where: { id: periodId, organizationId },
             include: {
-                client: { select: { name: true } },
+                client: { select: { name: true, activities: { select: { code: true, description: true }, orderBy: { code: "asc" } } } },
+                iibbPosition: true,
                 vatSettings: { select: { previousTechnicalBalance: true, previousTechnicalBalanceReference: true, previousFreeBalance: true, previousFreeBalanceReference: true } },
                 vatCreditAdjustments: { select: { regime: true, contributionsAmount: true, computableAmount: true, reference: true } },
             },
@@ -38,7 +40,28 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
         if (!found) throw new NotFoundError();
         const liquidation = await loadPeriodLiquidationInput(prisma, { organizationId, periodId: found.id });
         if (!liquidation) throw new NotFoundError();
-        return { ...found, liquidation, role };
+        const pos = found.iibbPosition ?? null;
+        const s2 = (d: Prisma.Decimal | null | undefined) => (d ? d.toFixed(2) : "");
+        const iibbJurisdiction = liquidation.client.iibbJurisdiction ?? null;
+        return {
+            ...found,
+            liquidation,
+            role,
+            iibbJurisdictionLabel: iibbJurisdiction ? jurisdictionLabel(iibbJurisdiction) : null,
+            // Archivos del F.5680: sólo el diseño de Santa Cruz está verificado.
+            f5680: iibbJurisdiction === "920",
+            activities: (found.client.activities ?? []).map((a) => `${a.code} ${a.description}`),
+            iibbFiled: pos && (pos.filedTaxAmount || pos.filedDeductionsAmount || pos.filedBalanceDgr || pos.filedBalanceTaxpayer)
+                ? { verifier: pos.filedVerifier, tax: pos.filedTaxAmount, deductions: pos.filedDeductionsAmount, balanceDgr: pos.filedBalanceDgr, balanceTaxpayer: pos.filedBalanceTaxpayer }
+                : null,
+            iibbPositionValues: {
+                previousBalance: s2(pos?.previousBalance), paymentsOnAccount: s2(pos?.paymentsOnAccount),
+                otherCredits: s2(pos?.otherCredits), otherDebits: s2(pos?.otherDebits), reference: pos?.reference ?? "",
+                filedVerifier: pos?.filedVerifier ?? "", filedDate: pos?.filedDate ? pos.filedDate.toISOString().slice(0, 10) : "",
+                filedTaxAmount: s2(pos?.filedTaxAmount), filedDeductionsAmount: s2(pos?.filedDeductionsAmount),
+                filedBalanceDgr: s2(pos?.filedBalanceDgr), filedBalanceTaxpayer: s2(pos?.filedBalanceTaxpayer),
+            },
+        };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
     const period = guard.data;
@@ -165,41 +188,109 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
                 })}
             />
 
-            {/* IIBB Section */}
-            <div className="card">
+            {/* IIBB: estructura de la DDJJ (F.5680 Santa Cruz y equivalentes) */}
+            <div className="card" style={{ marginBottom: "var(--spacing-xl)" }}>
                 <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "var(--spacing-md)", borderBottom: "1px solid var(--border)", paddingBottom: "var(--spacing-sm)" }}>
-                    Ingresos Brutos (IIBB)
+                    Ingresos Brutos (IIBB){period.iibbJurisdictionLabel ? ` — ${period.iibbJurisdictionLabel}` : ""}
                 </h2>
 
+                <h3 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-sm)" }}>Liquidación del impuesto</h3>
+                {period.activities.length > 0 && (
+                    <p style={{ color: "var(--secondary)", fontSize: "0.8125rem", marginBottom: "var(--spacing-sm)" }}>
+                        Actividades: {period.activities.join(" · ")}
+                    </p>
+                )}
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-sm)" }}>
-                    <span>Base Imponible IIBB</span>
+                    <span>Base imponible (ventas sin IVA: gravado + no gravado + exento)</span>
                     <span style={{ fontWeight: 500 }}>${m(r.iibb.base)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
-                    <span>Impuesto Determinado ({r.iibb.rate.toString()}%)</span>
+                    <span>Total liquidación del impuesto ({r.iibb.rate.toString()}%)</span>
                     <span style={{ fontWeight: 500 }}>${m(r.iibb.tax)}</span>
                 </div>
                 <p style={{ color: "var(--secondary)", fontSize: "0.8125rem", marginTop: "calc(-1 * var(--spacing-sm))", marginBottom: "var(--spacing-md)" }}>
                     {LIQUIDATION_RATE_NOTE}
                 </p>
 
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
-                    <span>Retenciones / Percepciones / SIRCREB</span>
-                    <span style={{ fontWeight: 500 }}>- ${m(r.iibb.retentions)}</span>
+                <h3 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-sm)" }}>Deducciones</h3>
+                {([
+                    ["Saldo a favor de períodos anteriores", r.iibb.previousBalance, null],
+                    ["Total de retenciones", r.iibb.withholdings, "Retenciones de IIBB y SIRTAC"],
+                    ["Total de percepciones aduaneras", r.iibb.customsPerceptions, null],
+                    ["Total de percepciones", r.iibb.perceptions, null],
+                    ["Total de recaudaciones bancarias", r.iibb.bankCollections, "SIRCREB"],
+                    ["Total de pagos a cuenta", r.iibb.paymentsOnAccount, null],
+                    ["Otros créditos", r.iibb.otherCredits, null],
+                    ["Otros débitos", r.iibb.otherDebits, "suman al impuesto"],
+                ] as const).map(([label, value, hint]) => (
+                    <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: "var(--spacing-md)", marginBottom: "var(--spacing-xs)" }}>
+                        <span>{label}{hint ? <span style={{ color: "var(--secondary)", fontSize: "0.8125rem" }}> ({hint})</span> : null}</span>
+                        <span style={{ fontWeight: 500, whiteSpace: "nowrap" }}>${m(value)}</span>
+                    </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "var(--spacing-sm) 0", borderTop: "1px dashed var(--border)", marginBottom: "var(--spacing-sm)" }}>
+                    <span style={{ fontWeight: 600 }}>Total deducciones</span>
+                    <span style={{ fontWeight: 600 }}>${m(r.iibb.totalDeductions)}</span>
                 </div>
+                {!r.iibb.excludedOtherJurisdictions.isZero() && (
+                    <p role="note" style={{ color: "var(--secondary)", fontSize: "0.8125rem", marginBottom: "var(--spacing-sm)" }}>
+                        No se computan ${m(r.iibb.excludedOtherJurisdictions)} de retenciones/percepciones de otras jurisdicciones (ver Impuestos).
+                    </p>
+                )}
 
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: "var(--spacing-lg)", padding: "var(--spacing-md)", backgroundColor: "var(--surface-hover)", borderRadius: "var(--radius-md)" }}>
-                    <span style={{ fontSize: "1.25rem", fontWeight: "bold" }}>Saldo a Pagar IIBB</span>
-                    <span style={{ fontSize: "1.25rem", fontWeight: "bold", color: r.iibb.payable.greaterThan(0) ? "var(--error)" : "var(--success)" }}>
-                        ${m(clampPos(r.iibb.payable))}
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: "var(--spacing-md)", padding: "var(--spacing-md)", backgroundColor: "var(--surface-hover)", borderRadius: "var(--radius-md)" }}>
+                    <span style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{r.iibb.balanceTaxpayer.isZero() ? "Saldo a favor de DGR" : "Saldo a favor del contribuyente"}</span>
+                    <span style={{ fontSize: "1.25rem", fontWeight: "bold", color: r.iibb.balanceTaxpayer.isZero() && !r.iibb.balanceDgr.isZero() ? "var(--error)" : "var(--success)" }}>
+                        ${m(r.iibb.balanceTaxpayer.isZero() ? r.iibb.balanceDgr : r.iibb.balanceTaxpayer)}
                     </span>
                 </div>
-                {r.iibb.payable.isNegative() && (
-                    <div style={{ textAlign: "right", marginTop: "var(--spacing-xs)", color: "var(--success)", fontSize: "0.875rem" }}>
-                        Saldo a favor: ${m(r.iibb.payable.abs())}
+
+                {period.iibbFiled && (
+                    <div style={{ marginTop: "var(--spacing-lg)" }}>
+                        <h3 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-sm)" }}>
+                            Control contra la DDJJ presentada{period.iibbFiled.verifier ? ` (verificador ${period.iibbFiled.verifier})` : ""}
+                        </h3>
+                        <table style={{ width: "100%", fontSize: "0.875rem", borderCollapse: "collapse" }}>
+                            <thead>
+                                <tr><th style={{ textAlign: "left" }}>Concepto</th><th style={{ textAlign: "right" }}>Cálculo</th><th style={{ textAlign: "right" }}>Presentada</th><th style={{ textAlign: "right" }}>Diferencia</th></tr>
+                            </thead>
+                            <tbody>
+                                {([
+                                    ["Total liquidación del impuesto", r.iibb.tax, period.iibbFiled.tax],
+                                    ["Total deducciones", r.iibb.totalDeductions, period.iibbFiled.deductions],
+                                    ["Saldo a favor de DGR", r.iibb.balanceDgr, period.iibbFiled.balanceDgr],
+                                    ["Saldo a favor del contribuyente", r.iibb.balanceTaxpayer, period.iibbFiled.balanceTaxpayer],
+                                ] as const).filter(([, , filed]) => filed !== null).map(([label, calc, filed]) => {
+                                    const diff = calc.minus(filed!);
+                                    return (
+                                        <tr key={label}>
+                                            <td>{label}</td>
+                                            <td style={{ textAlign: "right" }}>${m(calc)}</td>
+                                            <td style={{ textAlign: "right" }}>${m(filed!)}</td>
+                                            <td style={{ textAlign: "right", fontWeight: 600, color: diff.isZero() ? "var(--success)" : "var(--error)" }}>{diff.isZero() ? "OK" : `$${m(diff)}`}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
                 )}
+
+                {period.f5680 && <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap", marginTop: "var(--spacing-lg)" }}>
+                    <span style={{ color: "var(--secondary)", fontSize: "0.875rem", alignSelf: "center" }}>Archivos para importar en el F.5680 (Mis Aplicaciones Web):</span>
+                    {(["percepciones", "retenciones", "bancarias"] as const).map((kind) => (
+                        <a key={kind} className="btn btn-secondary" href={`/api/periods/${periodId}/iibb-export?kind=${kind}`}>
+                            TXT {kind}
+                        </a>
+                    ))}
+                </div>}
             </div>
+
+            <IibbPositionForm
+                periodId={periodId}
+                canEdit={roleAllows(ROLES_UPDATE, period.role) && period.status === "OPEN"}
+                initial={period.iibbPositionValues}
+            />
         </div>
     );
 }

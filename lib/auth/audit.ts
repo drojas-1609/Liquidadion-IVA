@@ -36,6 +36,7 @@ export const AUDIT_ACTIONS = [
   // Posición de IVA cargada por el estudio (PUT /api/periods/[id]/vat-position):
   // saldo técnico anterior y ajustes al crédito fiscal por contribuciones.
   "period.vat_position_change",
+  "period.iibb_position_change",
   // Corrección de comprobantes manuales (PATCH / DELETE /api/invoices/[id])
   "invoice.update",
   "invoice.delete",
@@ -62,6 +63,7 @@ export const AUDIT_ACTIONS = [
   "supplier.other_taxes_rule",
   // Descarga del paquete de presentación de IVA (borrador o versión cerrada).
   "vat.package.export",
+  "iibb.f5680.export",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
   // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
   "arca.cuit_lookup",
@@ -141,6 +143,7 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "invoice.classification_change": ["periodId", "category", "count", "changedFields"],
   // Modo (DRAFT/FINAL), versión y huella del ZIP entregado. Sin importes.
   "vat.package.export": ["periodId", "clientId", "month", "year", "mode", "version", "packageSha256"],
+  "iibb.f5680.export": ["periodId", "kind", "count", "fileSha256"],
   // Reconstruye cómo se obtuvo una liquidación. Coeficientes como strings
   // decimales EXACTOS (nunca float). Sin CUIT, nombres ni importes.
   "period.vat_settings_change": [
@@ -157,6 +160,7 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   // Sólo NOMBRES de campo y regímenes (catálogo cerrado). NUNCA importes ni
   // referencias (texto libre).
   "period.vat_position_change": ["changedFields", "regimesBefore", "regimesAfter"],
+  "period.iibb_position_change": ["changedFields"],
   "period.update": [],
   // Corrección de comprobantes manuales. Identifican el comprobante (código,
   // punto de venta y número) sin datos personales ni importes. Los "Before" y

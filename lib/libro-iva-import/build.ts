@@ -4,6 +4,7 @@ import { D, ZERO, sum } from "../decimal";
 import {
     computeLineVat,
     computeVoucherTotal,
+    iibbSalesBase,
     directComputableOf,
     purchaseHasNoVatBreakdown,
     voucherSign,
@@ -605,7 +606,7 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
         exchangeRate: D(1),
         directComputableVatCreditAmount: directComputableOf(lines),
         reportedComputableVatCreditAmount: reportedCredit,
-        grossIncomeTaxBaseAmount: category === "SALES" ? amounts.taxedNetAmount.plus(amounts.netWithoutVatBreakdownAmount) : null,
+        grossIncomeTaxBaseAmount: category === "SALES" ? iibbSalesBase(amounts) : null,
         voucherTotalAmount: computedTotal,
         turivaRefundAmount: header.turivaRefund.abs(),
         lidSection: section,

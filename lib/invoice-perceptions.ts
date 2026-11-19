@@ -88,6 +88,9 @@ export type PerceptionAction =
 
 const positive = (d: Prisma.Decimal | null): d is Prisma.Decimal => d !== null && d.greaterThan(0);
 
+/** Diferencia de redondeo admitida al conciliar una percepción informada sin número (observado: hasta 0,05 en un agente). */
+const NUMBERLESS_TOLERANCE = new Prisma.Decimal("0.05");
+
 /**
  * Acciones para dejar el período conciliado. Función pura: `invoices` son las
  * compras del período; `records`, sus registros de tipo percepción de IVA o
@@ -155,10 +158,17 @@ export function planInvoicePerceptions(invoices: PerceptionInvoice[], records: P
             // del comprobante se borra y la informada se vincula. Sólo con una coincidencia única.
             const number = last8Digits(inv.number);
             const credit = isCreditNote(inv);
-            const candidates = (!linked || linked.fromInvoice) && agentCuit !== null && number !== null
+            const reportedOfAgent = (!linked || linked.fromInvoice) && agentCuit !== null
                 ? records.filter((r) => r.invoiceId === null && !taken.has(r.id) && r.type === IIBB_PERCEPTION_TYPE && r.importSource
-                    && r.agentCuit === agentCuit && last8Digits(r.voucherNumber) === number && (r.voucherKind === "C") === credit)
+                    && r.agentCuit === agentCuit && (r.voucherKind === "C") === credit)
                 : [];
+            let candidates = number === null ? [] : reportedOfAgent.filter((r) => r.voucherNumber !== null && last8Digits(r.voucherNumber) === number);
+            if (candidates.length === 0) {
+                // Informada sin número (descarga de ASIP, Santa Cruz): misma fecha e importe con
+                // tolerancia de redondeo del agente (±0,05). Sólo con una coincidencia única.
+                candidates = reportedOfAgent.filter((r) => r.voucherNumber === null && r.date.getTime() === date.getTime()
+                    && r.amount.minus(amount).abs().lessThanOrEqualTo(NUMBERLESS_TOLERANCE));
+            }
             if (candidates.length === 1) {
                 if (linked) actions.push({ kind: "delete", recordId: linked.id });
                 actions.push({ kind: "link", recordId: candidates[0].id, invoiceId: inv.id });

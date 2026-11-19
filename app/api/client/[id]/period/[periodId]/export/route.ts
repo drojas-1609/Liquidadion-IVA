@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateLiquidationExcel } from "@/lib/excel";
 import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-calc";
+import { localIibbJurisdiction } from "@/lib/liquidation-totals";
 import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { serializeLiquidation } from "@/lib/serializers";
 import {
@@ -50,7 +51,7 @@ export const GET = withApiAuthz(
         // 2 · consultar el period y sus datos (ya autorizado)
         const full = await prisma.period.findFirst({
             where: { id: periodId, organizationId },
-            include: { invoices: { include: { vatLines: true } }, taxRecords: true, client: true, vatSettings: true, vatCreditAdjustments: true },
+            include: { invoices: { include: { vatLines: true } }, taxRecords: true, client: { include: { jurisdictions: { select: { jurisdictionCode: true } } } }, vatSettings: true, vatCreditAdjustments: true, iibbPosition: true },
         });
         if (!full) throw new NotFoundError();
 
@@ -59,7 +60,10 @@ export const GET = withApiAuthz(
         // generar el archivo ni auditar.
         let liquidation: LiquidationResult;
         try {
-            liquidation = computeLiquidation(full);
+            liquidation = computeLiquidation({
+                ...full,
+                client: { defaultIibbRate: full.client.defaultIibbRate, iibbJurisdiction: localIibbJurisdiction(full.client) },
+            });
         } catch (err) {
             if (err instanceof MissingGlobalProrationCoefficientError) throw new ConflictError(err.message);
             throw err;

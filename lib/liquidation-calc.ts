@@ -45,6 +45,11 @@ import {
  *    favor de libre disponibilidad. Retención o percepción sale del tipo
  *    (catálogo cerrado lib/tax-types) y la aduanera de `nature`.
  *  - Base IIBB       = Σ_ventas  signo × grossIncomeTaxBaseAmount
+ *    (gravado + sin discriminar + no gravado + exento: iibbSalesBase)
+ *  - IIBB (estructura DDJJ F.5680): impuesto − saldo anterior − retenciones
+ *    (incl. SIRTAC) − percepciones − aduaneras − bancarias (SIRCREB) − pagos a
+ *    cuenta − otros créditos + otros débitos. Cliente local: sólo deducciones de
+ *    su jurisdicción (o sin jurisdicción).
  *  El signo sale exclusivamente del código oficial del comprobante. Las filas
  *  heredadas sin representar se liquidan EXACTAMENTE como antes. Las
  *  percepciones informadas en el comprobante NO entran (fase F); las de
@@ -59,6 +64,16 @@ export interface TaxRecordForCalc {
   amount: Prisma.Decimal;
   /** Detalle F.2051: CUSTOMS_PERCEPTION separa la percepción aduanera. */
   nature?: string | null;
+  /** IIBB: jurisdicción de la deducción (código de la Comisión Arbitral); null = sin informar. */
+  jurisdictionCode?: string | null;
+}
+
+/** Datos de la DDJJ de IIBB que carga el estudio (PeriodIibbPosition). */
+export interface IibbPositionForCalc {
+  previousBalance: Prisma.Decimal;
+  paymentsOnAccount: Prisma.Decimal;
+  otherCredits: Prisma.Decimal;
+  otherDebits: Prisma.Decimal;
 }
 
 export type VatCreditAdjustmentRegimeLike = "LEY_27541_ANEXO_I" | "LEY_27467_ART_91";
@@ -71,7 +86,14 @@ export interface VatCreditAdjustmentForCalc {
 export interface PeriodForCalc {
   invoices: InvoiceForCalc[];
   taxRecords: TaxRecordForCalc[];
-  client: { defaultIibbRate: Prisma.Decimal | null };
+  /**
+   * `iibbJurisdiction`: jurisdicción de la DDJJ local (cliente inscripto en una
+   * sola jurisdicción). Con ella, las deducciones de OTRA jurisdicción no se
+   * computan (quedan en `excludedOtherJurisdictions`); las sin jurisdicción sí.
+   */
+  client: { defaultIibbRate: Prisma.Decimal | null; iibbJurisdiction?: string | null };
+  /** Posición de IIBB del período; ausente = sin saldo anterior ni otros conceptos. */
+  iibbPosition?: IibbPositionForCalc | null;
   /** Configuración de IVA del período; ausente = NONE, sin coeficiente, sin saldo anterior. */
   vatSettings?: (PeriodVatSettingsLike & { previousTechnicalBalance?: Prisma.Decimal | null; previousFreeBalance?: Prisma.Decimal | null }) | null;
   /** Ajustes al crédito fiscal por contribuciones a la Seguridad Social; ausente = ninguno. */
@@ -132,12 +154,34 @@ export interface LiquidationResult {
     /** Saldo a favor de libre disponibilidad del contribuyente (≥ 0). */
     freeBalanceInFavor: Prisma.Decimal;
   };
+  /**
+   * IIBB con la estructura de la DDJJ (F.5680 Santa Cruz): impuesto
+   * determinado y deducciones por concepto. Retenciones = RETENCION IIBB +
+   * SIRTAC (la DDJJ 10/2026 declaró SIRTAC como retenciones); recaudaciones
+   * bancarias = SIRCREB.
+   */
   iibb: {
     rate: Prisma.Decimal;
     base: Prisma.Decimal;
     tax: Prisma.Decimal;
+    /** Retenciones + percepciones + aduaneras + recaudaciones bancarias computadas. */
     retentions: Prisma.Decimal;
+    withholdings: Prisma.Decimal;
+    perceptions: Prisma.Decimal;
+    customsPerceptions: Prisma.Decimal;
+    bankCollections: Prisma.Decimal;
+    previousBalance: Prisma.Decimal;
+    paymentsOnAccount: Prisma.Decimal;
+    otherCredits: Prisma.Decimal;
+    otherDebits: Prisma.Decimal;
+    /** Saldo anterior + retenciones/percepciones/recaudaciones + pagos a cuenta + otros créditos. */
+    totalDeductions: Prisma.Decimal;
+    /** Deducciones de otra jurisdicción, no computadas en esta DDJJ. */
+    excludedOtherJurisdictions: Prisma.Decimal;
+    /** impuesto + otros débitos − deducciones. Positivo: a favor de la DGR. */
     payable: Prisma.Decimal;
+    balanceDgr: Prisma.Decimal;
+    balanceTaxpayer: Prisma.Decimal;
   };
 }
 
@@ -217,10 +261,26 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
   const iibbRate = period.client.defaultIibbRate ?? D("3");
   const iibbBase = sum(sales.map((s) => s.grossIncomeTaxBase));
   const iibbTax = roundMoney(D(iibbBase).times(iibbRate).div(100));
-  const iibbRetentions = sum(
-    period.taxRecords.filter((t) => isIibbRetention(t.type)).map((t) => t.amount),
-  );
-  const iibbPayable = sub(iibbTax, iibbRetentions);
+  const iibbJur = period.client.iibbJurisdiction ?? null;
+  const iibbAll = period.taxRecords.filter((t) => isIibbRetention(t.type));
+  const counted = iibbAll.filter((t) => iibbJur === null || t.jurisdictionCode == null || t.jurisdictionCode === iibbJur);
+  const excludedOther = sum(iibbAll.filter((t) => !counted.includes(t)).map((t) => t.amount));
+  const ofTypes = (...types: string[]) => sum(counted.filter((t) => types.includes(t.type)).map((t) => t.amount));
+  const iibbCustoms = sum(counted.filter((t) => t.type === "PERCEPCION IIBB" && t.nature === "CUSTOMS_PERCEPTION").map((t) => t.amount));
+  const iibbPerceptions = sub(ofTypes("PERCEPCION IIBB"), iibbCustoms);
+  const iibbWithholdings = ofTypes("RETENCION IIBB", "SIRTAC");
+  const iibbBank = ofTypes("SIRCREB");
+  const iibbRetentions = sum(counted.map((t) => t.amount));
+  const pos = period.iibbPosition;
+  for (const v of [pos?.previousBalance, pos?.paymentsOnAccount, pos?.otherCredits, pos?.otherDebits]) {
+    if (v && v.isNegative()) throw new Error("Liquidación: importe negativo en la posición de IIBB.");
+  }
+  const iibbPrev = pos?.previousBalance ?? D("0");
+  const iibbPayments = pos?.paymentsOnAccount ?? D("0");
+  const iibbOtherCredits = pos?.otherCredits ?? D("0");
+  const iibbOtherDebits = pos?.otherDebits ?? D("0");
+  const iibbDeductions = sum([iibbPrev, iibbRetentions, iibbPayments, iibbOtherCredits]);
+  const iibbPayable = sub(iibbTax.plus(iibbOtherDebits), iibbDeductions);
 
   return {
     sales: salesTotals,
@@ -253,7 +313,19 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
       base: iibbBase,
       tax: iibbTax,
       retentions: iibbRetentions,
+      withholdings: iibbWithholdings,
+      perceptions: iibbPerceptions,
+      customsPerceptions: iibbCustoms,
+      bankCollections: iibbBank,
+      previousBalance: iibbPrev,
+      paymentsOnAccount: iibbPayments,
+      otherCredits: iibbOtherCredits,
+      otherDebits: iibbOtherDebits,
+      totalDeductions: iibbDeductions,
+      excludedOtherJurisdictions: excludedOther,
       payable: iibbPayable,
+      balanceDgr: iibbPayable.isPositive() && !iibbPayable.isZero() ? iibbPayable : D("0"),
+      balanceTaxpayer: iibbPayable.isNegative() ? iibbPayable.negated() : D("0"),
     },
   };
 }
