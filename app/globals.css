@@ -692,6 +692,7 @@ a.card:hover { border-color: var(--primary); box-shadow: var(--shadow-md), var(-
   padding: var(--spacing-lg) var(--spacing-md);
   background: var(--surface);
   border-right: 1px solid var(--border);
+  overflow-y: auto;
 }
 
 .app-brand { display: flex; align-items: center; gap: 0.65rem; padding: 0 0.25rem; }
@@ -735,7 +736,118 @@ a.card:hover { border-color: var(--primary); box-shadow: var(--shadow-md), var(-
   padding-bottom: 8rem;
 }
 
+/* ── Módulos del cliente (barra lateral) ──────────────────────────────── */
+
+.client-menu { display: flex; flex-direction: column; gap: 0.35rem; padding-top: var(--spacing-md); border-top: 1px solid var(--border); }
+
+.client-menu-head { display: flex; flex-direction: column; padding: 0.5rem 0.75rem; border-radius: var(--radius-md); background: var(--surface-2); margin-bottom: 0.25rem; }
+.client-menu-head:hover { background: var(--surface-hover); }
+.client-menu-head small { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.client-menu-head strong { font-size: 0.85rem; line-height: 1.25; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-menu-head span { font-size: 0.75rem; color: var(--text-muted); }
+
+.menu-group summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.menu-group summary::-webkit-details-marker { display: none; }
+.menu-group summary::after { content: "▸"; font-size: 0.7rem; transition: transform 0.15s; }
+.menu-group[open] summary::after { transform: rotate(90deg); }
+.menu-group summary:hover { color: var(--foreground); }
+
+.menu-item {
+  display: block;
+  padding: 0.35rem 0.75rem 0.35rem 1.1rem;
+  margin-left: 0.4rem;
+  border-left: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.menu-item:hover { color: var(--foreground); background: var(--surface-hover); }
+.menu-item[aria-current="page"] { color: #bfdbfe; border-left-color: var(--primary); background: var(--primary-soft); }
+.menu-item.is-soon { cursor: default; opacity: 0.6; }
+.menu-item.is-soon:hover { background: none; color: var(--text-muted); }
+.menu-item em { font-style: normal; font-size: 0.68rem; margin-left: 0.2rem; padding: 0 0.35rem; border-radius: var(--radius-full); background: var(--neutral-soft); }
+
+.menu-period { display: block; margin: 0.15rem 0 0.3rem 0.4rem; }
+.menu-period select { width: 100%; padding: 0.3rem 0.5rem; font-size: 0.8rem; }
+.menu-period-single { margin: 0.1rem 0 0.3rem 1.1rem; font-size: 0.78rem; color: var(--text-muted); }
+
+/* ── Barra superior: selector de cliente ───────────────────────────────── */
+
+.app-topbar { display: flex; justify-content: flex-start; margin: calc(-1 * var(--spacing-md)) 0 var(--spacing-lg); }
+
+.client-switcher { position: relative; width: min(100%, 30rem); }
+
+.client-switcher-button {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.client-switcher-button:hover { border-color: var(--border-strong); }
+.client-switcher-button svg { flex: none; color: var(--text-muted); }
+.client-switcher-button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-switcher-button small { color: var(--text-muted); margin-left: 0.35rem; }
+.client-switcher-button .is-placeholder { color: var(--text-muted); }
+
+.client-switcher-pop {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-lg);
+}
+.client-switcher-pop input { width: 100%; margin-bottom: 0.4rem; }
+.client-switcher-pop ul { list-style: none; margin: 0; padding: 0; max-height: 18rem; overflow-y: auto; }
+.client-switcher-pop li button {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+.client-switcher-pop li button.is-cursor { background: var(--surface-hover); }
+.client-switcher-pop li[aria-selected="true"] strong { color: #bfdbfe; }
+.client-switcher-pop li small { color: var(--text-muted); white-space: nowrap; }
+.client-switcher-pop .is-empty { padding: 0.45rem 0.6rem; font-size: 0.85rem; color: var(--text-muted); }
+.client-switcher-clear { margin-top: 0.35rem; padding: 0.3rem 0.6rem; border: none; background: none; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; }
+.client-switcher-clear:hover { color: var(--foreground); }
+
 @media (max-width: 800px) {
+  .client-menu { width: 100%; }
+  .app-topbar { margin-top: 0; }
   .app-shell { flex-direction: column; }
   .app-sidebar { position: static; height: auto; width: auto; flex-direction: row; align-items: center; flex-wrap: wrap; }
   .app-nav { flex-direction: row; }
