@@ -69,6 +69,9 @@ export const AUDIT_ACTIONS = [
   "chart.account_update",
   "chart.model_apply",
   "client.accounting_profile",
+  "journal.entry_generate",
+  "journal.tax_payment",
+  "journal.entry_delete",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
   // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
   "arca.cuit_lookup",
@@ -154,6 +157,9 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "chart.account_update": ["code", "changedFields"],
   "chart.model_apply": ["model", "accounts"],
   "client.accounting_profile": ["mipymeCategory", "chartModel", "accountsCreated"],
+  "journal.entry_generate": ["kind", "number", "replaced"],
+  "journal.tax_payment": ["tax", "number", "idcbPercent"],
+  "journal.entry_delete": ["kind", "number"],
   // Reconstruye cómo se obtuvo una liquidación. Coeficientes como strings
   // decimales EXACTOS (nunca float). Sin CUIT, nombres ni importes.
   "period.vat_settings_change": [

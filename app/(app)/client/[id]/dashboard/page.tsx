@@ -54,6 +54,7 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
                 </div>
                 <div style={{ display: "flex", gap: "var(--spacing-sm)", alignItems: "center", flexWrap: "wrap" }}>
                     <Link href={`/client/${client.id}/accounts`} className="btn btn-secondary">Plan de cuentas</Link>
+                    <Link href={`/client/${client.id}/journal`} className="btn btn-secondary">Libro diario</Link>
                     <ClientActions clientId={client.id} clientName={client.name} canEdit={canEdit} canDelete={canDelete} />
                 </div>
             </div>
