@@ -46,7 +46,7 @@ export function JournalActions({ clientId, periods, payAccounts }: {
         try {
             const { ok, json } = await send(`/api/clients/${encodeURIComponent(clientId)}/journal/tax-payment`, "POST", pay);
             if (!ok) setPayMsg({ tone: "alert", text: json?.error?.message ?? "No se pudo registrar el pago." });
-            else { setPayMsg({ tone: "status", text: `Pago registrado: asiento N.º ${json.number} (débitos y créditos computable ${json.idcbPercent} %).` }); router.refresh(); }
+            else { setPayMsg({ tone: "status", text: `Pago registrado: asiento N.º ${json.number} (débitos y créditos computable ${json.idcbPercent} %).` }); setPay((p) => ({ ...p, capital: "", interest: "", idcb: "", reference: "" })); router.refresh(); }
         } catch { setPayMsg({ tone: "alert", text: "No se pudo registrar el pago." }); }
     }); };
 
