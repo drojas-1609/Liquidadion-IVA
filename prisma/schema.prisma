@@ -232,6 +232,7 @@ model Client {
   mipymeValidUntil    DateTime? @db.Date
   chartAccounts    ChartAccount[]
   journalEntries   JournalEntry[]
+  documentBackups  DocumentBackup[]
   jurisdictions    ClientJurisdiction[]
   activities       ClientActivity[]
 
@@ -989,6 +990,65 @@ model JournalLine {
   @@unique([entryId, position])
   @@index([accountId])
   @@index([organizationId])
+}
+
+/// Cuenta de Google Drive conectada por el estudio para el respaldo de
+/// comprobantes (Fase C4). El refresh token va cifrado (AES-256-GCM, clave
+/// DRIVE_TOKEN_KEY); nunca se devuelve a la pantalla.
+model DriveConnection {
+  id                 String   @id @default(cuid())
+  organizationId     String   @unique
+  email              String?  @db.VarChar(200)
+  refreshTokenSealed String
+  rootFolderId       String   @db.VarChar(100)
+  rootFolderName     String   @db.VarChar(200)
+  connectedAt        DateTime @default(now())
+  connectedById      String?  @db.Uuid
+  updatedAt          DateTime @updatedAt
+}
+
+/// Caché de carpetas creadas en Drive (ruta relativa a la raíz → id).
+model DriveFolder {
+  id             String   @id @default(cuid())
+  organizationId String
+  path           String   @db.VarChar(600)
+  folderId       String   @db.VarChar(100)
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, path])
+}
+
+/// Copia de respaldo de un archivo cargado en el sistema. Queda PENDING con el
+/// contenido hasta subirlo a Drive; al subirlo se borra el contenido. Un mismo
+/// archivo (sha256) en la misma categoría del cliente se respalda una sola vez.
+model DocumentBackup {
+  id             String    @id @default(cuid())
+  organizationId String
+  clientId       String
+  periodId       String?
+  category       String    @db.VarChar(20)
+  source         String    @db.VarChar(40)
+  description    String    @db.VarChar(200)
+  folderPath     String    @db.VarChar(600)
+  fileName       String    @db.VarChar(255)
+  mimeType       String    @db.VarChar(120)
+  size           Int
+  sha256         String    @db.Char(64)
+  content        Bytes?
+  status         String    @default("PENDING") @db.VarChar(10)
+  attempts       Int       @default(0)
+  lastError      String?   @db.VarChar(300)
+  driveFileId    String?   @db.VarChar(100)
+  driveLink      String?   @db.VarChar(300)
+  createdAt      DateTime  @default(now())
+  uploadedAt     DateTime?
+  createdById    String?   @db.Uuid
+
+  client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([clientId, category, sha256])
+  @@index([organizationId, status])
+  @@index([clientId, organizationId, createdAt])
 }
 
 model ClientJurisdiction {

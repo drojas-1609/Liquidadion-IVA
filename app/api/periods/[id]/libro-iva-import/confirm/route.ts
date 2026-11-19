@@ -32,6 +32,7 @@ import {
 } from "@/lib/libro-iva-import/service";
 import { startConfirmTiming } from "@/lib/libro-iva-import/timing";
 import { reconcileInvoicePerceptions } from "@/lib/invoice-perceptions";
+import { backupAfterImport } from "@/lib/drive/backup-service";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -131,6 +132,12 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
             if (!sameOperation(replay, files)) throw new ConflictError(OPERATION_REUSED_MESSAGE);
             return NextResponse.json({ ...appliedResult(replay), operationId, replayed: true }, { status: 200 });
         }
+        // Respaldo en Drive de los archivos importados (nunca hace fallar la importación).
+        const cat = files.category === "PURCHASES" ? "IVA_COMPRAS" : "IVA_VENTAS";
+        const what = files.category === "PURCHASES" ? "COMPRAS" : "VENTAS";
+        const fmt = files.format === "LID_TXT" ? "LIBRO IVA DIGITAL" : "MIS COMPROBANTES";
+        await backupAfterImport(prisma, { organizationId, clientId: scope.clientId, periodId: scope.periodId, category: cat, source: "libro-iva-import", description: `${fmt} ${what} COMPROBANTES`, bytes: files.vouchers, profileId });
+        if (files.aliquots && files.aliquots.length > 0) await backupAfterImport(prisma, { organizationId, clientId: scope.clientId, periodId: scope.periodId, category: cat, source: "libro-iva-import", description: `${fmt} ${what} ALICUOTAS`, bytes: files.aliquots, profileId });
         return NextResponse.json({ ...plan.result, operationId }, { status: 201, headers: { "Server-Timing": timing.done() } });
     } catch (err) {
         // La transacción no empezó o ya se revirtió: nada escrito para esta operación.

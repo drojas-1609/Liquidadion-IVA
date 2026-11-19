@@ -15,6 +15,7 @@ import {
 import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_CREATE } from "@/lib/auth/roles";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/auth/errors";
+import { backupAfterImport } from "@/lib/drive/backup-service";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -99,6 +100,7 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
         return { preview, imported: ok.length, reconciled };
     }, { maxWait: 5000, timeout: 10000 });
 
+    await backupAfterImport(prisma, { organizationId, clientId: access.period.clientId, periodId: id, category: "IIBB_RET_PERC", source: "iibb-import", description: `IIBB ${result.preview.formatLabel ?? "RETENCIONES Y PERCEPCIONES"}`, bytes: file, profileId });
     return NextResponse.json({ ...serialize(result.preview), imported: result.imported, reconciled: result.reconciled }, { status: 201 });
 });
 
