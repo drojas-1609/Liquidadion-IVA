@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getTrustedOrigin } from "@/lib/auth/origin";
 import { randomBytes } from "node:crypto";
 import { requireAuthenticatedProfile, resolveActiveOrganization, requireOrganizationRole, withApiAuthz } from "@/lib/auth/authz";
 import { ROLES_CONFIG } from "@/lib/auth/roles";
@@ -16,7 +17,8 @@ export const GET = withApiAuthz(async (request: Request) => {
     await requireOrganizationRole(profileId, organizationId, ROLES_CONFIG, { module: "CLIENTS" });
     const cfg = driveOAuthConfig();
     if (!cfg || !driveTokenKey()) throw new ValidationError("Falta configurar en Netlify GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_CLIENT_SECRET y DRIVE_TOKEN_KEY.", "drive");
-    const origin = new URL(request.url).origin;
+    // Origen confiable (en producción request.url trae la URL del deploy, no la del sitio).
+    const origin = getTrustedOrigin(request);
     const state = randomBytes(24).toString("hex");
     const res = NextResponse.redirect(authUrl(cfg.clientId, `${origin}/api/drive/callback`, state), 302);
     res.cookies.set(STATE_COOKIE, `${state}.${organizationId}`, { httpOnly: true, secure: true, sameSite: "lax", path: "/api/drive", maxAge: 600 });

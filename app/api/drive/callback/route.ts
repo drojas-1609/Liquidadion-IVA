@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getTrustedOrigin } from "@/lib/auth/origin";
 import { cookies } from "next/headers";
 import { timingSafeEqual } from "node:crypto";
 import prisma from "@/lib/prisma";
@@ -19,7 +20,8 @@ const back = (origin: string, q: string) => NextResponse.redirect(`${origin}/set
 // refresh token cifrado y ubica (o crea) la carpeta raíz en «Mi unidad».
 export const GET = withApiAuthz(async (request: Request) => {
     const url = new URL(request.url);
-    const origin = url.origin;
+    // Debe coincidir con el redirect_uri de /api/drive/connect.
+    const origin = getTrustedOrigin(request);
     const { profileId } = await requireAuthenticatedProfile();
     const { organizationId } = await resolveActiveOrganization(profileId);
     await requireOrganizationRole(profileId, organizationId, ROLES_CONFIG, { module: "CLIENTS" });
