@@ -93,7 +93,9 @@ export function backupFolderPath(t: BackupTarget): string[] {
 export function backupFileName(t: BackupTarget): string {
     const ext = t.extension.replace(/^\./, "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) || "bin";
     const when = t.month ? `${t.year} ${mm(t.month)}` : String(t.year);
-    return `${when} ${cleanSegment(t.description)} ${cleanSegment(t.client.name)}.${ext}`;
+    // Sin puntos finales antes de la extensión («… S. A. S..pdf» → «… S. A. S.pdf»).
+    const base = `${when} ${cleanSegment(t.description)} ${cleanSegment(t.client.name)}`.replace(/[.\s]+$/, "");
+    return `${base}.${ext}`;
 }
 
 /** Extensión a partir del nombre original o, si no hay, del contenido. */
