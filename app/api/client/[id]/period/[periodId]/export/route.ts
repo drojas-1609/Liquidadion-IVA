@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { generateLiquidationExcel } from "@/lib/excel";
 import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-calc";
 import { localIibbJurisdiction } from "@/lib/liquidation-totals";
+import { previousIibbBalance, iibbPositionWithPrevious } from "@/lib/iibb-previous-balance";
 import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { serializeLiquidation } from "@/lib/serializers";
 import {
@@ -63,6 +64,7 @@ export const GET = withApiAuthz(
             liquidation = computeLiquidation({
                 ...full,
                 client: { defaultIibbRate: full.client.defaultIibbRate, iibbJurisdiction: localIibbJurisdiction(full.client) },
+                iibbPosition: iibbPositionWithPrevious(full.iibbPosition, full.iibbPosition ? null : await previousIibbBalance(prisma, { organizationId, clientId: full.clientId, month: full.month, year: full.year })),
             });
         } catch (err) {
             if (err instanceof MissingGlobalProrationCoefficientError) throw new ConflictError(err.message);

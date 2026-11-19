@@ -55,7 +55,7 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
                 ? { verifier: pos.filedVerifier, tax: pos.filedTaxAmount, deductions: pos.filedDeductionsAmount, balanceDgr: pos.filedBalanceDgr, balanceTaxpayer: pos.filedBalanceTaxpayer }
                 : null,
             iibbPositionValues: {
-                previousBalance: s2(pos?.previousBalance), paymentsOnAccount: s2(pos?.paymentsOnAccount),
+                previousBalance: pos ? s2(pos.previousBalance) : s2(liquidation.iibbPreviousBalanceAuto?.amount), paymentsOnAccount: s2(pos?.paymentsOnAccount),
                 otherCredits: s2(pos?.otherCredits), otherDebits: s2(pos?.otherDebits), reference: pos?.reference ?? "",
                 filedVerifier: pos?.filedVerifier ?? "", filedDate: pos?.filedDate ? pos.filedDate.toISOString().slice(0, 10) : "",
                 filedTaxAmount: s2(pos?.filedTaxAmount), filedDeductionsAmount: s2(pos?.filedDeductionsAmount),
@@ -214,7 +214,9 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
 
                 <h3 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-sm)" }}>Deducciones</h3>
                 {([
-                    ["Saldo a favor de períodos anteriores", r.iibb.previousBalance, null],
+                    ["Saldo a favor de períodos anteriores", r.iibb.previousBalance, period.liquidation.iibbPreviousBalanceAuto
+                        ? `automático: ${period.liquidation.iibbPreviousBalanceAuto.source === "closed" ? "liquidación cerrada" : "DDJJ presentada"} de ${String(period.liquidation.iibbPreviousBalanceAuto.month).padStart(2, "0")}/${period.liquidation.iibbPreviousBalanceAuto.year}`
+                        : null],
                     ["Total de retenciones", r.iibb.withholdings, "Retenciones de IIBB y SIRTAC"],
                     ["Total de percepciones aduaneras", r.iibb.customsPerceptions, null],
                     ["Total de percepciones", r.iibb.perceptions, null],
