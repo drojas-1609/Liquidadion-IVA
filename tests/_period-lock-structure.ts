@@ -173,6 +173,8 @@ const LIQUIDATION_VERSION_MODEL = "periodLiquidationVersion";
  */
 export const CONTENT_WRITE_HELPERS: Readonly<Record<string, { fns: readonly string[]; models: readonly string[] }>> = {
   "lib/invoice-perceptions.ts": { fns: ["reconcileInvoicePerceptions", "releaseInvoicePerceptions"], models: ["taxRecord", "invoice"] },
+  // Tributos de compras llevados a lo declarado en el Libro IVA Digital (sólo esos importes; el total no cambia).
+  "lib/libro-iva-import/tribute-sync-service.ts": { fns: ["applyTributeSync"], models: ["invoice"] },
 };
 
 // ── SQL inventariado ───────────────────────────────────────────────────────

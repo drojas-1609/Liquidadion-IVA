@@ -7,6 +7,7 @@ import { AccessNotice } from "@/app/_components/access-notice";
 import { formatPeriodLabel } from "@/lib/period";
 import { isPeriodClosed } from "@/lib/period-status";
 import { PeriodClosedNotice } from "../_components/period-closed-notice";
+import { TributeSync } from "./tribute-sync";
 import { LibroIvaImport } from "./libro-iva-import";
 import { ArcaSyncPanel } from "./arca-sync-panel";
 
@@ -47,6 +48,7 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
                 turivaIncluded={period.vatSettings?.turivaIncluded === true}
                 prorationMode={period.vatSettings?.creditProrationMode ?? "NONE"}
             />
+            <TributeSync clientId={id} periodId={periodId} />
         </div>
     );
 }

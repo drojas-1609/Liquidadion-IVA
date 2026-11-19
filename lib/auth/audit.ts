@@ -64,6 +64,7 @@ export const AUDIT_ACTIONS = [
   // Descarga del paquete de presentación de IVA (borrador o versión cerrada).
   "vat.package.export",
   "iibb.f5680.export",
+  "invoice.tributes_sync",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
   // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
   "arca.cuit_lookup",
@@ -144,6 +145,7 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   // Modo (DRAFT/FINAL), versión y huella del ZIP entregado. Sin importes.
   "vat.package.export": ["periodId", "clientId", "month", "year", "mode", "version", "packageSha256"],
   "iibb.f5680.export": ["periodId", "kind", "count", "fileSha256"],
+  "invoice.tributes_sync": ["periodId", "applied", "pending", "excludedSuppliers", "filesSha256"],
   // Reconstruye cómo se obtuvo una liquidación. Coeficientes como strings
   // decimales EXACTOS (nunca float). Sin CUIT, nombres ni importes.
   "period.vat_settings_change": [
