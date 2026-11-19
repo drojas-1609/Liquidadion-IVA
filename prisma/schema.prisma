@@ -231,6 +231,7 @@ model Client {
   mipymeManufacturing Boolean   @default(false)
   mipymeValidUntil    DateTime? @db.Date
   chartAccounts    ChartAccount[]
+  journalEntries   JournalEntry[]
   jurisdictions    ClientJurisdiction[]
   activities       ClientActivity[]
 
@@ -933,11 +934,60 @@ model ChartAccount {
   createdById    String?  @db.Uuid
   updatedById    String?  @db.Uuid
 
-  client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+  client       Client        @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+  journalLines JournalLine[]
 
   @@unique([clientId, code])
   @@unique([clientId, role])
   @@index([clientId, organizationId])
+  @@index([organizationId])
+}
+
+/// Asiento del libro diario del cliente (Fase C2b). `sourceKey` identifica un
+/// asiento automático (p. ej. «VAT:<periodId>»): regenerarlo lo reemplaza, no
+/// lo duplica. `periodId` es referencia (sin FK): el diario no es contenido del
+/// período y se puede registrar con el período cerrado. Numeración correlativa
+/// por cliente.
+model JournalEntry {
+  id             String   @id @default(cuid())
+  organizationId String
+  clientId       String
+  number         Int
+  date           DateTime @db.Date
+  kind           String   @db.VarChar(20)
+  description    String   @db.VarChar(200)
+  periodId       String?
+  sourceKey      String?  @db.VarChar(80)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdById    String?  @db.Uuid
+  updatedById    String?  @db.Uuid
+
+  client Client        @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+  lines  JournalLine[]
+
+  @@unique([clientId, number])
+  @@unique([clientId, sourceKey])
+  @@index([clientId, organizationId, date])
+  @@index([organizationId])
+}
+
+/// Línea del asiento: Debe o Haber (exactamente uno mayor que cero).
+model JournalLine {
+  id             String          @id @default(cuid())
+  entryId        String
+  organizationId String
+  accountId      String
+  position       Int
+  debit          Decimal         @default(0) @db.Decimal(15, 2)
+  credit         Decimal         @default(0) @db.Decimal(15, 2)
+  memo           String?         @db.VarChar(200)
+
+  entry   JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  account ChartAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([entryId, position])
+  @@index([accountId])
   @@index([organizationId])
 }
 

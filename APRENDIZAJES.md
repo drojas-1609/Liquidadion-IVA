@@ -205,3 +205,15 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
   código de tabla que el manual no publica se lee del formulario oficial, nunca se supone. Los
   TXT de muestra sirven para entender el diseño; los que se usan para presentar son los que
   ARCA aceptó.
+
+### 2026-11-19 · Libro diario (PR #70): el Deploy Preview falló por tipos
+
+- **Qué pasó:** el build de Netlify cortó en «Running TypeScript» por dos errores (una línea de
+  asiento con `memo` opcional pasada a una función que lo exigía, y un `toFixed` sobre un tipo
+  que podía ser texto en una prueba). Localmente no se vieron.
+- **Causa:** el `tsc` local corre sin el cliente Prisma generado (los motores no se descargan en
+  este entorno) y su salida está llena de ruido de `Decimal`/`any` implícito, que tapó los
+  errores reales del código nuevo.
+- **Regla:** después de `tsc`, filtrar la salida por los archivos nuevos o tocados y revisar cada
+  error que no sea del tipo «Decimal no exportado» o «any implícito»; las funciones auxiliares
+  reciben el tipo mínimo que usan (p. ej. sólo `debit`/`credit`), no el tipo completo de la línea.

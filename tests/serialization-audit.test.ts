@@ -49,6 +49,9 @@ const EXPECTED = {
   "app/api/clients/[id]/accounts/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/accounts/[accountId]/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/accounts/apply-model/route.ts": { models: [], serializer: null },
+  "app/api/periods/[id]/journal/route.ts": { models: [], serializer: null },
+  "app/api/clients/[id]/journal/tax-payment/route.ts": { models: [], serializer: null },
+  "app/api/clients/[id]/journal/[entryId]/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/accounting-profile/route.ts": { models: [], serializer: null },
   // Clasificación por lote: responde sólo el conteo. Paquete: binario ZIP (sin JSON con importes).
   "app/api/periods/[id]/invoice-classification/route.ts": { models: [], serializer: null },

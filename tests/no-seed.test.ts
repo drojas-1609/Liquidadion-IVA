@@ -56,6 +56,6 @@ describe("endpoint de seed eliminado (punto 5)", () => {
     const clientsApi = readdirSync(join(repo, "app/api/clients")).sort();
     expect(clientsApi).toEqual(["[id]", "route.ts"]);
     // Sub-rutas del cliente (plan de cuentas y perfil contable): ninguna se llama «seed».
-    expect(readdirSync(join(repo, "app/api/clients/[id]")).sort()).toEqual(["accounting-profile", "accounts", "route.ts"]);
+    expect(readdirSync(join(repo, "app/api/clients/[id]")).sort()).toEqual(["accounting-profile", "accounts", "journal", "route.ts"]);
   });
 });
