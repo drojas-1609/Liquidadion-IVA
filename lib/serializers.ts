@@ -254,7 +254,10 @@ export interface LiquidationDTO {
     balanceToPay: string;
     freeBalanceInFavor: string;
   };
-  iibb: { rate: string; base: string; tax: string; retentions: string; payable: string };
+  iibb: {
+    rate: string; base: string; tax: string; retentions: string; payable: string;
+    withholdings: string; perceptions: string; customsPerceptions: string; bankCollections: string; previousBalance: string; paymentsOnAccount: string; otherCredits: string; otherDebits: string; totalDeductions: string; excludedOtherJurisdictions: string; balanceDgr: string; balanceTaxpayer: string;
+  };
 }
 
 /** Serializa el resultado (todo Prisma.Decimal) de computeLiquidation a strings. */
@@ -291,6 +294,18 @@ export function serializeLiquidation(r: LiquidationResult): LiquidationDTO {
       tax: money(r.iibb.tax),
       retentions: money(r.iibb.retentions),
       payable: money(r.iibb.payable),
+      withholdings: money(r.iibb.withholdings),
+      perceptions: money(r.iibb.perceptions),
+      customsPerceptions: money(r.iibb.customsPerceptions),
+      bankCollections: money(r.iibb.bankCollections),
+      previousBalance: money(r.iibb.previousBalance),
+      paymentsOnAccount: money(r.iibb.paymentsOnAccount),
+      otherCredits: money(r.iibb.otherCredits),
+      otherDebits: money(r.iibb.otherDebits),
+      totalDeductions: money(r.iibb.totalDeductions),
+      excludedOtherJurisdictions: money(r.iibb.excludedOtherJurisdictions),
+      balanceDgr: money(r.iibb.balanceDgr),
+      balanceTaxpayer: money(r.iibb.balanceTaxpayer),
     },
   };
 }

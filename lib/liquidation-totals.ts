@@ -1,6 +1,7 @@
 import "server-only";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { InvoiceForCalc, PeriodForCalc } from "./liquidation-calc";
+import { previousIibbBalance, iibbPositionWithPrevious, type PreviousIibbBalance } from "./iibb-previous-balance";
 
 /**
  * Entrada de `computeLiquidation` para el período COMPLETO sin cargar cada
@@ -44,9 +45,20 @@ export interface PeriodLiquidationScope {
 export interface PeriodLiquidationInput extends PeriodForCalc {
     /** Comprobantes del período (todas las categorías). */
     invoiceCount: number;
+    /** Saldo a favor de IIBB del período anterior, cuando se toma automáticamente (sin datos cargados). */
+    iibbPreviousBalanceAuto: PreviousIibbBalance | null;
 }
 
 const ZERO = new Prisma.Decimal(0);
+
+/**
+ * Jurisdicción de la DDJJ local de IIBB: cliente inscripto como LOCAL en una
+ * sola jurisdicción. En Convenio Multilateral u otros casos: null (se computan
+ * todas las deducciones, como antes).
+ */
+export function localIibbJurisdiction(c: { iibbRegistration: string | null; jurisdictions: { jurisdictionCode: string }[] }): string | null {
+    return c.iibbRegistration === "LOCAL" && c.jurisdictions.length === 1 ? c.jurisdictions[0].jurisdictionCode : null;
+}
 const z = (v: Prisma.Decimal | null | undefined) => v ?? ZERO;
 
 type Db = Pick<PrismaClient, "period" | "invoice" | "invoiceVatLine">;
@@ -55,13 +67,17 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
     const period = await db.period.findFirst({
         where: { id: scope.periodId, organizationId: scope.organizationId },
         select: {
-            taxRecords: { select: { type: true, amount: true, nature: true } },
-            client: { select: { defaultIibbRate: true } },
+            clientId: true, month: true, year: true,
+            taxRecords: { select: { type: true, amount: true, nature: true, jurisdictionCode: true } },
+            client: { select: { defaultIibbRate: true, iibbRegistration: true, jurisdictions: { select: { jurisdictionCode: true } } } },
+            iibbPosition: { select: { previousBalance: true, paymentsOnAccount: true, otherCredits: true, otherDebits: true } },
             vatSettings: { select: { creditProrationMode: true, globalCoefficient: true, previousTechnicalBalance: true, previousFreeBalance: true } },
             vatCreditAdjustments: { select: { regime: true, computableAmount: true }, orderBy: { regime: "asc" } },
         },
     });
     if (!period) return null;
+    // Sin datos de la DDJJ cargados: saldo anterior desde el período anterior registrado.
+    const auto = period.iibbPosition ? null : await previousIibbBalance(db, { organizationId: scope.organizationId, clientId: period.clientId, month: period.month, year: period.year });
     const inPeriod = { periodId: scope.periodId, organizationId: scope.organizationId };
 
     const [modeled, legacy] = await Promise.all([
@@ -128,7 +144,9 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
     return {
         invoices,
         taxRecords: period.taxRecords,
-        client: period.client,
+        client: { defaultIibbRate: period.client.defaultIibbRate, iibbJurisdiction: localIibbJurisdiction(period.client) },
+        iibbPosition: iibbPositionWithPrevious(period.iibbPosition, auto),
+        iibbPreviousBalanceAuto: period.iibbPosition ? null : auto,
         vatSettings: period.vatSettings,
         vatCreditAdjustments: period.vatCreditAdjustments,
         invoiceCount: [...modeled, ...legacy].reduce((n, g) => n + g._count._all, 0),

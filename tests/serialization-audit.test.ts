@@ -43,6 +43,9 @@ const EXPECTED = {
   // PATCH de la inclusión TurIVA: responde { periodId, turivaIncluded } (sin Decimal).
   "app/api/periods/[id]/vat-settings/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/vat-position/route.ts": { models: [], serializer: null },
+  "app/api/periods/[id]/iibb-position/route.ts": { models: [], serializer: null },
+  "app/api/periods/[id]/iibb-export/route.ts": { models: [], serializer: null },
+  "app/api/periods/[id]/tribute-sync/route.ts": { models: [], serializer: null },
   // Clasificación por lote: responde sólo el conteo. Paquete: binario ZIP (sin JSON con importes).
   "app/api/periods/[id]/invoice-classification/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/invoice-note/route.ts": { models: [], serializer: null },

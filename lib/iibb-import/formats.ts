@@ -30,8 +30,20 @@ import { raise, validCuit, type ImportRowStatus } from "../tax-import/common";
  *    importe (15, coma decimal), 51 caracteres; bancarias = período aaaamm (6) ·
  *    CBU (22) · importe (15, coma decimal), 43 caracteres. Los totales coinciden
  *    con los resúmenes SIRTAC y SIRCREB del mismo período (jurisdicción 920).
- *    Percepciones y percepciones aduaneras vinieron vacías: sin muestra no se
- *    leen.
+ *    Percepciones (53 caracteres), dos variantes del mismo diseño de importación
+ *    del F.5680 (manual «Mis Aplicaciones Web — F.5680 SANTA CRUZ DIU ISIB»:
+ *    fecha 1-10 · CUIT del agente 11-21 · letra 22 · tipo 23 · número 24-38 ·
+ *    importe 39-53; los códigos de letra y tipo se leyeron de los combos del
+ *    formulario el 18/11/2026: letra 1=A 2=B 3=C 4=E 5=M; tipo 1=Factura
+ *    2=Recibo 3=Nota de crédito 4=Nota de débito 5=Otros):
+ *      · codificada (la que acepta el F.5680): número «PPPP-NNNNNNNN»;
+ *      · la que descarga ASIP («percepcionesExport.txt», muestra OOSHEN
+ *        10/2026): tipo y letra como texto e invertidos («1A» factura A, «6A»
+ *        nota de crédito A, «F » factura) y el número sin el comprobante (sólo
+ *        el punto de venta): ARCA la rechaza; acá se lee sin número y se
+ *        concilia por agente, fecha e importe. Notas de crédito con el signo
+ *        dentro del campo («00000000-525,62»).
+ *    Percepciones aduaneras vinieron vacías: sin muestra no se leen.
  *
  * Nada de esto se adivina: un registro que no respeta su formato queda en
  * ERROR con el motivo, y lo dudoso en REVISAR.
@@ -45,6 +57,7 @@ export type IibbImportFormat =
     | "RENTAS_CIUDAD_RETENCIONES"
     | "RENTAS_CIUDAD_BANCARIAS"
     | "SANTA_CRUZ_RETENCIONES"
+    | "SANTA_CRUZ_PERCEPCIONES"
     | "SANTA_CRUZ_BANCARIAS";
 
 export const IIBB_IMPORT_FORMATS: Readonly<Record<IibbImportFormat, { label: string; jurisdictionCode: string; type: IibbDeductionType }>> = {
@@ -55,6 +68,7 @@ export const IIBB_IMPORT_FORMATS: Readonly<Record<IibbImportFormat, { label: str
     RENTAS_CIUDAD_RETENCIONES: { label: "Rentas Ciudad (AGIP) — retenciones", jurisdictionCode: "901", type: "RETENCION IIBB" },
     RENTAS_CIUDAD_BANCARIAS: { label: "Rentas Ciudad (AGIP) — recaudaciones bancarias", jurisdictionCode: "901", type: "SIRCREB" },
     SANTA_CRUZ_RETENCIONES: { label: "Santa Cruz — retenciones", jurisdictionCode: "920", type: "RETENCION IIBB" },
+    SANTA_CRUZ_PERCEPCIONES: { label: "Santa Cruz — percepciones", jurisdictionCode: "920", type: "PERCEPCION IIBB" },
     SANTA_CRUZ_BANCARIAS: { label: "Santa Cruz — recaudaciones bancarias", jurisdictionCode: "920", type: "SIRCREB" },
 };
 
@@ -253,6 +267,59 @@ function santaCruzBancaria(line: string, n: number, ordinal: Map<string, number>
     return r;
 }
 
+const SC_LETTERS: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "E", "5": "M" };
+const SC_KINDS: Record<string, string> = { "1": "F", "2": "R", "3": "C", "4": "D" };
+
+/** Importe con signo de Santa Cruz: «-00000000525,62», «00000000-525,62» o positivo. */
+function signedSantaCruzAmount(raw: string): Prisma.Decimal | null {
+    const s = raw.trim();
+    const m = /^(-?)(\d*)(-?)(\d+,\d{2})$/.exec(s);
+    if (!m || (m[1] && m[3]) || (m[3] && /[1-9]/.test(m[2]))) return null;
+    const v = new Prisma.Decimal((m[2] + m[4]).replace(",", "."));
+    return m[1] || m[3] ? v.negated() : v;
+}
+
+function santaCruzPercepcion(line: string, n: number, ordinal: Map<string, number>): IibbImportRow {
+    const r = blankRow(n, "SANTA_CRUZ_PERCEPCIONES");
+    r.date = dmy(line.slice(0, 10));
+    if (!r.date) raise(r, "ERROR", "fecha inválida (dd/mm/aaaa)");
+    checkCuit(r, line.slice(10, 21));
+    const c22 = line[21], c23 = line[22];
+    const number = line.slice(23, 38).trim();
+    const amount = signedSantaCruzAmount(line.slice(38, 53));
+    if (SC_LETTERS[c22] && /^[1-5]$/.test(c23) && /^\d{4}-\d{8}$/.test(number)) {
+        // Variante codificada del F.5680.
+        r.voucherLetter = SC_LETTERS[c22];
+        r.voucherKind = SC_KINDS[c23] ?? null;
+        if (!r.voucherKind) raise(r, "REVIEW", "tipo de comprobante «Otros» (5): revisá a qué comprobante corresponde");
+        r.pointOfSale = number.slice(0, 4);
+        r.voucherNumber = number.slice(5);
+    } else {
+        // Variante de la descarga de ASIP: «1A» factura, «6A» nota de crédito, «F » factura.
+        const kind = c22 === "1" || c22 === "F" ? "F" : c22 === "6" ? "C" : null;
+        if (!kind) raise(r, "ERROR", `tipo de comprobante «${c22}» no reconocido en la descarga de ASIP`);
+        r.voucherKind = kind;
+        r.voucherLetter = c23 && "ABCEM".includes(c23) ? c23 : null;
+        r.messages.push("la descarga de ASIP no trae el número de comprobante: se concilia con la compra por agente, fecha e importe");
+    }
+    if (r.voucherLetter === "E") {
+        r.voucherLetter = null; // la tabla de la base no tiene «E» (exportación)
+        r.messages.push("letra E: se registra sin letra");
+    }
+    if (amount === null) raise(r, "ERROR", "importe con formato inválido");
+    else if (amount.isZero()) raise(r, "REVIEW", "importe en cero");
+    else if (amount.isNegative() !== (r.voucherKind === "C")) raise(r, "ERROR", "el signo del importe no coincide con el tipo de comprobante (sólo las notas de crédito restan)");
+    r.amount = amount;
+    if (r.agentCuit && r.date && amount) {
+        // Misma identidad para las dos variantes: importar ambas no duplica.
+        const base = `PSC|${r.agentCuit}|${r.date}|${amount.toFixed(2)}`;
+        const k = (ordinal.get(base) ?? 0) + 1;
+        ordinal.set(base, k);
+        r.identity = `${base}|${k}`;
+    }
+    return r;
+}
+
 // ── Rentas Ciudad (CSV) ────────────────────────────────────────────────────
 
 function csvCells(line: string): string[] {
@@ -359,6 +426,7 @@ export function parseIibbDeductions(bytes: Uint8Array): IibbImportParse {
     else if (len === 59 && /^\d{19}/.test(first)) { format = "ESICOL_RETENCIONES"; read = esicolRetencion; }
     else if (len === 63 && /^\d{19}/.test(first)) { format = "ESICOL_BANCARIAS"; read = (l, n) => esicolBancaria(l, n, ordinal); }
     else if (len === 51 && /^\d{2}\/\d{2}\/\d{4}\d{11}/.test(first)) { format = "SANTA_CRUZ_RETENCIONES"; read = santaCruzRetencion; }
+    else if (len === 53 && /^\d{2}\/\d{2}\/\d{4}\d{11}/.test(first)) { format = "SANTA_CRUZ_PERCEPCIONES"; read = (l, n) => santaCruzPercepcion(l, n, ordinal); }
     else if (len === 43 && /^\d{28}/.test(first)) { format = "SANTA_CRUZ_BANCARIAS"; read = (l, n) => santaCruzBancaria(l, n, ordinal); }
     if (!format || !read) return { format: null, rows: [], fileErrors: [`formato no reconocido (registros de ${len} caracteres)`] };
     return { format, rows: lines.map((x) => read!(x.l, x.n)), fileErrors: [] };

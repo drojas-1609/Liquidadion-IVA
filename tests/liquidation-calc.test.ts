@@ -254,3 +254,50 @@ describe("lib/liquidation-calc — asignación directa y prorrateo global", () =
     expect(() => computeLiquidation(withSettings([p], undefined))).toThrow(/vatLines no cargadas/);
   });
 });
+
+describe("lib/liquidation-calc — IIBB con la estructura de la DDJJ (F.5680)", () => {
+  const sales = (base: string) => ({
+    category: "SALES", voucherCode: 6, taxedNetAmount: D(base), totalVatAmount: D("0"), netWithoutVatBreakdownAmount: D("0"),
+    directComputableVatCreditAmount: D("0"), grossIncomeTaxBaseAmount: D(base), voucherTotalAmount: D(base),
+    vatLines: [{ vatAmount: D("0"), creditAllocation: "NOT_APPLICABLE" }], netAmount: D(base), vatAmount: D("0"), totalAmount: D(base),
+  });
+  const rec = (type: string, amount: string, jurisdictionCode: string | null = "920") => ({ type, amount: D(amount), jurisdictionCode });
+
+  it("separa retenciones (incl. SIRTAC), percepciones y bancarias; suma saldo anterior y pagos a cuenta", () => {
+    const r = computeLiquidation({
+      client: { defaultIibbRate: D("3"), iibbJurisdiction: "920" },
+      invoices: [sales("100000")],
+      taxRecords: [rec("RETENCION IIBB", "400"), rec("SIRTAC", "100"), rec("PERCEPCION IIBB", "250"), rec("PERCEPCION IIBB", "-50"), rec("SIRCREB", "30")],
+      iibbPosition: { previousBalance: D("1000"), paymentsOnAccount: D("200"), otherCredits: D("0"), otherDebits: D("0") },
+    });
+    expect(r.iibb.tax.toFixed(2)).toBe("3000.00");
+    expect([r.iibb.withholdings, r.iibb.perceptions, r.iibb.bankCollections, r.iibb.customsPerceptions].map((x) => x.toFixed(2)))
+      .toEqual(["500.00", "200.00", "30.00", "0.00"]);
+    expect(r.iibb.totalDeductions.toFixed(2)).toBe("1930.00");
+    expect(r.iibb.balanceDgr.toFixed(2)).toBe("1070.00");
+    expect(r.iibb.balanceTaxpayer.toFixed(2)).toBe("0.00");
+  });
+
+  it("deducciones > impuesto: saldo a favor del contribuyente; otros débitos suman al impuesto", () => {
+    const r = computeLiquidation({
+      client: { defaultIibbRate: D("3"), iibbJurisdiction: null },
+      invoices: [sales("10000")],
+      taxRecords: [rec("RETENCION IIBB", "500")],
+      iibbPosition: { previousBalance: D("0"), paymentsOnAccount: D("0"), otherCredits: D("20"), otherDebits: D("100") },
+    });
+    // 300 + 100 − (500 + 20) = −120
+    expect(r.iibb.payable.toFixed(2)).toBe("-120.00");
+    expect([r.iibb.balanceDgr, r.iibb.balanceTaxpayer].map((x) => x.toFixed(2))).toEqual(["0.00", "120.00"]);
+  });
+
+  it("cliente local: una deducción de otra jurisdicción no se computa (queda informada aparte)", () => {
+    const r = computeLiquidation({
+      client: { defaultIibbRate: D("3"), iibbJurisdiction: "920" },
+      invoices: [sales("10000")],
+      taxRecords: [rec("PERCEPCION IIBB", "100", "920"), rec("PERCEPCION IIBB", "40", "901"), rec("PERCEPCION IIBB", "5", null)],
+    });
+    expect(r.iibb.perceptions.toFixed(2)).toBe("105.00");
+    expect(r.iibb.excludedOtherJurisdictions.toFixed(2)).toBe("40.00");
+    expect(r.iibb.balanceDgr.toFixed(2)).toBe("195.00");
+  });
+});

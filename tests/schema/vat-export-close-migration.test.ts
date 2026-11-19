@@ -24,8 +24,8 @@ const code = sql
 describe(`migración ${MIGRATION} — revisión estática`, () => {
   it("sigue a la de ajustes al crédito fiscal sin cambiarla; sólo la sigue la de importados eliminados", () => {
     const allDirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-        expect(allDirs.slice(-10)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview", "20261116000000_arca_initial_data", "20261117120000_tax_record_invoice_perceptions", "20261117130000_invoice_work_note", "20261118120000_supplier_other_taxes_rule", "20261118130000_tax_record_iibb_invoice_link", "20261118140000_tax_record_iibb_deductions"]);
-        const dirs = allDirs.slice(0, -10);
+        expect(allDirs.slice(-12)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview", "20261116000000_arca_initial_data", "20261117120000_tax_record_invoice_perceptions", "20261117130000_invoice_work_note", "20261118120000_supplier_other_taxes_rule", "20261118130000_tax_record_iibb_invoice_link", "20261118140000_tax_record_iibb_deductions", "20261119120000_period_iibb_position", "20261119120100_iibb_base_includes_exempt"]);
+        const dirs = allDirs.slice(0, -12);
     expect(dirs.at(-1)).toBe("20261108120000_invoice_import_deletions");
     expect(dirs.at(-2)).toBe(MIGRATION);
     expect(dirs.at(-3)).toBe(PREVIOUS);

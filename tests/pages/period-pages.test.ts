@@ -199,7 +199,7 @@ describe("liquidation — sección IIBB", () => {
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  it("'Base Imponible IIBB' muestra iibb.base (no las ventas netas) y no queda el rótulo 'Ventas Netas'", async () => {
+  it("la base imponible de IIBB muestra iibb.base (no las ventas netas), con los rótulos de la DDJJ", async () => {
     db.period.findFirst.mockImplementation(async ({ where }: { where: { id: string; organizationId: string } }) =>
       where.id === "p_a" && where.organizationId === ORG_A
         ? { ...periodRow("p_a", "c_a", ORG_A), invoices: [sale], taxRecords: [], client: clientRow("c_a", ORG_A), vatSettings: null, vatCreditAdjustments: [] }
@@ -208,9 +208,11 @@ describe("liquidation — sección IIBB", () => {
     const r = rows(await call(LiquidationPage as PageFn, "c_a", "p_a"));
     const labels = r.map(([l]) => l);
 
-    expect(r).toContainEqual(["Base Imponible IIBB", `$${formatMoney("120000.00")}`]);
-    expect(r).toContainEqual(["Impuesto Determinado (3%)", `$${formatMoney("3600.00")}`]);
-    expect(labels.indexOf("Impuesto Determinado (3%)")).toBe(labels.indexOf("Base Imponible IIBB") + 1);
+    const BASE = "Base imponible (ventas sin IVA: gravado + no gravado + exento)";
+    const TAX = "Total liquidación del impuesto (3%)";
+    expect(r).toContainEqual([BASE, `$${formatMoney("120000.00")}`]);
+    expect(r).toContainEqual([TAX, `$${formatMoney("3600.00")}`]);
+    expect(labels.indexOf(TAX)).toBe(labels.indexOf(BASE) + 1);
     // Aclaración de alcance junto a la alícuota (sólo texto).
     expect(text(await call(LiquidationPage as PageFn, "c_a", "p_a"))).toContain("No se obtiene automáticamente de las actividades y no representa una liquidación por jurisdicción.");
     expect(labels).not.toContain("Ventas Netas");

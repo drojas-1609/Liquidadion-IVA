@@ -103,7 +103,7 @@ export interface Violation {
 }
 
 /** Modelos del contenido del período: toda operación de escritura cuenta. */
-const CONTENT_MODELS = new Set(["invoice", "invoiceVatLine", "taxRecord", "periodVatSettings", "periodVatCreditAdjustment"]);
+const CONTENT_MODELS = new Set(["invoice", "invoiceVatLine", "taxRecord", "periodVatSettings", "periodVatCreditAdjustment", "periodIibbPosition"]);
 const WRITE_OPS = new Set([
   "create",
   "createMany",
@@ -173,6 +173,8 @@ const LIQUIDATION_VERSION_MODEL = "periodLiquidationVersion";
  */
 export const CONTENT_WRITE_HELPERS: Readonly<Record<string, { fns: readonly string[]; models: readonly string[] }>> = {
   "lib/invoice-perceptions.ts": { fns: ["reconcileInvoicePerceptions", "releaseInvoicePerceptions"], models: ["taxRecord", "invoice"] },
+  // Tributos de compras llevados a lo declarado en el Libro IVA Digital (sólo esos importes; el total no cambia).
+  "lib/libro-iva-import/tribute-sync-service.ts": { fns: ["applyTributeSync"], models: ["invoice"] },
 };
 
 // ── SQL inventariado ───────────────────────────────────────────────────────

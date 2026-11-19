@@ -251,6 +251,17 @@ export interface VoucherAmounts {
 }
 
 /**
+ * Base imponible de IIBB de una venta: ingresos sin IVA ni tributos
+ * (gravado + neto sin discriminar + no gravado + exento). El exento y el no
+ * gravado de IVA integran la base de IIBB salvo exención propia del impuesto
+ * (criterio del estudio, verificado con la DDJJ F.5680 de Santa Cruz 10/2026:
+ * base = total − IVA). La exención de IIBB por actividad se carga aparte.
+ */
+export function iibbSalesBase(a: Pick<VoucherAmounts, "taxedNetAmount" | "netWithoutVatBreakdownAmount" | "nonTaxedAmount" | "exemptAmount">): Prisma.Decimal {
+    return sum([a.taxedNetAmount, a.netWithoutVatBreakdownAmount, a.nonTaxedAmount, a.exemptAmount]);
+}
+
+/**
  * Total del comprobante (positivo, en pesos):
  *   taxedNet + totalVat + netWithoutVatBreakdown + nonTaxed + exempt
  *   + vatPerception + nationalPerception + iibbPerception + municipalPerception
@@ -460,9 +471,7 @@ export function modelFromVoucher(input: VoucherModelInput): ManualModelResult {
             exchangeRate: D(1),
             directComputableVatCreditAmount: directComputableOf(vatLines),
             reportedComputableVatCreditAmount: null,
-            // Preserva el criterio anterior (base = neto de ventas); corregible en la fase B.
-            grossIncomeTaxBaseAmount:
-                input.category === "SALES" ? amounts.taxedNetAmount.plus(amounts.netWithoutVatBreakdownAmount) : null,
+            grossIncomeTaxBaseAmount: input.category === "SALES" ? iibbSalesBase(amounts) : null,
             voucherTotalAmount: computeVoucherTotal(amounts),
             turivaRefundAmount: ZERO,
             lidSection: input.lidSection,

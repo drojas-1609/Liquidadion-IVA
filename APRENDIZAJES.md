@@ -190,3 +190,18 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
   mismo tramo pasó de fallar a los 13–18 s a resolverse en 3,8 s.
 - **Regla:** las funciones van en la misma región que la base (GRU ↔ sa-east-1). Ante un 500, leer
   el código de Prisma en el log de Netlify antes de cambiar código; no encadenar arreglos por hipótesis.
+
+### 2026-11-18 · DDJJ de IIBB 10/2026 (OOSHEN): la base no coincidía con la presentada
+
+- **Qué pasó:** la app calculaba 1.692.834,23 de impuesto y la DDJJ F.5680 presentada dice
+  1.994.076,23. Además, el TXT de percepciones que descarga ASIP no se podía importar en ARCA.
+- **Causa:** (1) la base de IIBB tomaba sólo el neto gravado; la DDJJ usa total − IVA, que incluye
+  10.041.400,00 de ventas exentas de IVA. (2) La descarga de ASIP trae tipo y letra como texto e
+  invertidos («1A», «6A», «F ») y el número sin el comprobante; el F.5680 exige códigos numéricos
+  (letra 1=A…5=M; tipo 1=Factura, 3=Nota de crédito), que no están en el manual: se leyeron de los
+  combos del formulario.
+- **Regla:** antes de dar por buena una liquidación, compararla contra la DDJJ efectivamente
+  presentada (se carga en «Datos de la DDJJ de IIBB» y la pantalla muestra la diferencia). Un
+  código de tabla que el manual no publica se lee del formulario oficial, nunca se supone. Los
+  TXT de muestra sirven para entender el diseño; los que se usan para presentar son los que
+  ARCA aceptó.

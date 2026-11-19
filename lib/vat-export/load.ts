@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { isoDate } from "../invoice-model";
 import type { PeriodForCalc } from "../liquidation-calc";
+import { localIibbJurisdiction } from "../liquidation-totals";
+import { previousIibbBalance, iibbPositionWithPrevious } from "../iibb-previous-balance";
 import type { PackageVatAdjustment } from "./package";
 import type { ExportInvoice, ExportSettings, ExportTaxRecord } from "./types";
 
@@ -56,11 +58,12 @@ export async function loadPeriodExportData(db: Db, scope: { organizationId: stri
         where: { id: scope.periodId, organizationId: scope.organizationId },
         select: {
             id: true, clientId: true, month: true, year: true, status: true, updatedAt: true,
-            client: { select: { name: true, cuit: true, defaultIibbRate: true } },
+            client: { select: { name: true, cuit: true, defaultIibbRate: true, iibbRegistration: true, jurisdictions: { select: { jurisdictionCode: true } } } },
+            iibbPosition: { select: { previousBalance: true, paymentsOnAccount: true, otherCredits: true, otherDebits: true } },
             vatSettings: { select: { creditProrationMode: true, globalCoefficient: true, turivaIncluded: true, previousTechnicalBalance: true, previousTechnicalBalanceReference: true, previousFreeBalance: true, previousFreeBalanceReference: true } },
             vatCreditAdjustments: { select: { regime: true, contributionsAmount: true, computableAmount: true, reference: true }, orderBy: { regime: "asc" } },
             taxRecords: {
-                select: { id: true, date: true, type: true, amount: true, nature: true, taxCode: true, regimeCode: true, agentCuit: true, intermediaryCuit: true, voucherTypeCode: true, voucherNumber: true, certificateNumber: true, customsDocument: true, invoiceId: true },
+                select: { id: true, date: true, type: true, amount: true, nature: true, taxCode: true, regimeCode: true, agentCuit: true, intermediaryCuit: true, voucherTypeCode: true, voucherNumber: true, certificateNumber: true, customsDocument: true, invoiceId: true, jurisdictionCode: true },
                 orderBy: { id: "asc" },
             },
         },
@@ -108,11 +111,16 @@ export async function loadPeriodExportData(db: Db, scope: { organizationId: stri
         dationInPayment: r.dationInPayment,
         vatLines: r.vatLines,
     }));
-    const taxRecords: ExportTaxRecord[] = p.taxRecords.map((t) => ({ ...t, date: isoDate(t.date)! }));
+    // jurisdictionCode sólo entra al cálculo de IIBB: no forma parte del paquete ni de la huella (v0 serializa la fila entera).
+    const taxRecords: ExportTaxRecord[] = p.taxRecords.map((row) => {
+        const { jurisdictionCode, ...t } = row;
+        void jurisdictionCode;
+        return { ...t, date: isoDate(t.date)! };
+    });
 
     return {
         period: { id: p.id, clientId: p.clientId, month: p.month, year: p.year, status: p.status, updatedAt: p.updatedAt },
-        client: p.client,
+        client: { name: p.client.name, cuit: p.client.cuit, defaultIibbRate: p.client.defaultIibbRate },
         settings,
         adjustments: p.vatCreditAdjustments,
         invoices,
@@ -120,7 +128,8 @@ export async function loadPeriodExportData(db: Db, scope: { organizationId: stri
         calc: {
             invoices: rows,
             taxRecords: p.taxRecords,
-            client: { defaultIibbRate: p.client.defaultIibbRate },
+            client: { defaultIibbRate: p.client.defaultIibbRate, iibbJurisdiction: localIibbJurisdiction(p.client) },
+            iibbPosition: iibbPositionWithPrevious(p.iibbPosition, p.iibbPosition ? null : await previousIibbBalance(db, { organizationId: scope.organizationId, clientId: p.clientId, month: p.month, year: p.year })),
             vatSettings: s ? { creditProrationMode: s.creditProrationMode, globalCoefficient: s.globalCoefficient, previousTechnicalBalance: s.previousTechnicalBalance, previousFreeBalance: s.previousFreeBalance } : null,
             vatCreditAdjustments: p.vatCreditAdjustments,
         },

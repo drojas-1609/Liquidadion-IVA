@@ -36,7 +36,12 @@ const sampleData = {
   },
   // Base IIBB DISTINTA de las ventas netas: el test no puede pasar por igualdad
   // accidental. tax = HALF_UP(120000 × 3.523456 / 100) = 4228.15.
-  iibb: { rate: "3.523456", base: "120000.00", tax: "4228.15", retentions: "750.00", payable: "3478.15" },
+  iibb: {
+    rate: "3.523456", base: "120000.00", tax: "4228.15", retentions: "750.00", payable: "3478.15",
+    withholdings: "500.00", perceptions: "250.00", customsPerceptions: "0.00", bankCollections: "0.00",
+    previousBalance: "0.00", paymentsOnAccount: "0.00", otherCredits: "0.00", otherDebits: "0.00",
+    totalDeductions: "750.00", excludedOtherJurisdictions: "0.00", balanceDgr: "3478.15", balanceTaxpayer: "0.00",
+  },
 };
 
 describe("lib/excel", () => {
@@ -56,7 +61,7 @@ describe("lib/excel", () => {
     expect(b24.v).toBe(120000);
   });
 
-  it("bloque IIBB: B24 es la base imponible IIBB (no las ventas netas) y B25–B27 conservan el orden y el valor", () => {
+  it("bloque IIBB: B24 es la base imponible IIBB (no las ventas netas) y siguen los renglones de la DDJJ (F.5680) en orden", () => {
     // Guardas del fixture: base ≠ ventas netas, e impuesto y saldo consistentes con la base.
     expect(sampleData.iibb.base).not.toBe(sampleData.sales.net);
     const base = new Prisma.Decimal(sampleData.iibb.base);
@@ -67,15 +72,27 @@ describe("lib/excel", () => {
     const row = (r: number) => [ws[`A${r}`]?.v, ws[`B${r}`]?.v, ws[`B${r}`]?.t];
 
     // La columna C sólo lleva la aclaración de alcance junto a la alícuota (texto); fórmulas y valores no cambian.
-    expect(ws["!ref"]).toBe("A1:C27");
+    expect(ws["!ref"]).toBe("A1:C37");
     expect(ws["C25"].v).toBe(LIQUIDATION_RATE_NOTE);
-    expect(Object.keys(ws).filter((k) => /^C\d+$/.test(k))).toEqual(["C25"]);
-    expect(ws["A22"].v).toBe("RESUMEN IIBB");
+    expect(Object.keys(ws).filter((k) => /^C\d+$/.test(k))).toEqual(["C25", "C27", "C30", "C37"]);
+    expect(ws["A22"].v).toBe("RESUMEN IIBB (estructura de la DDJJ)");
     expect(row(23)).toEqual(["Concepto", "Importe", "s"]);
     expect(row(24)).toEqual(["Base Imponible IIBB", 120000, "n"]);
     expect(row(25)).toEqual(["Impuesto Determinado (3.523456%)", 4228.15, "n"]);
-    expect(row(26)).toEqual(["Retenciones/Percepciones IIBB", 750, "n"]);
-    expect(row(27)).toEqual(["Saldo a Pagar / (A Favor) IIBB", 3478.15, "n"]);
+    expect([26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37].map(row)).toEqual([
+      ["Saldo a favor de períodos anteriores", 0, "n"],
+      ["Total de retenciones", 500, "n"],
+      ["Total de percepciones aduaneras", 0, "n"],
+      ["Total de percepciones", 250, "n"],
+      ["Total de recaudaciones bancarias", 0, "n"],
+      ["Total de pagos a cuenta", 0, "n"],
+      ["Otros créditos", 0, "n"],
+      ["Otros débitos", 0, "n"],
+      ["Total Deducciones", 750, "n"],
+      ["Saldo a Favor de DGR", 3478.15, "n"],
+      ["Saldo a Favor del Contribuyente", 0, "n"],
+      ["Retenciones/Percepciones IIBB (todas las jurisdicciones)", 750, "n"],
+    ]);
 
     // Las ventas netas no se exportan en ninguna celda, ni el rótulo anterior.
     const cells = Object.keys(ws).filter((k) => !k.startsWith("!")).map((k) => ws[k]);
