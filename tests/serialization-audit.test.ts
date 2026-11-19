@@ -58,6 +58,11 @@ const EXPECTED = {
   "app/api/internal/drive-backup/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/backups/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/backups/retry/route.ts": { models: [], serializer: null },
+  // Sueldos: responden importes como texto (toFixed) o identificadores.
+  "app/api/periods/[id]/payroll-f931/route.ts": { models: [], serializer: null },
+  "app/api/clients/[id]/payroll-zone/route.ts": { models: [], serializer: null },
+  "app/api/clients/[id]/union-slips/route.ts": { models: [], serializer: null },
+  "app/api/clients/[id]/union-slips/[slipId]/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/accounting-profile/route.ts": { models: [], serializer: null },
   // Clasificación por lote: responde sólo el conteo. Paquete: binario ZIP (sin JSON con importes).
   "app/api/periods/[id]/invoice-classification/route.ts": { models: [], serializer: null },

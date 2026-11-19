@@ -9,12 +9,15 @@ import type { AccountRole } from "./chart-models";
  * importe cero no se graban. Todo asiento debe cuadrar (Debe = Haber).
  */
 
-export const JOURNAL_KINDS = ["VAT_POSITION", "IIBB_POSITION", "TAX_PAYMENT"] as const;
+export const JOURNAL_KINDS = ["VAT_POSITION", "IIBB_POSITION", "TAX_PAYMENT", "PAYROLL_F931", "UNION_SLIP", "UNION_PAYMENT"] as const;
 export type JournalKind = (typeof JOURNAL_KINDS)[number];
 export const JOURNAL_KIND_LABEL: Record<JournalKind, string> = {
     VAT_POSITION: "Liquidación de IVA",
     IIBB_POSITION: "DDJJ de Ingresos Brutos",
     TAX_PAYMENT: "Pago de impuesto",
+    PAYROLL_F931: "Cargas sociales F.931",
+    UNION_SLIP: "Boleta sindical",
+    UNION_PAYMENT: "Pago de boleta sindical",
 };
 
 /** Línea por rol (asientos automáticos) o por cuenta elegida (cuenta de pago). */
@@ -245,4 +248,95 @@ export function buildTaxPaymentInput(raw: unknown): InputResult<TaxPaymentInput>
     if (typeof r.paymentAccountId !== "string" || r.paymentAccountId.length === 0 || r.paymentAccountId.length > 40) return { ok: false, field: "paymentAccountId", error: "Elegí la cuenta de pago." };
     const reference = typeof r.reference === "string" && r.reference.trim() !== "" ? r.reference.trim().slice(0, 60) : null;
     return { ok: true, value: { tax: r.tax as PaymentTax, date: r.date, capital: capital.value, interest: interest.value, idcb: idcb.value, paymentAccountId: r.paymentAccountId, reference } };
+}
+
+// --- Sueldos (Fase C2c) --------------------------------------------------------
+
+/** Crédito Anexo I Ley 27.541: base imponible de contribuciones × puntos porcentuales de la zona. */
+export function annexICredit(contributionsBase: Decimalish, percent: Decimalish): Prisma.Decimal {
+    return roundMoney(D(contributionsBase).times(D(percent)).div(100));
+}
+
+/**
+ * F.931 del período (criterio del estudio, 19/11/2026: el crédito se computa en
+ * el mismo período del F.931 y disminuye el gasto):
+ *  Debe  Cargas sociales (gasto)        / Haber Cargas sociales a pagar   — contribuciones patronales
+ *  Debe  IVA crédito fiscal             / Haber Cargas sociales (gasto)   — crédito Anexo I
+ */
+export function buildF931Entry(f: { employerContributions: Decimalish; credit: Decimalish; month: number; year: number }): DraftEntry {
+    const entry: DraftEntry = {
+        kind: "PAYROLL_F931",
+        date: lastDayOfMonth(f.year, f.month),
+        description: `F.931 ${pp(f.month, f.year)}`,
+        lines: compact([
+            line({ role: "SOCIAL_SECURITY_EXPENSE" }, "D", f.employerContributions, "Contribuciones patronales del F.931"),
+            line({ role: "VAT_CREDIT" }, "D", f.credit, "Crédito fiscal Anexo I Ley 27.541"),
+            line({ role: "SOCIAL_SECURITY_PAYABLE" }, "H", f.employerContributions, "Contribuciones a pagar"),
+            line({ role: "SOCIAL_SECURITY_EXPENSE" }, "H", f.credit, "Disminución del gasto por crédito Anexo I"),
+        ]),
+    };
+    assertBalanced(entry);
+    return entry;
+}
+
+/** Devengamiento de la boleta sindical: Debe Cargas sociales / Haber Sindicato a pagar. */
+export function buildUnionSlipEntry(u: { union: string; amount: Decimalish; month: number; year: number }): DraftEntry {
+    const entry: DraftEntry = {
+        kind: "UNION_SLIP",
+        date: lastDayOfMonth(u.year, u.month),
+        description: `Boleta sindical ${u.union} ${pp(u.month, u.year)}`,
+        lines: compact([
+            line({ role: "SOCIAL_SECURITY_EXPENSE" }, "D", u.amount, `Aportes y contribuciones sindicales ${u.union}`),
+            line({ role: "UNION_PAYABLE" }, "H", u.amount, "Sindicato a pagar"),
+        ]),
+    };
+    assertBalanced(entry);
+    return entry;
+}
+
+/** Pago de la boleta sindical: Debe Sindicato a pagar / Haber cuenta de pago. */
+export function buildUnionPaymentEntry(u: { union: string; amount: Decimalish; date: string; paymentAccountId: string; month: number; year: number }): DraftEntry {
+    const entry: DraftEntry = {
+        kind: "UNION_PAYMENT",
+        date: u.date,
+        description: `Pago boleta sindical ${u.union} ${pp(u.month, u.year)}`,
+        lines: compact([
+            line({ role: "UNION_PAYABLE" }, "D", u.amount, "Cancelación sindicato a pagar"),
+            line({ accountId: u.paymentAccountId }, "H", u.amount, "Pago"),
+        ]),
+    };
+    assertBalanced(entry);
+    return entry;
+}
+
+/** Valida importes del formulario del F.931. */
+export function buildF931Input(raw: unknown): InputResult<{ contributionsBase: Prisma.Decimal; employerContributions: Prisma.Decimal; reference: string | null }> {
+    if (!raw || typeof raw !== "object") return { ok: false, field: "body", error: "Datos inválidos." };
+    const r = raw as Record<string, unknown>;
+    const base = amount(r.contributionsBase, "contributionsBase", true);
+    if (!base.ok) return base;
+    const contrib = amount(r.employerContributions, "employerContributions", true);
+    if (!contrib.ok) return contrib;
+    const reference = typeof r.reference === "string" && r.reference.trim() !== "" ? r.reference.trim().slice(0, 120) : null;
+    return { ok: true, value: { contributionsBase: base.value, employerContributions: contrib.value, reference } };
+}
+
+/** Valida la boleta sindical (pago opcional). */
+export function buildUnionSlipInput(raw: unknown): InputResult<{ union: string; amount: Prisma.Decimal; paidDate: string | null; paymentAccountId: string | null; reference: string | null }> {
+    if (!raw || typeof raw !== "object") return { ok: false, field: "body", error: "Datos inválidos." };
+    const r = raw as Record<string, unknown>;
+    const union = typeof r.union === "string" ? r.union.trim().toUpperCase().replace(/\s+/g, " ") : "";
+    if (union.length < 2 || union.length > 80) return { ok: false, field: "union", error: "Indicá el sindicato (p. ej. FAECYS)." };
+    const amt = amount(r.amount, "amount", true);
+    if (!amt.ok) return amt;
+    if (amt.value.isZero()) return { ok: false, field: "amount", error: "El importe debe ser mayor que cero." };
+    let paidDate: string | null = null;
+    let paymentAccountId: string | null = null;
+    if (r.paidDate !== undefined && r.paidDate !== null && r.paidDate !== "") {
+        if (typeof r.paidDate !== "string" || !DATE.test(r.paidDate) || Number.isNaN(Date.parse(r.paidDate))) return { ok: false, field: "paidDate", error: "Fecha de pago inválida." };
+        if (typeof r.paymentAccountId !== "string" || r.paymentAccountId.length === 0 || r.paymentAccountId.length > 40) return { ok: false, field: "paymentAccountId", error: "Elegí la cuenta de pago." };
+        paidDate = r.paidDate; paymentAccountId = r.paymentAccountId;
+    }
+    const reference = typeof r.reference === "string" && r.reference.trim() !== "" ? r.reference.trim().slice(0, 120) : null;
+    return { ok: true, value: { union, amount: amt.value, paidDate, paymentAccountId, reference } };
 }
