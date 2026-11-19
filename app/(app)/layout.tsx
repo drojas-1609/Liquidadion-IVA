@@ -1,5 +1,9 @@
 import Image from "next/image";
+import { cookies } from "next/headers";
 import { NavLink } from "./_components/nav-link";
+import { ClientMenu } from "./_components/client-menu";
+import { ClientSwitcher } from "./_components/client-switcher";
+import { loadSidebarData, ACTIVE_CLIENT_COOKIE } from "@/lib/navigation/sidebar-data";
 
 import { getAuthClaims } from "@/lib/auth/claims";
 
@@ -24,6 +28,14 @@ export default async function AppShellLayout({
   } catch {
     userLabel = null;
   }
+  // Menú por módulos y selector de cliente (sin sesión o sin acceso: null).
+  const nav = userLabel ? await loadSidebarData() : null;
+  let rememberedId: string | null = null;
+  try {
+    rememberedId = nav ? (await cookies()).get(ACTIVE_CLIENT_COOKIE)?.value ?? null : null;
+  } catch {
+    rememberedId = null;
+  }
 
   return (
     <div className="app-shell">
@@ -40,6 +52,7 @@ export default async function AppShellLayout({
           <NavLink href="/clients">Clientes</NavLink>
           <NavLink href="/settings">Configuración</NavLink>
         </nav>
+        {nav && nav.clients.length > 0 && <ClientMenu clients={nav.clients} hasIva={nav.hasIva} rememberedId={rememberedId} />}
         {userLabel && (
           <div className="app-user">
             <p title={userLabel}>{userLabel}</p>
@@ -55,6 +68,11 @@ export default async function AppShellLayout({
           desplazarse por encima de barras flotantes (en las Deploy Previews, la de
           Netlify lo tapaba y el clic no llegaba a la página: SMOKE-PREVIEW.md). */}
       <main className="app-main">
+        {nav && nav.clients.length > 0 && (
+          <div className="app-topbar">
+            <ClientSwitcher clients={nav.clients} rememberedId={rememberedId} />
+          </div>
+        )}
         {process.env.ARCA_LOCAL_HOMO==='1'&&<p role="status" style={{padding:"1rem",border:"1px solid var(--primary)",marginBottom:"1rem"}}>Prueba local · ARCA homologación · DEV. Guardar y modificar datos está deshabilitado. Los datos propuestos quedan sólo en el formulario.</p>}
         {children}
       </main>
