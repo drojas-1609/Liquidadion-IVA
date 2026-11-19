@@ -224,6 +224,13 @@ model Client {
   // estudio. NULL = sin clasificar. Informativa: NO interviene en el cálculo
   // (la liquidación sigue usando defaultIibbRate).
   iibbRegistration ClientIibbRegistration?
+  /// Perfil contable (lib/accounting/profile): plan modelo aplicado y
+  /// certificado MiPyME (cómputo del impuesto a los débitos y créditos).
+  chartModel          String?   @db.VarChar(20)
+  mipymeCategory      String?   @db.VarChar(20)
+  mipymeManufacturing Boolean   @default(false)
+  mipymeValidUntil    DateTime? @db.Date
+  chartAccounts    ChartAccount[]
   jurisdictions    ClientJurisdiction[]
   activities       ClientActivity[]
 
@@ -908,6 +915,32 @@ enum ActivityNomenclator {
 /// Jurisdicción IIBB del cliente (código de Convenio Multilateral 901-924).
 /// Según la inscripción es una jurisdicción inscripta, alcanzada (CM) o de
 /// actividad (No Inscripto). `isHeadquarters`: sede, sólo en CM.
+/// Plan de cuentas del cliente (copiado de un modelo y editable). Códigos
+/// «C», «C.RR» (títulos) y «C.RR.CC.SS» (imputables). `role`: cuenta que usan
+/// los asientos automáticos (a lo sumo una por rol y cliente). Una cuenta con
+/// movimientos no se borra: se desactiva.
+model ChartAccount {
+  id             String   @id @default(cuid())
+  organizationId String
+  clientId       String
+  code           String   @db.VarChar(20)
+  name           String   @db.VarChar(120)
+  imputable      Boolean
+  active         Boolean  @default(true)
+  role           String?  @db.VarChar(40)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdById    String?  @db.Uuid
+  updatedById    String?  @db.Uuid
+
+  client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([clientId, code])
+  @@unique([clientId, role])
+  @@index([clientId, organizationId])
+  @@index([organizationId])
+}
+
 model ClientJurisdiction {
   id               String   @id @default(cuid())
   organizationId   String

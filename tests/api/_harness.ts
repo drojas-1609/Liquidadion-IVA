@@ -263,6 +263,7 @@ export interface DbMock {
   clientJurisdiction: { findMany: Fn; deleteMany: Fn; createMany: Fn };
   clientActivity: { findMany: Fn; deleteMany: Fn; create: Fn; createManyAndReturn: Fn };
   clientActivityRate: { findMany: Fn; deleteMany: Fn; createMany: Fn };
+  chartAccount: { count: Fn; createMany: Fn };
   $transaction: Fn;
   /** Simula lockPeriodForWrite (lock_timeout + FOR UPDATE de Period) y los FOR UPDATE de Invoice y TaxRecord; no hay locks reales. */
   $queryRaw: Fn;
@@ -299,6 +300,8 @@ export function freshDbMock(): DbMock {
     clientJurisdiction: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     clientActivity: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn(), createManyAndReturn: vi.fn() },
     clientActivityRate: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
+    // Plan de cuentas modelo en el alta: sin cuentas previas, se copia el modelo.
+    chartAccount: { count: vi.fn(async () => 0), createMany: vi.fn(async ({ data }: { data: unknown[] }) => ({ count: data.length })) },
     $transaction: vi.fn(),
     $queryRaw: vi.fn(),
   };
