@@ -230,6 +230,8 @@ model Client {
   mipymeCategory      String?   @db.VarChar(20)
   mipymeManufacturing Boolean   @default(false)
   mipymeValidUntil    DateTime? @db.Date
+  /// Código zonal del Anexo I de la Ley 27.541 (crédito de IVA por contribuciones).
+  payrollZoneCode     Int?
   chartAccounts    ChartAccount[]
   journalEntries   JournalEntry[]
   documentBackups  DocumentBackup[]
@@ -286,6 +288,8 @@ model Period {
   vatCreditAdjustments PeriodVatCreditAdjustment[]
   /// Posición de IIBB del período (saldo anterior, pagos a cuenta, DDJJ presentada).
   iibbPosition         PeriodIibbPosition?
+  f931                 PayrollF931?
+  unionSlips           PayrollUnionSlip[]
   taxRecords           TaxRecord[]
   /// Versiones cerradas de la liquidación (historial de cierres).
   liquidationVersions  PeriodLiquidationVersion[]
@@ -1049,6 +1053,54 @@ model DocumentBackup {
   @@unique([clientId, category, sha256])
   @@index([organizationId, status])
   @@index([clientId, organizationId, createdAt])
+}
+
+/// F.931 del período (Fase C2c). Al grabarlo se calcula el crédito Anexo I
+/// Ley 27.541 (base × puntos de la zona) y se carga en el ajuste de crédito
+/// fiscal del período (PeriodVatCreditAdjustment LEY_27541_ANEXO_I).
+model PayrollF931 {
+  id                    String   @id @default(cuid())
+  organizationId        String
+  clientId              String
+  periodId              String   @unique
+  zoneCode              Int
+  annexIPercent         Decimal  @db.Decimal(5, 2)
+  contributionsBase     Decimal  @db.Decimal(18, 2)
+  employerContributions Decimal  @db.Decimal(18, 2)
+  creditAmount          Decimal  @db.Decimal(18, 2)
+  reference             String?  @db.VarChar(120)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  createdById           String?  @db.Uuid
+  updatedById           String?  @db.Uuid
+
+  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
+
+  @@index([clientId, organizationId])
+}
+
+/// Boleta sindical del período, con su asiento de devengamiento y, si se pagó,
+/// el del pago. No es contenido del período (se puede cargar con IVA cerrado).
+model PayrollUnionSlip {
+  id               String    @id @default(cuid())
+  organizationId   String
+  clientId         String
+  periodId         String
+  union            String    @db.VarChar(80)
+  amount           Decimal   @db.Decimal(18, 2)
+  paidDate         DateTime? @db.Date
+  paymentAccountId String?
+  accrualEntryId   String?
+  paymentEntryId   String?
+  reference        String?   @db.VarChar(120)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdById      String?   @db.Uuid
+
+  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
+
+  @@index([clientId, organizationId])
+  @@index([periodId])
 }
 
 model ClientJurisdiction {

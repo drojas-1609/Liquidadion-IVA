@@ -75,6 +75,10 @@ export const AUDIT_ACTIONS = [
   "drive.connect",
   "drive.disconnect",
   "drive.backup_upload",
+  "payroll.f931_save",
+  "payroll.zone_update",
+  "payroll.union_slip",
+  "payroll.union_slip_delete",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
   // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
   "arca.cuit_lookup",
@@ -166,6 +170,10 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "drive.connect": ["rootFolderName"],
   "drive.disconnect": [],
   "drive.backup_upload": ["category", "queued"],
+  "payroll.f931_save": ["zoneCode", "entryNumber"],
+  "payroll.zone_update": ["zoneCode"],
+  "payroll.union_slip": ["union", "paid", "accrualNumber"],
+  "payroll.union_slip_delete": ["union"],
   // Reconstruye cómo se obtuvo una liquidación. Coeficientes como strings
   // decimales EXACTOS (nunca float). Sin CUIT, nombres ni importes.
   "period.vat_settings_change": [

@@ -93,3 +93,41 @@ describe("libro diario — pago con VEP", () => {
         expect(lastDayOfMonth(2026, 12)).toBe("2026-12-31");
     });
 });
+
+import { annexICredit, buildF931Entry, buildF931Input, buildUnionPaymentEntry, buildUnionSlipEntry, buildUnionSlipInput } from "@/lib/accounting/journal";
+import { annexIZone, ANNEX_I_ZONES } from "@/lib/payroll/annex-i";
+
+describe("Sueldos — F.931 y boletas sindicales", () => {
+    it("tabla del Anexo I: Santa Cruz", () => {
+        expect(annexIZone(66)?.percent).toBe("6.50");
+        expect(annexIZone(67)).toMatchObject({ name: "SANTA CRUZ - RÍO GALLEGOS", percent: "6.50" });
+        expect(annexIZone(68)).toMatchObject({ name: "RESTO DE SANTA CRUZ", percent: "7.30" });
+        expect(annexIZone(27)).toBeNull();
+        expect(ANNEX_I_ZONES).toHaveLength(81);
+    });
+    it("crédito = base × puntos, redondeado a centavos", () => {
+        expect(annexICredit("1234567.89", "7.30").toFixed(2)).toBe("90123.46");
+        expect(annexICredit("1000", "0.00").toFixed(2)).toBe("0.00");
+    });
+    it("asiento del F.931: contribuciones y crédito que disminuye el gasto", () => {
+        const e = buildF931Entry({ employerContributions: "250000.00", credit: "73000.00", month: 10, year: 2026 });
+        expect(e.date).toBe("2026-10-31");
+        expect(s(e.lines)).toEqual([
+            "SOCIAL_SECURITY_EXPENSE:250000.00/0.00", "VAT_CREDIT:73000.00/0.00",
+            "SOCIAL_SECURITY_PAYABLE:0.00/250000.00", "SOCIAL_SECURITY_EXPENSE:0.00/73000.00",
+        ]);
+    });
+    it("boleta sindical: devengamiento y pago", () => {
+        expect(s(buildUnionSlipEntry({ union: "FAECYS", amount: "1500", month: 10, year: 2026 }).lines)).toEqual(["SOCIAL_SECURITY_EXPENSE:1500.00/0.00", "UNION_PAYABLE:0.00/1500.00"]);
+        const p = buildUnionPaymentEntry({ union: "FAECYS", amount: "1500", date: "2026-11-15", paymentAccountId: "acc", month: 10, year: 2026 });
+        expect(p.date).toBe("2026-11-15");
+        expect(s(p.lines)).toEqual(["UNION_PAYABLE:1500.00/0.00", "acc:0.00/1500.00"]);
+    });
+    it("valida los formularios", () => {
+        expect(buildF931Input({ contributionsBase: "1.000.000,00", employerContributions: "250.000,00" })).toMatchObject({ ok: true });
+        expect(buildF931Input({ contributionsBase: "", employerContributions: "1" })).toMatchObject({ ok: false, field: "contributionsBase" });
+        expect(buildUnionSlipInput({ union: " faecys ", amount: "100" })).toMatchObject({ ok: true, value: { union: "FAECYS", paidDate: null } });
+        expect(buildUnionSlipInput({ union: "SEC", amount: "100", paidDate: "2026-11-10" })).toMatchObject({ ok: false, field: "paymentAccountId" });
+        expect(buildUnionSlipInput({ union: "SEC", amount: "0" })).toMatchObject({ ok: false, field: "amount" });
+    });
+});
