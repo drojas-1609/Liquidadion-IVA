@@ -26,10 +26,16 @@ export default async function AccountsPage({ params }: { params: Promise<{ id: s
             },
         });
         if (!client) throw new NotFoundError();
-        return { client, canEdit: roleAllows(ROLES_UPDATE, role) };
+        // Movimientos del libro diario por cuenta (para ofrecer pasarlos a la primera subcuenta).
+        const moves = client.chartAccounts.length
+            ? await prisma.journalLine.groupBy({ by: ["accountId"], where: { organizationId, account: { clientId: id } }, _count: { _all: true } })
+            : [];
+        const movesBy = new Map(moves.map((m) => [m.accountId, m._count._all]));
+        const accounts = client.chartAccounts.map((a) => ({ ...a, movements: movesBy.get(a.id) ?? 0 }));
+        return { client, accounts, canEdit: roleAllows(ROLES_UPDATE, role) };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { client, canEdit } = guard.data;
+    const { client, accounts, canEdit } = guard.data;
     const until = client.mipymeValidUntil ? client.mipymeValidUntil.toISOString().slice(0, 10) : null;
     const today = new Date().toISOString().slice(0, 10);
     const idcb = idcbComputablePercent({ mipymeCategory: client.mipymeCategory as MipymeCategory | null, mipymeManufacturing: client.mipymeManufacturing, mipymeValidUntil: until }, today);
@@ -54,7 +60,7 @@ export default async function AccountsPage({ params }: { params: Promise<{ id: s
                 suggested={suggested}
                 initial={{ mipymeCategory: client.mipymeCategory ?? "", mipymeManufacturing: client.mipymeManufacturing, mipymeValidUntil: until ?? "" }}
             />
-            {client.chartAccounts.length > 0 && <ChartEditor clientId={id} canEdit={canEdit} accounts={client.chartAccounts} />}
+            {client.chartAccounts.length > 0 && <ChartEditor clientId={id} canEdit={canEdit} accounts={accounts} />}
         </div>
     );
 }
