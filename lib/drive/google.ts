@@ -48,7 +48,7 @@ async function tokenRequest(body: Record<string, string>) {
     if (!res.ok || !json || typeof json.access_token !== "string") {
         throw new DriveError(`Google rechazó la credencial (${typeof json?.error === "string" ? json.error : res.status}).`, res.status);
     }
-    return json as { access_token: string; refresh_token?: string; id_token?: string };
+    return json as { access_token: string; refresh_token?: string; id_token?: string; scope?: string };
 }
 
 export async function exchangeCode(cfg: { clientId: string; clientSecret: string }, code: string, redirectUri: string) {
