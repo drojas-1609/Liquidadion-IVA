@@ -35,6 +35,18 @@ export default function SettingsPage() {
         </Link>
       </div>
 
+      <div className="card" style={{ marginBottom: "var(--spacing-lg)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-md)", flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ fontSize: "1.125rem", fontWeight: 600 }}>Respaldo en Google Drive</h2>
+          <p style={{ color: "var(--secondary)", fontSize: "0.875rem" }}>
+            Carpeta raíz, cuenta conectada y estado de los comprobantes respaldados.
+          </p>
+        </div>
+        <Link href="/settings/drive" className="btn btn-secondary">
+          Configurar Drive
+        </Link>
+      </div>
+
       <form onSubmit={handleSave} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-md)" }}>
         {saved && (
           <div style={{ padding: "var(--spacing-sm)", backgroundColor: "rgba(34, 197, 94, 0.1)", color: "var(--success)", borderRadius: "var(--radius-sm)" }}>

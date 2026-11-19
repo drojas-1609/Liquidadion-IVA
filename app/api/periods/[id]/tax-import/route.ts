@@ -15,6 +15,7 @@ import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_CREATE } from "@/lib/auth/roles";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/auth/errors";
 import { reconcileInvoicePerceptions } from "@/lib/invoice-perceptions";
+import { backupAfterImport } from "@/lib/drive/backup-service";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -110,6 +111,7 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
         return { preview, imported: ok.length };
     }, { maxWait: 5000, timeout: 10000 });
 
+    await backupAfterImport(prisma, { organizationId, clientId: access.period.clientId, periodId: id, category: "IVA_RET_PERC", source: "tax-import", description: kind === "RETENTIONS" ? "RETENCIONES IVA ARCA" : "PERCEPCIONES IVA ARCA", bytes: file, profileId });
     return NextResponse.json({ ...serialize(result.preview), imported: result.imported }, { status: 201 });
 });
 

@@ -72,6 +72,9 @@ export const AUDIT_ACTIONS = [
   "journal.entry_generate",
   "journal.tax_payment",
   "journal.entry_delete",
+  "drive.connect",
+  "drive.disconnect",
+  "drive.backup_upload",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
   // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
   "arca.cuit_lookup",
@@ -160,6 +163,9 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "journal.entry_generate": ["kind", "number", "replaced"],
   "journal.tax_payment": ["tax", "number", "idcbPercent"],
   "journal.entry_delete": ["kind", "number"],
+  "drive.connect": ["rootFolderName"],
+  "drive.disconnect": [],
+  "drive.backup_upload": ["category", "queued"],
   // Reconstruye cómo se obtuvo una liquidación. Coeficientes como strings
   // decimales EXACTOS (nunca float). Sin CUIT, nombres ni importes.
   "period.vat_settings_change": [

@@ -16,6 +16,7 @@ import { validCuit } from "@/lib/tax-import/common";
 import { parseImportRequest } from "@/lib/libro-iva-import/request";
 import { TRIBUTE_LABELS, type SyncItem } from "@/lib/libro-iva-import/tribute-sync";
 import { applyTributeSync, periodPurchasesForSync, planTributeSync, tributeSyncFileRows, tributeSyncToken } from "@/lib/libro-iva-import/tribute-sync-service";
+import { backupAfterImport } from "@/lib/drive/backup-service";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -90,5 +91,9 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
         }
         return r;
     }, { maxWait: 5000, timeout: 10000 });
+    if (!cont) {
+        await backupAfterImport(prisma, { organizationId, clientId: scope.clientId, periodId: scope.periodId, category: "IVA_COMPRAS", source: "tribute-sync", description: "LIBRO IVA DIGITAL COMPRAS COMPROBANTES", bytes: files.vouchers, profileId });
+        await backupAfterImport(prisma, { organizationId, clientId: scope.clientId, periodId: scope.periodId, category: "IVA_COMPRAS", source: "tribute-sync", description: "LIBRO IVA DIGITAL COMPRAS ALICUOTAS", bytes: files.aliquots, profileId });
+    }
     return NextResponse.json(result);
 });
