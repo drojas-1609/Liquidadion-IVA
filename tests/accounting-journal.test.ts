@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { D } from "@/lib/decimal";
 import { buildIibbEntry, buildTaxPaymentEntry, buildTaxPaymentInput, buildVatEntry, lastDayOfMonth, totals } from "@/lib/accounting/journal";
 
 const s = (lines: { role?: string; accountId?: string; debit: { toFixed: (n: number) => string }; credit: { toFixed: (n: number) => string } }[]) =>
@@ -80,7 +81,7 @@ describe("libro diario — pago con VEP", () => {
     it("valida el formulario", () => {
         expect(buildTaxPaymentInput({ tax: "IIBB", date: "2026-11-18", capital: "1.234,56", paymentAccountId: "a" }).ok).toBe(true);
         const r = buildTaxPaymentInput({ tax: "IIBB", date: "2026-11-18", capital: "1.234,56", paymentAccountId: "a" });
-        if (r.ok) expect(r.value.capital.toFixed(2)).toBe("1234.56");
+        if (r.ok) expect(D(r.value.capital).toFixed(2)).toBe("1234.56");
         expect(buildTaxPaymentInput({ tax: "X", date: "2026-11-18", capital: "1", paymentAccountId: "a" })).toMatchObject({ ok: false, field: "tax" });
         expect(buildTaxPaymentInput({ tax: "VAT", date: "2026-11-18", capital: "0", paymentAccountId: "a" })).toMatchObject({ ok: false, field: "capital" });
         expect(buildTaxPaymentInput({ tax: "VAT", date: "18/11/2026", capital: "1", paymentAccountId: "a" })).toMatchObject({ ok: false, field: "date" });

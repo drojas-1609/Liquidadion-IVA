@@ -48,7 +48,7 @@ function compact(lines: (DraftLine | null)[]): DraftLine[] {
     return lines.filter((l): l is DraftLine => l !== null);
 }
 
-export function totals(lines: readonly DraftLine[]): { debit: Prisma.Decimal; credit: Prisma.Decimal } {
+export function totals(lines: readonly { debit: Prisma.Decimal; credit: Prisma.Decimal }[]): { debit: Prisma.Decimal; credit: Prisma.Decimal } {
     return { debit: sum(lines.map((l) => l.debit)), credit: sum(lines.map((l) => l.credit)) };
 }
 
