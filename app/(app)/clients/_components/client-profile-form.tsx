@@ -493,6 +493,12 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
     const [loginCuit, setLoginCuit] = useState("");
     const [fiscalPassword, setFiscalPassword] = useState("");
 
+    // Perfil contable (sólo en el alta; después se edita en «Plan de cuentas»).
+    const [chartModel, setChartModel] = useState("");
+    const [mipymeCategory, setMipymeCategory] = useState("");
+    const [mipymeManufacturing, setMipymeManufacturing] = useState(false);
+    const [mipymeValidUntil, setMipymeValidUntil] = useState("");
+
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
         if (stale) return; // formulario obsoleto: nunca se reenvía
@@ -533,7 +539,10 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
         const { name, cuit, condition, address, phone, contactEmail } = fields;
         const legacyRate = fields.defaultIibbRate.trim();
         const legacyChanged = legacyRate !== initial.defaultIibbRate;
-        const payload = { name, cuit, condition, address, phone, contactEmail, iibb,
+        const accounting = mode === "create"
+            ? { accounting: { chartModel: chartModel || null, mipymeCategory: mipymeCategory || null, mipymeManufacturing: mipymeCategory === "MEDIANA_T1" && mipymeManufacturing, mipymeValidUntil: mipymeCategory ? mipymeValidUntil || null : null } }
+            : {};
+        const payload = { name, cuit, condition, address, phone, contactEmail, iibb, ...accounting,
             ...(configureArca && canManageArca ? { arcaCredential: { loginCuit: loginCuit.trim() || cuit, password: fiscalPassword } } : {}), ...(legacyChanged ? { defaultIibbRate: legacyRate } : {}) };
         setLoading(true);
         try {
@@ -686,6 +695,35 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                         <p id={id("contactEmail-hint")} style={HINT}>Dato de contacto confirmado por el estudio. No es el domicilio fiscal electrónico.</p>
                     </div>
                 </div>
+
+                {mode === "create" && <fieldset style={SECTION}>
+                    <legend>Contabilidad</legend>
+                    <label>
+                        Plan de cuentas modelo
+                        <select className="input" value={chartModel} onChange={(e) => setChartModel(e.target.value)}>
+                            <option value="">Según la actividad principal (comercio → comercializadora; resto → servicios)</option>
+                            <option value="COMMERCIAL">Empresa comercializadora</option>
+                            <option value="SERVICES">Empresa de servicios</option>
+                        </select>
+                    </label>
+                    <label>
+                        Certificado MiPyME
+                        <select className="input" value={mipymeCategory} onChange={(e) => setMipymeCategory(e.target.value)}>
+                            <option value="">No tiene</option>
+                            <option value="MICRO">Micro</option>
+                            <option value="PEQUENA">Pequeña</option>
+                            <option value="MEDIANA_T1">Mediana tramo 1</option>
+                            <option value="MEDIANA_T2">Mediana tramo 2</option>
+                        </select>
+                    </label>
+                    {mipymeCategory === "MEDIANA_T1" && (
+                        <label><input type="checkbox" checked={mipymeManufacturing} onChange={(e) => setMipymeManufacturing(e.target.checked)} /> Industria manufacturera</label>
+                    )}
+                    {mipymeCategory && (
+                        <label>Vigencia del certificado (hasta)<input className="input" type="date" value={mipymeValidUntil} onChange={(e) => setMipymeValidUntil(e.target.value)} /></label>
+                    )}
+                    <p style={HINT}>Define cuánto del impuesto a los débitos y créditos se computa en Ganancias: micro y pequeña 100 %, mediana tramo 1 industrial 60 %, resto 33 %.</p>
+                </fieldset>}
 
                 {canManageArca && <fieldset style={SECTION}>
                     <legend>Acceso a ARCA</legend>

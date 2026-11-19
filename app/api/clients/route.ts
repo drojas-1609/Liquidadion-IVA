@@ -1,5 +1,8 @@
 import { parseClientCredential, saveClientCredential } from "@/lib/arca-sync/client-credential";
 import { NextResponse } from "next/server";
+import { validateAccountingProfile, type AccountingProfile } from "@/lib/accounting/profile";
+import { suggestedChartModel } from "@/lib/accounting/chart-models";
+import { applyChartModel } from "@/lib/accounting/chart-service";
 import prisma from "@/lib/prisma";
 import { buildClientInput } from "@/lib/api-input";
 import { serializeClient } from "@/lib/serializers";
@@ -58,6 +61,13 @@ export const POST = withApiAuthz(async (request: Request) => {
     const credential = parseClientCredential(body, access.role);
     const parsed = buildClientInput(body);
     if (!parsed.ok) throw new ValidationError(parsed.error, parsed.field);
+    const rawAccounting = (body as Record<string, unknown> | null)?.accounting;
+    let accounting: AccountingProfile | null = null;
+    if (rawAccounting !== undefined && rawAccounting !== null) {
+        const a = validateAccountingProfile(rawAccounting);
+        if (!a.ok) throw new ValidationError(a.error, a.field);
+        accounting = a.value;
+    }
     // Procedencia: actividades "de catálogo" y tasas "sugeridas" deben coincidir
     // con un catálogo / una regla revisados (en el alta todo es nuevo).
     if (parsed.data.iibb) {
@@ -87,6 +97,21 @@ export const POST = withApiAuthz(async (request: Request) => {
         if (parsed.data.iibb && (parsed.data.iibb.jurisdictions.length > 0 || parsed.data.iibb.activities.length > 0)) {
             await replaceIibbProfile(tx, { clientId: client.id, organizationId, profile: parsed.data.iibb });
         }
+        // Perfil contable: certificado MiPyME y plan de cuentas modelo. Sin
+        // elección expresa, el modelo sale de la actividad principal (la primera
+        // actividad de ARCA de la ficha).
+        const mainActivity = parsed.data.iibb?.activities.find((a) => a.nomenclator === "ARCA")?.code ?? null;
+        const chartModel = accounting?.chartModel ?? suggestedChartModel(mainActivity);
+        if (accounting && (accounting.mipymeCategory || accounting.mipymeValidUntil)) {
+            await tx.client.update({
+                where: { id_organizationId: { id: client.id, organizationId } },
+                data: {
+                    mipymeCategory: accounting.mipymeCategory, mipymeManufacturing: accounting.mipymeManufacturing,
+                    mipymeValidUntil: accounting.mipymeValidUntil ? new Date(`${accounting.mipymeValidUntil}T00:00:00.000Z`) : null,
+                },
+            });
+        }
+        if (chartModel) await applyChartModel(tx, { organizationId, clientId: client.id, profileId }, chartModel);
         await recordAudit(tx, {
             organizationId,
             actorProfileId: profileId,

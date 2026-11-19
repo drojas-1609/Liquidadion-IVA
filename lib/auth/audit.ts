@@ -65,6 +65,10 @@ export const AUDIT_ACTIONS = [
   "vat.package.export",
   "iibb.f5680.export",
   "invoice.tributes_sync",
+  "chart.account_create",
+  "chart.account_update",
+  "chart.model_apply",
+  "client.accounting_profile",
   // Consulta a ARCA en producción: quién, organización, cuándo (createdAt) y resultado.
   // Dos filas por consulta con el mismo targetId interno: intento (STARTED) y resultado.
   "arca.cuit_lookup",
@@ -146,6 +150,10 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "vat.package.export": ["periodId", "clientId", "month", "year", "mode", "version", "packageSha256"],
   "iibb.f5680.export": ["periodId", "kind", "count", "fileSha256"],
   "invoice.tributes_sync": ["periodId", "applied", "pending", "excludedSuppliers", "filesSha256"],
+  "chart.account_create": ["code", "role"],
+  "chart.account_update": ["code", "changedFields"],
+  "chart.model_apply": ["model", "accounts"],
+  "client.accounting_profile": ["mipymeCategory", "chartModel", "accountsCreated"],
   // Reconstruye cómo se obtuvo una liquidación. Coeficientes como strings
   // decimales EXACTOS (nunca float). Sin CUIT, nombres ni importes.
   "period.vat_settings_change": [
