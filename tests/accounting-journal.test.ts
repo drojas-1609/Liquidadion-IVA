@@ -102,8 +102,10 @@ describe("Sueldos — F.931 y boletas sindicales", () => {
         expect(annexIZone(66)?.percent).toBe("6.50");
         expect(annexIZone(67)).toMatchObject({ name: "SANTA CRUZ - RÍO GALLEGOS", percent: "6.50" });
         expect(annexIZone(68)).toMatchObject({ name: "RESTO DE SANTA CRUZ", percent: "7.30" });
-        expect(annexIZone(27)).toBeNull();
-        expect(ANNEX_I_ZONES).toHaveLength(81);
+        expect(annexIZone(27)).toMatchObject({ name: "RESTO DE CORRIENTES", percent: "7.30" });
+        expect(annexIZone(59)?.percent).toBe("3.80");
+        expect(annexIZone(86)).toBeNull();
+        expect(ANNEX_I_ZONES.map((z) => z.code)).toEqual(Array.from({ length: 85 }, (_, i) => i + 1));
     });
     it("crédito = base × puntos, redondeado a centavos", () => {
         expect(annexICredit("1234567.89", "7.30").toFixed(2)).toBe("90123.46");

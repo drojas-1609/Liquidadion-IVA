@@ -2,8 +2,9 @@
  * Ley 27.541, art. 22 — Anexo I: puntos porcentuales de reconocimiento de IVA
  * sobre las bases imponibles de las contribuciones patronales, por código zonal.
  * Transcripto del texto de la ley (Senado de la Nación, págs. 51–53) que aportó
- * el estudio el 19/11/2026. Faltan los códigos 27, 28, 58 y 59 (no figuran en
- * las páginas recibidas): no se ofrecen hasta verificarlos en la fuente oficial.
+ * el estudio el 19/11/2026; los códigos 27, 28, 58 y 59 (cortados en esas
+ * páginas) se completaron con la reproducción completa del Anexo I que aportó
+ * el estudio el mismo día. Los 85 códigos zonales.
  */
 export interface AnnexIZone { code: number; name: string; percent: string }
 
@@ -17,6 +18,7 @@ const RAW: [number, string, string][] = [
     [19, "CÓRDOBA - SAN ALBERTO", "3.80"], [20, "CÓRDOBA - SAN JAVIER", "3.80"], [21, "GRAN CÓRDOBA", "1.45"],
     [22, "RESTO DE CÓRDOBA", "2.20"], [23, "CORRIENTES - ESQUINA", "5.70"], [24, "CORRIENTES - SAUCE", "5.70"],
     [25, "CORRIENTES - CURUZÚ CUATIÁ", "5.70"], [26, "CORRIENTES - MONTE CASEROS", "5.70"],
+    [27, "RESTO DE CORRIENTES", "7.30"], [28, "GRAN RESISTENCIA", "7.30"],
     [29, "CHUBUT - RAWSON - TRELEW", "5.70"], [30, "RESTO DE CHUBUT", "6.50"], [31, "ENTRE RÍOS - FEDERACIÓN", "5.70"],
     [32, "ENTRE RÍOS - FELICIANO", "5.70"], [33, "ENTRE RÍOS - PARANÁ", "2.20"], [34, "RESTO DE ENTRE RÍOS", "3.00"],
     [35, "JUJUY - CIUDAD DE JUJUY", "7.30"], [36, "RESTO DE JUJUY", "8.05"], [37, "LA PAMPA - CHICALCO", "3.80"],
@@ -27,6 +29,7 @@ const RAW: [number, string, string][] = [
     [50, "RESTO DE MISIONES", "8.05"], [51, "CIUDAD NEUQUÉN/PLOTTIER", "3.00"], [52, "NEUQUÉN - CENTENARIO", "3.00"],
     [53, "NEUQUÉN - CUTRAL CO", "6.50"], [54, "NEUQUÉN - PLAZA HUINCUL", "6.50"], [55, "RESTO DE NEUQUÉN", "3.80"],
     [56, "RÍO NEGRO SUR HASTA PARALELO 42", "6.50"], [57, "RÍO NEGRO - VIEDMA", "3.00"],
+    [58, "RÍO NEGRO - ALTO VALLE", "3.00"], [59, "RESTO DE RÍO NEGRO", "3.80"],
     [60, "GRAN SALTA", "7.30"], [61, "RESTO DE SALTA", "8.05"], [62, "GRAN SAN JUAN", "3.80"], [63, "RESTO DE SAN JUAN", "5.70"],
     [64, "CIUDAD DE SAN LUIS", "3.00"], [65, "RESTO DE SAN LUIS", "3.80"], [66, "SANTA CRUZ - CALETA OLIVIA", "6.50"],
     [67, "SANTA CRUZ - RÍO GALLEGOS", "6.50"], [68, "RESTO DE SANTA CRUZ", "7.30"], [69, "SANTA FE - GENERAL OBLIGADO", "5.70"],
