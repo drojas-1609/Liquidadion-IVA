@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BACKUP_CATEGORIES, BACKUP_CATEGORY_LABEL, type BackupCategory } from "@/lib/drive/naming";
+import { MANUAL_BACKUP_CATEGORIES, BACKUP_CATEGORY_LABEL, type BackupCategory } from "@/lib/drive/naming";
 
 async function toBase64(f: File): Promise<string> {
     const u = new Uint8Array(await f.arrayBuffer());
@@ -68,7 +68,7 @@ export function BackupActions({ clientId, periods, pendingCount }: { clientId: s
             <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, display: "grid", gap: "var(--spacing-sm)", maxWidth: "36rem" }}>
                 <label>Va en
                     <select className="input" value={form.category} onChange={set("category")}>
-                        {BACKUP_CATEGORIES.map((c) => <option key={c} value={c}>{BACKUP_CATEGORY_LABEL[c]}</option>)}
+                        {MANUAL_BACKUP_CATEGORIES.map((c) => <option key={c} value={c}>{BACKUP_CATEGORY_LABEL[c]}</option>)}
                     </select>
                 </label>
                 {yearly ? (

@@ -63,6 +63,9 @@ import type { RateAlternative } from "@/lib/iibb-rates/suggest";
 import { ErrorSummary, FieldError, fieldA11y, fieldStyle } from "./form-errors";
 import { ActivityCatalogSearch } from "./activity-catalog-search";
 import { RateSuggestionPanel } from "./rate-suggestion-panel";
+import { ConstanciaPanel } from "./constancia-panel";
+import type { Constancia } from "@/lib/arca-constancia/parse";
+import type { ConstanciaProposal } from "@/lib/arca-constancia/apply";
 
 /**
  * Formulario de alta y edición de clientes (ficha completa).
@@ -189,6 +192,8 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
     const [stale, setStale] = useState(false);
     const [pending, setPending] = useState<PendingRemoval | null>(null);
     const [lookup, setLookup] = useState<LookupState>({ phase: "idle" });
+    // Alta: PDF de la constancia leído antes de crear el cliente; se guarda en Drive al crearlo.
+    const constanciaForCreate = useRef<string | null>(null);
     const [selection, setSelection] = useState<{ fields: Array<keyof ProposableFields>; confirmOverwrite: boolean; activityCodes: string[] }>({
         fields: [],
         confirmOverwrite: false,
@@ -325,6 +330,32 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
         setRegistration(value);
         clearError("iibbRegistration");
         if (value !== "CONVENIO_MULTILATERAL") setJurisdictions((js) => js.map((j) => ({ ...j, headquarters: false })));
+    }
+
+    // ── Constancia de inscripción ──────────────────────────────────────────
+    function applyConstancia(c: Constancia, p: ConstanciaProposal) {
+        if (p.registration) changeRegistration(p.registration);
+        if (p.addJurisdictions.length > 0) {
+            setJurisdictions((js) => [...js, ...p.addJurisdictions.filter((j) => !js.some((x) => x.code === j.code)).map((j) => ({ code: j.code, headquarters: false }))]);
+            clearError("jurisdictions");
+        }
+        if (p.headquarters) setJurisdictions((js) => js.map((j) => ({ ...j, headquarters: j.code === p.headquarters })));
+        // Actividades NAES asociadas a las jurisdicciones de la constancia (alícuota sin informar).
+        const juris = c.jurisdictions.map((j) => j.code);
+        for (const a of p.addActivities) {
+            addActivity({
+                entry: "manual",
+                nomenclator: "NAES",
+                nomenclatorJurisdiction: "",
+                nomenclatorReference: `Constancia de inscripción ARCA${a.article ? ` · art. ${a.article}` : ""}`,
+                code: a.code,
+                description: a.description,
+                origin: "MANUAL",
+                catalogId: null,
+                catalogVersion: null,
+                rates: Object.fromEntries(juris.map((code) => [code, { ...EMPTY_RATE, associated: true }])),
+            });
+        }
     }
 
     // ── Actividades ─────────────────────────────────────────────────────────
@@ -562,6 +593,10 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                 showErrors(mapped.kind, mapped.errors, mapped.message);
                 return;
             }
+            if (mode === "create" && result.ok && "id" in result && result.id && constanciaForCreate.current) {
+                // Guarda en Drive la constancia leída durante el alta (si falla, se puede volver a cargar desde la ficha).
+                await fetch("/api/arca-constancia", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ file: constanciaForCreate.current, clientId: result.id }) }).catch(() => null);
+            }
             router.push(mode === "create" ? "/clients" : backHref);
             router.refresh();
         } catch {
@@ -642,6 +677,14 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                         onDiscard={() => setLookup({ phase: "idle" })}
                     />
                 )}
+
+                <ConstanciaPanel
+                    clientId={initial.id ?? null}
+                    cuit={fields.cuit}
+                    current={{ registration, jurisdictions, activities: activities.map((a) => ({ nomenclator: a.nomenclator, code: a.code })) }}
+                    onApply={applyConstancia}
+                    onFileForCreate={(b64) => { constanciaForCreate.current = b64; }}
+                />
 
                 <div>
                     <label htmlFor={a11y("condition").id} style={LABEL}>Condición Fiscal (IVA)</label>

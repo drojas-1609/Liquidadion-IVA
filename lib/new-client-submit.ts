@@ -56,7 +56,7 @@ export function readApiFieldError(body: unknown): { field: string; fieldMessage:
     return { field, fieldMessage: apiError.message };
 }
 
-export type NewClientSubmitResult = { ok: true } | { ok: false; message: string; field?: string; fieldMessage?: string };
+export type NewClientSubmitResult = { ok: true; id?: string } | { ok: false; message: string; field?: string; fieldMessage?: string };
 
 export async function submitNewClient(
     data: Record<string, unknown>,
@@ -73,7 +73,12 @@ export async function submitNewClient(
         return { ok: false, message: NEW_CLIENT_GENERIC_ERROR };
     }
 
-    if (res.ok) return { ok: true };
+    if (res.ok) {
+        // El id del alta permite tareas posteriores (p. ej. guardar la constancia en Drive).
+        const created: unknown = await res.json().catch(() => null);
+        const id = created && typeof created === "object" && typeof (created as { id?: unknown }).id === "string" ? (created as { id: string }).id : null;
+        return id ? { ok: true, id } : { ok: true };
+    }
 
     const body: unknown = await res.json().catch(() => null);
     return { ok: false, message: newClientErrorMessage(body), ...(readApiFieldError(body) ?? {}) };

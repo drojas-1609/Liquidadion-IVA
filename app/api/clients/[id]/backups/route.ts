@@ -5,7 +5,7 @@ import { recordAudit } from "@/lib/auth/audit";
 import { ROLES_UPDATE } from "@/lib/auth/roles";
 import { MODULES_CLIENT_DIRECTORY } from "@/lib/auth/permissions";
 import { NotFoundError, ValidationError } from "@/lib/auth/errors";
-import { BACKUP_CATEGORIES, type BackupCategory } from "@/lib/drive/naming";
+import { MANUAL_BACKUP_CATEGORIES, type BackupCategory } from "@/lib/drive/naming";
 import { MAX_BACKUP_BYTES, processPendingBackups, queueBackup } from "@/lib/drive/backup-service";
 
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
@@ -23,7 +23,7 @@ export const POST = withApiAuthz(async (request: Request, ctx: { params: Promise
     const b = (await parseJsonBody(request)) as Record<string, unknown> | null;
     if (!b || typeof b !== "object") throw new ValidationError("Datos inválidos.", "body");
     const category = b.category as BackupCategory;
-    if (!BACKUP_CATEGORIES.includes(category)) throw new ValidationError("Elegí dónde va el comprobante.", "category");
+    if (!MANUAL_BACKUP_CATEGORIES.includes(category)) throw new ValidationError("Elegí dónde va el comprobante.", "category");
     const description = typeof b.description === "string" ? b.description.trim() : "";
     if (description.length < 2 || description.length > 120) throw new ValidationError("Escribí una descripción corta (p. ej. «F931 VEP»).", "description");
     if (typeof b.file !== "string" || b.file.length === 0 || b.file.length % 4 !== 0 || !BASE64_RE.test(b.file)) throw new ValidationError("Elegí el archivo.", "file");

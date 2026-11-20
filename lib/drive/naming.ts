@@ -22,6 +22,7 @@ export const BACKUP_CATEGORIES = [
     "BANCOS",
     "SUELDOS",
     "CONTABILIDAD",
+    "CONSTANCIAS",
 ] as const;
 export type BackupCategory = (typeof BACKUP_CATEGORIES)[number];
 
@@ -35,7 +36,14 @@ export const BACKUP_CATEGORY_LABEL: Record<BackupCategory, string> = {
     BANCOS: "Bancos",
     SUELDOS: "Sueldos",
     CONTABILIDAD: "Contabilidad",
+    CONSTANCIAS: "Constancias",
 };
+
+/** Categorías que se cargan a mano desde Respaldos (la constancia entra por la ficha del cliente). */
+export const MANUAL_BACKUP_CATEGORIES: readonly BackupCategory[] = BACKUP_CATEGORIES.filter((c) => c !== "CONSTANCIAS");
+
+/** Categorías de archivo único: un archivo nuevo reemplaza al anterior en Drive (mismo nombre). */
+export const REPLACE_CATEGORIES: readonly BackupCategory[] = ["CONSTANCIAS"];
 
 /** Mayúsculas, sin caracteres que Drive o las PCs no aceptan bien, espacios simples. */
 export function cleanSegment(s: string): string {
@@ -87,11 +95,14 @@ export function backupFolderPath(t: BackupTarget): string[] {
         case "BANCOS": return [client, "BANCOS", cleanSegment(t.bank || "SIN BANCO"), y];
         case "SUELDOS": return [client, "SUELDOS", y, needPeriod()];
         case "CONTABILIDAD": return [client, "CONTABILIDAD", y];
+        case "CONSTANCIAS": return [client, "CONSTANCIAS"];
     }
 }
 
 export function backupFileName(t: BackupTarget): string {
     const ext = t.extension.replace(/^\./, "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) || "bin";
+    // Archivo único (se reemplaza): sin fecha en el nombre.
+    if (t.category === "CONSTANCIAS") return `${`${cleanSegment(t.description)} ${cleanSegment(t.client.name)}`.replace(/[.\s]+$/, "")}.${ext}`;
     const when = t.month ? `${t.year} ${mm(t.month)}` : String(t.year);
     // Sin puntos finales antes de la extensión («… S. A. S..pdf» → «… S. A. S.pdf»).
     const base = `${when} ${cleanSegment(t.description)} ${cleanSegment(t.client.name)}`.replace(/[.\s]+$/, "");
