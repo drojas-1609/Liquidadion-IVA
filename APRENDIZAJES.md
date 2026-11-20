@@ -225,3 +225,14 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Causa:** `prisma validate` no corre en este entorno (sin motores) y la regla no la cubren las pruebas.
 - **Regla:** toda relación 1:1 hacia `Period` por FK compuesta lleva `@@unique([periodId, organizationId])`
   y su índice único en la migración (mismo patrón que `PeriodIibbPosition`). Revisarlo antes de subir.
+
+### 2026-11-20 · Constancia de inscripción (PR #77): error interno al guardar en Drive
+
+- **Qué pasó:** al cargar la constancia de un cliente existente, la API devolvió error interno:
+  el alta del respaldo violó `DocumentBackup_category_check` (la categoría nueva CONSTANCIAS no
+  estaba en el CHECK de la base). La lectura del PDF funcionaba; falló sólo el guardado.
+- **Causa:** se agregó un valor a una lista del código (`BACKUP_CATEGORIES`) sin revisar que la
+  base la restringe con un CHECK; las pruebas usan una base simulada que no aplica restricciones.
+- **Regla:** antes de agregar un valor a una lista que se persiste (categorías, tipos, estados),
+  buscar `CHECK` sobre esa columna en `prisma/migrations` y, si existe, incluir la migración que
+  la amplía en el mismo PR. Probar el camino completo en la preview (lectura + guardado).
