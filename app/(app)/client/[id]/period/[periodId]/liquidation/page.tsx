@@ -13,7 +13,7 @@ import { computeLiquidation, type LiquidationResult } from "@/lib/liquidation-ca
 import { loadPeriodLiquidationInput } from "@/lib/liquidation-totals";
 import { MissingGlobalProrationCoefficientError } from "@/lib/invoice-model";
 import { formatMoney } from "@/lib/format";
-import { LIQUIDATION_RATE_NOTE } from "@/lib/legacy-iibb-rate";
+import { ACTIVITY_RATE_NOTE, LIQUIDATION_RATE_NOTE } from "@/lib/legacy-iibb-rate";
 
 export const dynamic = "force-dynamic";
 
@@ -204,13 +204,57 @@ export default async function LiquidationPage({ params }: { params: Promise<{ id
                     <span>Base imponible (ventas sin IVA: gravado + no gravado + exento)</span>
                     <span style={{ fontWeight: 500 }}>${m(r.iibb.base)}</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
-                    <span>Total liquidación del impuesto ({r.iibb.rate.toString()}%)</span>
-                    <span style={{ fontWeight: 500 }}>${m(r.iibb.tax)}</span>
-                </div>
-                <p style={{ color: "var(--secondary)", fontSize: "0.8125rem", marginTop: "calc(-1 * var(--spacing-sm))", marginBottom: "var(--spacing-md)" }}>
-                    {LIQUIDATION_RATE_NOTE}
-                </p>
+                {r.iibb.byActivity ? (
+                    <>
+                        <table className="iibb-activity-table">
+                            <thead>
+                                <tr>
+                                    <th>Actividad</th>
+                                    <th>Base</th>
+                                    <th>Alícuota</th>
+                                    <th>Impuesto</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {r.iibb.byActivity.map((l) => (
+                                    <tr key={l.code ?? "-"} className={l.rateSource === "FALLBACK" ? "is-warn" : undefined}>
+                                        <td>
+                                            {l.code ? <strong>{l.code}</strong> : null} {l.description}
+                                            <small>
+                                                {l.sources.map((x) => ({ MANUAL: "corrección manual", POS: "punto de venta", PRINCIPAL: "actividad principal", NONE: "sin actividad" })[x]).join(" · ")}
+                                            </small>
+                                        </td>
+                                        <td>${m(l.base)}</td>
+                                        <td>{l.rateSource === "EXEMPT" ? "exenta" : `${l.rate.toFixed(2).replace(".", ",")} %`}{l.rateSource === "FALLBACK" ? " (respaldo)" : ""}</td>
+                                        <td>${m(l.tax)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        <div style={{ display: "flex", justifyContent: "space-between", margin: "var(--spacing-sm) 0 var(--spacing-md)" }}>
+                            <span>Total liquidación del impuesto (alícuota efectiva {r.iibb.rate.toFixed(2).replace(".", ",")} %)</span>
+                            <span style={{ fontWeight: 500 }}>${m(r.iibb.tax)}</span>
+                        </div>
+                        {r.iibb.warnings.length > 0 && (
+                            <ul role="alert" className="iibb-warnings">
+                                {r.iibb.warnings.map((w) => <li key={w}>{w}</li>)}
+                            </ul>
+                        )}
+                        <p style={{ color: "var(--secondary)", fontSize: "0.8125rem", marginBottom: "var(--spacing-md)" }}>
+                            {ACTIVITY_RATE_NOTE} <Link href={`/client/${id}/period/${periodId}/iibb-activities`}>Revisar la asignación de ventas por actividad →</Link>
+                        </p>
+                    </>
+                ) : (
+                    <>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-md)" }}>
+                            <span>Total liquidación del impuesto ({r.iibb.rate.toString()}%)</span>
+                            <span style={{ fontWeight: 500 }}>${m(r.iibb.tax)}</span>
+                        </div>
+                        <p style={{ color: "var(--secondary)", fontSize: "0.8125rem", marginTop: "calc(-1 * var(--spacing-sm))", marginBottom: "var(--spacing-md)" }}>
+                            {LIQUIDATION_RATE_NOTE}
+                        </p>
+                    </>
+                )}
 
                 <h3 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-sm)" }}>Deducciones</h3>
                 {([

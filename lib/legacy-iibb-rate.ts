@@ -16,3 +16,7 @@ export const LEGACY_INITIAL_IIBB_RATE = "3";
  */
 export const LIQUIDATION_RATE_NOTE =
     "Alícuota del cálculo actual del cliente: valor único aplicado a toda la base. No se obtiene automáticamente de las actividades y no representa una liquidación por jurisdicción.";
+
+/** Aclaración cuando el impuesto se calcula por actividad (cliente LOCAL con actividades en la ficha). */
+export const ACTIVITY_RATE_NOTE =
+    "Impuesto por actividad: base de cada actividad × su alícuota en la jurisdicción (ficha del cliente). La alícuota indicada es la efectiva (impuesto / base).";

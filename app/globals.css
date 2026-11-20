@@ -1009,3 +1009,11 @@ main h1 + p { color: var(--text-muted); }
 
 .invoice-search { margin: var(--spacing-md) 0 0; }
 .invoice-search input[type="search"] { flex: 1 1 320px; max-width: 520px; }
+
+/* IIBB por actividad (liquidación) */
+.iibb-activity-table { width: 100%; border-collapse: collapse; margin-bottom: var(--spacing-sm); font-size: 0.875rem; }
+.iibb-activity-table th, .iibb-activity-table td { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); text-align: right; vertical-align: top; }
+.iibb-activity-table th:first-child, .iibb-activity-table td:first-child { text-align: left; }
+.iibb-activity-table td small { display: block; color: var(--secondary); font-size: 0.75rem; }
+.iibb-activity-table tr.is-warn td { background: color-mix(in srgb, var(--warning, #b45309) 10%, transparent); }
+.iibb-warnings { margin: 0 0 var(--spacing-md); padding-left: 1.25rem; color: var(--warning, #b45309); font-size: 0.875rem; }

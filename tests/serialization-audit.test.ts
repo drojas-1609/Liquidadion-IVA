@@ -50,6 +50,8 @@ const EXPECTED = {
   "app/api/clients/[id]/accounts/[accountId]/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/accounts/[accountId]/subaccounts/route.ts": { models: [], serializer: null },
   "app/api/arca-constancia/route.ts": { models: [], serializer: null },
+  "app/api/clients/[id]/iibb-activities/route.ts": { models: [], serializer: null },
+  "app/api/periods/[id]/iibb-activities/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/accounts/apply-model/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/journal/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/journal/tax-payment/route.ts": { models: [], serializer: null },

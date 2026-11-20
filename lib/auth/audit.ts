@@ -69,6 +69,8 @@ export const AUDIT_ACTIONS = [
   "chart.account_update",
   "chart.subaccount_create",
   "client.arca_constancia",
+  "client.iibb_activity_config",
+  "invoice.iibb_activity",
   "chart.model_apply",
   "client.accounting_profile",
   "journal.entry_generate",
@@ -168,6 +170,10 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "chart.subaccount_create": ["code", "parentCode", "role", "movedLines"],
   // Constancia de inscripción cargada: fecha de emisión, verificador y si se encoló para Drive.
   "client.arca_constancia": ["issuedOn", "verifier", "queued"],
+  // IIBB por actividad: actividad principal y cantidad de puntos de venta asignados.
+  "client.iibb_activity_config": ["principalCode", "posCount"],
+  // Corrección manual de actividad de IIBB: cantidad de comprobantes y período.
+  "invoice.iibb_activity": ["count", "periodId", "code"],
   "chart.model_apply": ["model", "accounts"],
   "client.accounting_profile": ["mipymeCategory", "chartModel", "accountsCreated"],
   "journal.entry_generate": ["kind", "number", "replaced"],
