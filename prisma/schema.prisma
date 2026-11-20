@@ -232,6 +232,10 @@ model Client {
   mipymeValidUntil    DateTime? @db.Date
   /// Código zonal del Anexo I de la Ley 27.541 (crédito de IVA por contribuciones).
   payrollZoneCode     Int?
+  /// Actividad principal para IIBB (código del nomenclador de la ficha): base
+  /// por defecto de las ventas sin punto de venta asignado ni corrección manual.
+  iibbPrincipalActivityCode String? @db.VarChar(12)
+  posActivities    ClientPosActivity[]
   chartAccounts    ChartAccount[]
   journalEntries   JournalEntry[]
   documentBackups  DocumentBackup[]
@@ -258,6 +262,23 @@ model Client {
   // Tarea 3B: habilita que (id, organizationId) sea destino de FK compuesta
   // desde Period, impidiendo relaciones entre organizaciones distintas.
   @@unique([id, organizationId])
+  @@index([organizationId])
+}
+
+/// Punto de venta asignado a una actividad (IIBB): las ventas de ese punto de
+/// venta toman esa actividad salvo corrección manual del comprobante.
+model ClientPosActivity {
+  id             String   @id @default(cuid())
+  organizationId String
+  clientId       String
+  pointOfSale    Int
+  activityCode   String   @db.VarChar(12)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([clientId, pointOfSale])
   @@index([organizationId])
 }
 
@@ -427,6 +448,9 @@ model Invoice {
   /// Su determinación fiscal definitiva (jurisdicción, actividad, exenciones)
   /// se amplía en la fase F.
   grossIncomeTaxBaseAmount          Decimal?       @db.Decimal(18, 2)
+  /// Actividad de IIBB asignada a mano (código de la ficha). NULL = la del
+  /// punto de venta o la principal del cliente.
+  iibbActivityCode                  String?        @db.VarChar(12)
   /// Total del comprobante en pesos (fórmula en lib/invoice-model.ts).
   voucherTotalAmount                Decimal?       @db.Decimal(18, 2)
   /// Reintegro Decreto 1043/2016 / Devolución IVA Turistas Extranjeros (TurIVA):
@@ -1164,8 +1188,8 @@ model ClientActivityRate {
   jurisdictionCode String
   rate             Decimal?      @db.Decimal(9, 6)
   /// RATE con rate NULL = sin informar; RATE con rate = alícuota (0 = 0 %
-  /// explícito); EXEMPT = exención (rate NULL). Informativo: no se usa en la
-  /// liquidación.
+  /// explícito); EXEMPT = exención (rate NULL). Desde la fase IIBB F1 la usa
+  /// la liquidación de IIBB por actividad (contribuyente local).
   treatment        RateTreatment @default(RATE)
   /// Origen del dato: tasa manual del estudio o sugerencia de norma confirmada
   /// (con ruleRef). NULL = sin origen registrado (cargas previas) o sin dato.

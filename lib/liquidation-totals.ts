@@ -2,6 +2,8 @@ import "server-only";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { InvoiceForCalc, PeriodForCalc } from "./liquidation-calc";
 import { previousIibbBalance, iibbPositionWithPrevious, type PreviousIibbBalance } from "./iibb-previous-balance";
+import { normalizeInvoiceRow } from "./invoice-model";
+import type { IibbSaleSlice } from "./iibb/activity-base";
 
 /**
  * Entrada de `computeLiquidation` para el período COMPLETO sin cargar cada
@@ -69,7 +71,16 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
         select: {
             clientId: true, month: true, year: true,
             taxRecords: { select: { type: true, amount: true, nature: true, jurisdictionCode: true } },
-            client: { select: { defaultIibbRate: true, iibbRegistration: true, jurisdictions: { select: { jurisdictionCode: true } } } },
+            client: {
+                select: {
+                    defaultIibbRate: true,
+                    iibbRegistration: true,
+                    iibbPrincipalActivityCode: true,
+                    jurisdictions: { select: { jurisdictionCode: true } },
+                    posActivities: { select: { pointOfSale: true, activityCode: true } },
+                    activities: { select: { code: true, description: true, rates: { select: { jurisdictionCode: true, rate: true, treatment: true } } } },
+                },
+            },
             iibbPosition: { select: { previousBalance: true, paymentsOnAccount: true, otherCredits: true, otherDebits: true } },
             vatSettings: { select: { creditProrationMode: true, globalCoefficient: true, previousTechnicalBalance: true, previousFreeBalance: true } },
             vatCreditAdjustments: { select: { regime: true, computableAmount: true }, orderBy: { regime: "asc" } },
@@ -141,7 +152,53 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
         }),
     ];
 
+    // IIBB por actividad: sólo contribuyente LOCAL de una jurisdicción con actividades cargadas.
+    const jur = localIibbJurisdiction(period.client);
+    let iibbActivities: PeriodForCalc["iibbActivities"] = null;
+    if (jur && period.client.activities.length > 0) {
+        const [modeledSales, legacySales] = await Promise.all([
+            db.invoice.groupBy({
+                by: ["voucherCode", "pointOfSale", "iibbActivityCode"],
+                where: { ...inPeriod, ...MODELED, category: "SALES" },
+                _sum: { grossIncomeTaxBaseAmount: true },
+                orderBy: [{ voucherCode: "asc" }, { pointOfSale: "asc" }, { iibbActivityCode: "asc" }],
+            }),
+            db.invoice.groupBy({
+                by: ["pointOfSale", "iibbActivityCode"],
+                where: { ...inPeriod, NOT: MODELED, category: "SALES" },
+                _sum: { netAmount: true },
+                orderBy: [{ pointOfSale: "asc" }, { iibbActivityCode: "asc" }],
+            }),
+        ]);
+        // Misma base con signo que la liquidación (normalizeInvoiceRow).
+        const slices: IibbSaleSlice[] = [
+            ...modeledSales.map((g) => ({
+                pointOfSale: g.pointOfSale,
+                manualCode: g.iibbActivityCode,
+                base: normalizeInvoiceRow({
+                    category: "SALES", netAmount: ZERO, vatAmount: ZERO, totalAmount: ZERO, voucherCode: g.voucherCode,
+                    taxedNetAmount: ZERO, totalVatAmount: ZERO, netWithoutVatBreakdownAmount: ZERO, directComputableVatCreditAmount: ZERO,
+                    grossIncomeTaxBaseAmount: z(g._sum.grossIncomeTaxBaseAmount), voucherTotalAmount: ZERO,
+                }).grossIncomeTaxBase,
+            })),
+            ...legacySales.map((g) => ({ pointOfSale: g.pointOfSale, manualCode: g.iibbActivityCode, base: z(g._sum.netAmount) })),
+        ];
+        iibbActivities = {
+            slices,
+            config: {
+                jurisdictionCode: jur,
+                principalCode: period.client.iibbPrincipalActivityCode,
+                posMap: Object.fromEntries(period.client.posActivities.map((p) => [p.pointOfSale, p.activityCode])),
+                activities: period.client.activities.map((a) => {
+                    const r = a.rates.find((x) => x.jurisdictionCode === jur);
+                    return { code: a.code, description: a.description, rate: r && r.treatment === "RATE" ? r.rate : null, exempt: r?.treatment === "EXEMPT" };
+                }),
+            },
+        };
+    }
+
     return {
+        iibbActivities,
         invoices,
         taxRecords: period.taxRecords,
         client: { defaultIibbRate: period.client.defaultIibbRate, iibbJurisdiction: localIibbJurisdiction(period.client) },

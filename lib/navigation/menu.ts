@@ -62,6 +62,7 @@ export function buildClientMenu(opts: { clientId: string; periodId: string | nul
                       { label: "Libro IVA ventas", href: `${c}/period/${p}/sales` },
                       { label: "Libro IVA compras", href: `${c}/period/${p}/purchases` },
                       { label: "Liquidación IVA e IIBB", href: `${c}/period/${p}/liquidation` },
+                      { label: "Ventas por actividad IIBB", href: `${c}/period/${p}/iibb-activities` },
                       { label: "Retenciones y percepciones", href: `${c}/period/${p}/taxes` },
                       { label: "Presentación ARCA", href: `${c}/period/${p}/presentation` },
                       { label: "Importar Libro IVA Digital", href: `${c}/period/${p}/import` },
@@ -81,7 +82,7 @@ export function buildClientMenu(opts: { clientId: string; periodId: string | nul
         },
         { key: "sueldos", label: "Sueldos", items: [{ label: "F.931 y boletas sindicales", href: `${c}/payroll` }] },
         { key: "respaldos", label: "Respaldos", items: [{ label: "Respaldos en Drive", href: `${c}/backups` }] },
-        { key: "cliente", label: "Cliente", items: [{ label: "Datos del cliente", href: `${c}/edit` }] },
+        { key: "cliente", label: "Cliente", items: [{ label: "Datos del cliente", href: `${c}/edit` }, { label: "IIBB por actividad", href: `${c}/iibb` }] },
     );
     return groups;
 }

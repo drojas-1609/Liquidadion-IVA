@@ -257,6 +257,9 @@ export interface LiquidationDTO {
   iibb: {
     rate: string; base: string; tax: string; retentions: string; payable: string;
     withholdings: string; perceptions: string; customsPerceptions: string; bankCollections: string; previousBalance: string; paymentsOnAccount: string; otherCredits: string; otherDebits: string; totalDeductions: string; excludedOtherJurisdictions: string; balanceDgr: string; balanceTaxpayer: string;
+    /** Detalle por actividad (null: alícuota única de la ficha). */
+    byActivity?: { code: string; description: string; base: string; rate: string; tax: string; rateSource: string; sources: string[] }[] | null;
+    warnings?: string[];
   };
 }
 
@@ -306,6 +309,11 @@ export function serializeLiquidation(r: LiquidationResult): LiquidationDTO {
       excludedOtherJurisdictions: money(r.iibb.excludedOtherJurisdictions),
       balanceDgr: money(r.iibb.balanceDgr),
       balanceTaxpayer: money(r.iibb.balanceTaxpayer),
+      // Sin detalle por actividad (cálculo de alícuota única) la clave se omite.
+      ...(r.iibb.byActivity
+        ? { byActivity: r.iibb.byActivity.map((l) => ({ code: l.code ?? "", description: l.description, base: money(l.base), rate: rate(l.rate), tax: money(l.tax), rateSource: l.rateSource, sources: l.sources })) }
+        : {}),
+      warnings: r.iibb.warnings,
     },
   };
 }

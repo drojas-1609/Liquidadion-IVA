@@ -2,7 +2,7 @@ import "server-only";
 import * as XLSX from "xlsx";
 import { Prisma } from "@prisma/client";
 import type { LiquidationDTO } from "./serializers";
-import { LIQUIDATION_RATE_NOTE } from "./legacy-iibb-rate";
+import { ACTIVITY_RATE_NOTE, LIQUIDATION_RATE_NOTE } from "./legacy-iibb-rate";
 import { appendDetailSheets, type DetailInvoice, type DetailTaxRecord } from "./excel-detail";
 
 /**
@@ -72,7 +72,13 @@ export const generateLiquidationExcel = (data: LiquidationData) => {
         ["RESUMEN IIBB (estructura de la DDJJ)"],
         ["Concepto", "Importe"],
         ["Base Imponible IIBB", n(data.iibb.base)],
-        [`Impuesto Determinado (${data.iibb.rate}%)`, n(data.iibb.tax), LIQUIDATION_RATE_NOTE],
+        [`Impuesto Determinado (${data.iibb.rate}%)`, n(data.iibb.tax), data.iibb.byActivity ? ACTIVITY_RATE_NOTE : LIQUIDATION_RATE_NOTE],
+        ...(data.iibb.byActivity ?? []).map((l) => [
+            `   Actividad ${l.code ?? "sin asignar"} · ${l.description} (base ${l.base} × ${l.rate}%)`,
+            n(l.tax),
+            l.rateSource === "FALLBACK" ? "Sin alícuota informada: se usó la alícuota de respaldo" : l.rateSource === "EXEMPT" ? "Exenta" : "",
+        ]),
+        ...(data.iibb.warnings ?? []).map((w) => ["   Advertencia", "", w]),
         ["Saldo a favor de períodos anteriores", n(data.iibb.previousBalance)],
         ["Total de retenciones", n(data.iibb.withholdings), "Retenciones de IIBB y SIRTAC"],
         ["Total de percepciones aduaneras", n(data.iibb.customsPerceptions)],

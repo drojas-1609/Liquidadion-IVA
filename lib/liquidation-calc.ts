@@ -1,6 +1,7 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { D, sum, sub, roundMoney } from "./decimal";
+import { iibbByActivity, type IibbActivityConfig, type IibbActivityLine, type IibbSaleSlice } from "./iibb/activity-base";
 import {
   normalizeInvoiceRow,
   globalCoefficientOf,
@@ -98,6 +99,13 @@ export interface PeriodForCalc {
   vatSettings?: (PeriodVatSettingsLike & { previousTechnicalBalance?: Prisma.Decimal | null; previousFreeBalance?: Prisma.Decimal | null }) | null;
   /** Ajustes al crédito fiscal por contribuciones a la Seguridad Social; ausente = ninguno. */
   vatCreditAdjustments?: VatCreditAdjustmentForCalc[] | null;
+  /**
+   * IIBB por actividad (cliente LOCAL de una jurisdicción): configuración de la
+   * ficha y ventas agrupadas por punto de venta y corrección manual. Ausente =
+   * cálculo con la alícuota única de la ficha (Convenio Multilateral, sin
+   * jurisdicción o sin actividades).
+   */
+  iibbActivities?: { config: IibbActivityConfig; slices: IibbSaleSlice[] } | null;
 }
 
 export interface LiquidationTotals {
@@ -161,9 +169,14 @@ export interface LiquidationResult {
    * bancarias = SIRCREB.
    */
   iibb: {
+    /** Alícuota única o, por actividad, la efectiva (impuesto / base). */
     rate: Prisma.Decimal;
     base: Prisma.Decimal;
     tax: Prisma.Decimal;
+    /** Detalle por actividad; null = cálculo con la alícuota única de la ficha. */
+    byActivity: IibbActivityLine[] | null;
+    /** Advertencias del cálculo por actividad (alícuotas sin informar, ventas sin actividad). */
+    warnings: string[];
     /** Retenciones + percepciones + aduaneras + recaudaciones bancarias computadas. */
     retentions: Prisma.Decimal;
     withholdings: Prisma.Decimal;
@@ -258,9 +271,21 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
   const balanceToPay = ivaPayable.isPositive() && !ivaPayable.isZero() ? ivaPayable : zero;
   const freeBalanceInFavor = ivaPayable.isNegative() ? ivaPayable.negated() : zero;
 
-  const iibbRate = period.client.defaultIibbRate ?? D("3");
+  const fallbackIibbRate = period.client.defaultIibbRate ?? D("3");
   const iibbBase = sum(sales.map((s) => s.grossIncomeTaxBase));
-  const iibbTax = roundMoney(D(iibbBase).times(iibbRate).div(100));
+  let iibbRate = fallbackIibbRate;
+  let iibbTax = roundMoney(D(iibbBase).times(iibbRate).div(100));
+  let iibbByAct: IibbActivityLine[] | null = null;
+  let iibbWarnings: string[] = [];
+  if (period.iibbActivities) {
+    const r = iibbByActivity(period.iibbActivities.slices, period.iibbActivities.config, fallbackIibbRate);
+    // Falla cerrada: el detalle por actividad debe sumar la misma base que las ventas.
+    if (!r.base.equals(iibbBase)) throw new Error("Liquidación: la base de IIBB por actividad no coincide con las ventas del período.");
+    iibbRate = r.effectiveRate;
+    iibbTax = r.tax;
+    iibbByAct = r.lines;
+    iibbWarnings = r.warnings;
+  }
   const iibbJur = period.client.iibbJurisdiction ?? null;
   const iibbAll = period.taxRecords.filter((t) => isIibbRetention(t.type));
   const counted = iibbAll.filter((t) => iibbJur === null || t.jurisdictionCode == null || t.jurisdictionCode === iibbJur);
@@ -312,6 +337,8 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
       rate: iibbRate,
       base: iibbBase,
       tax: iibbTax,
+      byActivity: iibbByAct,
+      warnings: iibbWarnings,
       retentions: iibbRetentions,
       withholdings: iibbWithholdings,
       perceptions: iibbPerceptions,
