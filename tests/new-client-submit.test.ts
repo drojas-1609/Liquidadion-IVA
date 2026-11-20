@@ -34,7 +34,7 @@ describe("submitNewClient", () => {
         const fetchImpl = fetchReturning(jsonResponse(201, { id: "c_1", ...FORM }));
         const result = await submitNewClient(FORM, fetchImpl);
 
-        expect(result).toEqual({ ok: true });
+        expect(result).toEqual({ ok: true, id: "c_1" });
         expect(fetchImpl).toHaveBeenCalledTimes(1);
         const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
         expect(url).toBe("/api/clients");

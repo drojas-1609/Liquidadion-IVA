@@ -2,10 +2,10 @@ import "server-only";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import {
-    backupFileName, backupFolderPath, guessExtension, mimeFor, withSuffix,
+    REPLACE_CATEGORIES, backupFileName, backupFolderPath, guessExtension, mimeFor, withSuffix,
     type BackupCategory,
 } from "./naming";
-import { DriveError, createFolder, driveOAuthConfig, findFile, findFolder, refreshAccessToken, uploadFile } from "./google";
+import { DriveError, createFolder, driveOAuthConfig, findFile, findFolder, refreshAccessToken, updateFileContent, uploadFile } from "./google";
 
 type Db = Pick<PrismaClient, "documentBackup" | "driveConnection" | "driveFolder" | "client" | "period">;
 
@@ -116,7 +116,7 @@ export async function processPendingBackups(db: Db, organizationId: string, opts
     const deadline = Date.now() + (opts.deadlineMs ?? 8000);
     const token = await refreshAccessToken(cfg, openToken(conn.refreshTokenSealed, organizationId, key));
     const where = { organizationId, ...(opts.clientId ? { clientId: opts.clientId } : {}), status: { in: ["PENDING", "ERROR"] }, attempts: { lt: MAX_ATTEMPTS } };
-    const items = await db.documentBackup.findMany({ where, orderBy: { createdAt: "asc" }, take: opts.limit ?? 10, select: { id: true, attempts: true, folderPath: true, fileName: true, mimeType: true, content: true } });
+    const items = await db.documentBackup.findMany({ where, orderBy: { createdAt: "asc" }, take: opts.limit ?? 10, select: { id: true, attempts: true, folderPath: true, fileName: true, mimeType: true, content: true, category: true } });
     let uploaded = 0, failed = 0;
     for (const it of items) {
         if (Date.now() > deadline) break;
@@ -128,6 +128,11 @@ export async function processPendingBackups(db: Db, organizationId: string, opts
             const folderId = await ensureFolder(db, token, organizationId, conn.rootFolderId, it.folderPath.split("/"));
             let name = it.fileName;
             let done: { id: string; webViewLink?: string } | null = null;
+            if (REPLACE_CATEGORIES.includes(it.category as BackupCategory)) {
+                // Archivo único: se reemplaza el contenido del existente (mismo nombre) o se crea.
+                const existing = await findFile(token, folderId, name);
+                done = !existing ? await uploadFile(token, folderId, name, it.mimeType, bytes) : existing.md5Checksum === md5 ? existing : await updateFileContent(token, existing.id, it.mimeType, bytes);
+            }
             for (let n = 2; n < 50 && !done; n++) {
                 const existing = await findFile(token, folderId, name);
                 if (!existing) done = await uploadFile(token, folderId, name, it.mimeType, bytes);

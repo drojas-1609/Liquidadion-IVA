@@ -115,3 +115,12 @@ export async function uploadFile(token: string, parentId: string, name: string, 
         body,
     });
 }
+
+/** Reemplaza el contenido de un archivo existente (Drive guarda la versión anterior en su historial). */
+export async function updateFileContent(token: string, fileId: string, mime: string, bytes: Uint8Array): Promise<DriveFile> {
+    return api<DriveFile>(token, `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media&supportsAllDrives=true&fields=id,name,md5Checksum,webViewLink`, {
+        method: "PATCH",
+        headers: { "Content-Type": mime },
+        body: Buffer.from(bytes),
+    });
+}
