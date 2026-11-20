@@ -238,6 +238,38 @@ En #33, la primera corrida de PostgreSQL agotó el tiempo del hook de `period-to
 
 **Siguen sin autorizar:** el merge de #34 y la carga en el Portal IVA.
 
+## 1i. Paso 8 ejecutado el 07/11/2026: merge de #34 y deploy de producción
+
+**Verificación previa:**
+- head remoto de #34 `5e21c19`, checks de Netlify en verde, MERGEABLE/CLEAN;
+- desde el código probado (`8ac3f48`) sólo cambiaron `PASE-PRODUCCION.md`, `SMOKE-PREVIEW.md` y `VALIDACION-ARCA.md`; `2fadb1a` no es ancestro;
+- `main` y la producción publicada en `bb868b1`;
+- PROD con 16 migraciones, huella `3bbca8fc…`, datos `3c589a4e…`, las dos tablas nuevas vacías y el período 10/2026 abierto;
+- el build (`prisma generate && next build`) no aplica migraciones.
+
+**Merge:** con merge commit, fijando el head (`--match-head-commit`). Merge `5e2fc2f53a7f7edcdb4465149e40f652ecb63266` a las 21:15:19 UTC, con padres `bb868b1` y `5e21c19`; su árbol es idéntico al de `5e21c19`. El commit local `2fadb1a` quedó afuera.
+
+**Producción:** Netlify publicó `main@5e2fc2f` en el deploy `6aef94e9780133b526dfc33a` (contexto production).
+- Creado a las 21:15:21 UTC y publicado a las 21:16:15 UTC; 52 s; estado `ready`, sin `error_message`.
+- Resumen del deploy: 6 archivos nuevos, 3 reglas de redirección, 1 de encabezados, 1 función, 1 edge function y «No database migrations applied».
+
+**Smoke de sólo lectura con la sesión del titular (Propietario).** Sólo se navegó: no se clasificó, no se descargó el paquete, no se cerró el período y no se guardó nada.
+- `/` responde 303, `/login` 200 y `/api/clients` sin sesión 401.
+- Cargan Clientes, el período 10/2026 (abierto), Ventas (21), Compras (18), la liquidación y Presentación ARCA.
+- Ventas, compras, IVA débito, IVA crédito, posición de IVA e IIBB: los mismos totales que en los controles de las secciones 1e, 1g y 1h.
+- Ventas y Compras muestran la columna «Exento, no gravado y otros». El par de exento del período aparece en ella, sin cambios de importes.
+- La liquidación agrega las filas de #34 (libre disponibilidad anterior; retenciones, percepciones y percepciones aduaneras por separado), todas en 0.
+- Presentación ARCA:
+  - muestra el borrador del período abierto, con la determinación igual a la de la liquidación;
+  - controles: 0 impiden liquidar, 71 impiden exportar y 10 advertencias;
+  - lo que impide exportar son clasificaciones pendientes (actividad, tipo de operación, sujeto comprador, concepto del crédito y código de operación del par de exento). Es lo esperado: la migración 15 no infiere clasificaciones y la ficha del cliente no tiene actividades con nomenclador ARCA;
+  - historial de versiones cerradas vacío.
+- **PROD después del smoke:** 16 migraciones (`3bbca8fc…`), datos `3c589a4e…`, 0 comprobantes clasificados, `InvoiceImportDeletion` y `PeriodLiquidationVersion` vacías, el período sigue abierto y no hay entradas de auditoría nuevas. Sin errores ni bloqueos en los registros de PostgreSQL desde las 21:10 UTC.
+
+**Estado final del pase:** #33, #32 y #34 están en `main` y publicados en `5e2fc2f`, y PROD tiene las 16 migraciones.
+
+**Sigue sin autorizar:** la carga de archivos en el Portal IVA. Antes hay que completar las clasificaciones y el código de operación del par de exento con respaldo documental.
+
 ## 2. Compatibilidad con el deploy publicado
 
 Las tres migraciones son **aditivas**:
