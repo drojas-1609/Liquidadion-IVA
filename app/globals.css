@@ -841,6 +841,42 @@ a.card:hover { border-color: var(--primary); box-shadow: var(--shadow-md), var(-
 .dash-counts .is-medium { background: var(--warning-soft); color: #fcd34d; }
 .dash-counts .is-high { background: var(--error-soft); color: #fca5a5; }
 
+/* ── Plan de cuentas (árbol) ───────────────────────────────────────────── */
+
+.chart-card { padding: 0; overflow: hidden; }
+.chart-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-md) var(--spacing-lg); border-bottom: 1px solid var(--border); }
+.chart-toolbar h2 { font-size: 1.15rem; margin: 0 auto 0 0; }
+.chart-toolbar h2 small { font-size: 0.8rem; font-weight: 400; color: var(--text-muted); margin-left: 0.35rem; }
+.chart-toolbar input[type="search"] { width: 18rem; max-width: 100%; }
+.chart-check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-muted); }
+
+.chart-tree, .chart-children { list-style: none; margin: 0; padding: 0; }
+.chart-row { display: flex; align-items: center; gap: 0.6rem; min-height: 2.35rem; padding-right: var(--spacing-lg); border-bottom: 1px solid var(--border); font-size: 0.875rem; }
+.chart-row:hover { background: var(--surface-hover); }
+.chart-twisty { flex: none; width: 1.25rem; height: 1.25rem; padding: 0; border: none; background: none; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; }
+.chart-code { flex: none; min-width: 7.5rem; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted); }
+.chart-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-name small { color: var(--text-muted); font-weight: 400; }
+.is-chapter > .chart-row { background: var(--surface-2); font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; font-size: 0.82rem; }
+.is-rubro > .chart-row { font-weight: 600; }
+.is-subaccount > .chart-row .chart-name::before { content: "↳ "; color: var(--text-muted); }
+.is-inactive > .chart-row { opacity: 0.5; }
+.chart-badge { flex: none; font-size: 0.7rem; padding: 0.1rem 0.5rem; border-radius: var(--radius-full); background: var(--primary-soft); color: #bfdbfe; white-space: nowrap; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+.chart-badge.is-group { background: var(--neutral-soft); color: var(--text-muted); }
+.chart-badge.is-off { background: var(--neutral-soft); color: var(--text-muted); }
+.chart-actions { flex: none; display: flex; gap: 0.25rem; opacity: 0; transition: opacity 0.1s; }
+.chart-row:hover .chart-actions, .chart-row:focus-within .chart-actions { opacity: 1; }
+.chart-actions .btn-link { font-size: 0.8rem; padding: 0.1rem 0.35rem; }
+
+.chart-panel { display: flex; flex-wrap: wrap; align-items: end; gap: var(--spacing-sm) var(--spacing-md); margin: 0.4rem var(--spacing-lg) 0.6rem; padding: var(--spacing-md); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); font-size: 0.85rem; }
+.chart-panel label { display: flex; flex-direction: column; gap: 0.25rem; }
+.chart-panel label.chart-check { flex-direction: row; flex-basis: 100%; }
+.chart-panel .input { min-width: 16rem; }
+.chart-panel-actions { display: flex; gap: var(--spacing-sm); align-items: center; }
+.chart-hint { flex-basis: 100%; margin: 0; color: var(--text-muted); font-size: 0.8rem; }
+
+@media (hover: none) { .chart-actions { opacity: 1; } }
+
 /* ── Barra superior: selector de cliente ───────────────────────────────── */
 
 .app-topbar { display: flex; justify-content: flex-start; margin: calc(-1 * var(--spacing-md)) 0 var(--spacing-lg); }

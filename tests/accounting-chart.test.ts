@@ -68,3 +68,40 @@ describe("validaciones", () => {
         expect(buildAccountUpdate({})).toMatchObject({ ok: false });
     });
 });
+
+describe("subcuentas y árbol del plan", () => {
+    it("códigos de subcuenta: correlativos bajo la madre, sin alta directa", async () => {
+        const { nextSubaccountCode, buildSubaccountCreate, parentCode } = await import("@/lib/accounting/chart-input");
+        expect(nextSubaccountCode("1.01.02.01", [])).toBe("1.01.02.01.01");
+        expect(nextSubaccountCode("1.01.02.01", ["1.01.02.01.01", "1.01.02.01.03", "1.01.02.02.07"])).toBe("1.01.02.01.04");
+        expect(nextSubaccountCode("1.01.02.01", ["1.01.02.01.99"])).toBeNull();
+        expect(nextSubaccountCode("1.01", [])).toBeNull();
+        expect(parentCode("1.01.02.01.02")).toBe("1.01.02.01");
+        expect(buildAccountCreate({ code: "1.01.02.01.01", name: "Banco Nación" })).toMatchObject({ ok: false, field: "code" });
+        expect(buildSubaccountCreate({ name: "  Banco  Galicia c/c " })).toEqual({ ok: true, value: { name: "Banco Galicia c/c", moveLines: false } });
+        expect(buildSubaccountCreate({ name: "X", moveLines: "si" })).toMatchObject({ ok: false, field: "moveLines" });
+        expect(buildSubaccountCreate({ name: "X", code: "1" })).toMatchObject({ ok: false, field: "code" });
+    });
+
+    it("arma el árbol, cuenta y filtra conservando ancestros", async () => {
+        const { buildChartTree } = await import("@/lib/accounting/chart-tree");
+        const acc = (code: string, name: string, active = true, role: string | null = null) => ({ id: code, code, name, active, role });
+        const rows = [
+            acc("1", "ACTIVO"), acc("1.01", "Caja y Bancos"), acc("1.01.01.01", "Caja", true, "CASH"),
+            acc("1.01.02.01", "Banco cuenta corriente"), acc("1.01.02.01.01", "Banco Galicia c/c", true, "BANK"), acc("1.01.02.01.02", "Banco Nación c/c"),
+            acc("1.01.01.02", "Fondo fijo", false), acc("2", "PASIVO"),
+        ];
+        const all = buildChartTree(rows, { includeInactive: true });
+        expect(all.map((n) => n.account.code)).toEqual(["1", "2"]);
+        expect(all[0].count).toBe(5);
+        const bank = all[0].children[0].children.find((c) => c.account.code === "1.01.02.01")!;
+        expect(bank.children.map((c) => c.level)).toEqual(["subaccount", "subaccount"]);
+        expect(buildChartTree(rows)[0].count).toBe(4); // sin inactivas
+        const q = buildChartTree(rows, { query: "galicia", includeInactive: true });
+        expect(q).toHaveLength(1);
+        expect(q[0].children[0].children.map((c) => c.account.code)).toEqual(["1.01.02.01"]);
+        expect(q[0].children[0].children[0].children.map((c) => c.account.code)).toEqual(["1.01.02.01.01"]);
+        // Buscar por uso automático.
+        expect(buildChartTree(rows, { query: "banco (cuenta", includeInactive: true })[0].children[0].children[0].children[0].account.code).toBe("1.01.02.01.01");
+    });
+});

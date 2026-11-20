@@ -27,8 +27,8 @@ const schema = readFileSync(repo + "prisma/schema.prisma", "utf8");
 describe(`migración ${MIGRATION} — revisión estática`, () => {
   it("sigue a la de ARCA sin cambiarla", () => {
     const allDirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-        expect(allDirs.slice(-16)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview", "20261116000000_arca_initial_data", "20261117120000_tax_record_invoice_perceptions", "20261117130000_invoice_work_note", "20261118120000_supplier_other_taxes_rule", "20261118130000_tax_record_iibb_invoice_link", "20261118140000_tax_record_iibb_deductions", "20261119120000_period_iibb_position", "20261119120100_iibb_base_includes_exempt", "20261119140000_chart_of_accounts", "20261120090000_journal", "20261120120000_drive_backup", "20261120150000_payroll"]);
-        const dirs = allDirs.slice(0, -16);
+        expect(allDirs.slice(-17)).toEqual(["20261110190000_supplier_purchase_account", "20261111100000_arca_sync", "20261111120000_arca_client_credential", "20261114160000_arca_sync_preview", "20261116000000_arca_initial_data", "20261117120000_tax_record_invoice_perceptions", "20261117130000_invoice_work_note", "20261118120000_supplier_other_taxes_rule", "20261118130000_tax_record_iibb_invoice_link", "20261118140000_tax_record_iibb_deductions", "20261119120000_period_iibb_position", "20261119120100_iibb_base_includes_exempt", "20261119140000_chart_of_accounts", "20261120090000_journal", "20261120120000_drive_backup", "20261120150000_payroll", "20261121090000_chart_subaccounts"]);
+        const dirs = allDirs.slice(0, -17);
     expect(dirs.at(-1)).toBe("20261108120000_invoice_import_deletions");
     expect(dirs.at(-2)).toBe("20261107120000_vat_export_close_versions");
     expect(dirs.at(-3)).toBe("20261106120000_vat_credit_adjustments");

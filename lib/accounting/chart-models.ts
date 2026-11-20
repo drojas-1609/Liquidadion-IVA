@@ -260,6 +260,11 @@ export function isImputableCode(code: string): boolean {
     return /^\d\.\d{2}\.\d{2}\.\d{2}$/.test(code);
 }
 
+/** Subcuenta «N.NN.NN.NN.SS» (p. ej. un banco puntual dentro de «Banco cuenta corriente»). Siempre imputable. */
+export function isSubaccountCode(code: string): boolean {
+    return /^[1-5]\.\d{2}\.\d{2}\.\d{2}\.\d{2}$/.test(code);
+}
+
 /** Código válido del plan: capítulo «N», rubro «N.NN» o cuenta «N.NN.NN.NN». */
 export function isAccountCode(code: string): boolean {
     return /^[1-5](\.\d{2}(\.\d{2}\.\d{2})?)?$/.test(code);

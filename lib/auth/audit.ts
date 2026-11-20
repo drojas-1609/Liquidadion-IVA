@@ -67,6 +67,7 @@ export const AUDIT_ACTIONS = [
   "invoice.tributes_sync",
   "chart.account_create",
   "chart.account_update",
+  "chart.subaccount_create",
   "chart.model_apply",
   "client.accounting_profile",
   "journal.entry_generate",
@@ -162,6 +163,8 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "invoice.tributes_sync": ["periodId", "applied", "pending", "excludedSuppliers", "filesSha256"],
   "chart.account_create": ["code", "role"],
   "chart.account_update": ["code", "changedFields"],
+  // Subcuenta: códigos de la nueva y de la madre, uso automático heredado y movimientos pasados (cantidad).
+  "chart.subaccount_create": ["code", "parentCode", "role", "movedLines"],
   "chart.model_apply": ["model", "accounts"],
   "client.accounting_profile": ["mipymeCategory", "chartModel", "accountsCreated"],
   "journal.entry_generate": ["kind", "number", "replaced"],

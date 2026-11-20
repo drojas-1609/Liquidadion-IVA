@@ -1,4 +1,4 @@
-import { ACCOUNT_ROLES, CHART_MODELS, isAccountCode, isImputableCode, type AccountRole, type ChartModel } from "./chart-models";
+import { ACCOUNT_ROLES, CHART_MODELS, isAccountCode, isImputableCode, isSubaccountCode, type AccountRole, type ChartModel } from "./chart-models";
 
 /**
  * Validación (pura) de las altas y cambios del plan de cuentas del cliente.
@@ -22,8 +22,9 @@ function role(raw: unknown): Result<AccountRole | null> {
     return typeof raw === "string" && (ACCOUNT_ROLES as readonly string[]).includes(raw) ? { ok: true, value: raw as AccountRole } : bad("role", "uso automático inválido");
 }
 
-/** Código padre que debe existir: «1.01» para «1.01.02.03», «1» para «1.01». */
+/** Código padre que debe existir: «1.01.02.03» para «1.01.02.03.01», «1.01» para «1.01.02.03», «1» para «1.01». */
 export function parentCode(code: string): string | null {
+    if (isSubaccountCode(code)) return code.slice(0, 10);
     if (isImputableCode(code)) return code.slice(0, 4);
     if (/^\d\.\d{2}$/.test(code)) return code.slice(0, 1);
     return null;
@@ -36,6 +37,7 @@ export function buildAccountCreate(body: unknown): Result<AccountCreate> {
     const b = body as Record<string, unknown>;
     for (const k of Object.keys(b)) if (!["code", "name", "role"].includes(k)) return bad(k, "campo no admitido");
     const code = typeof b.code === "string" ? b.code.trim() : "";
+    if (isSubaccountCode(code)) return bad("code", "las subcuentas se agregan desde la cuenta madre («Agregar subcuenta»)");
     if (!isAccountCode(code)) return bad("code", "código inválido: usá «C», «C.RR» o «C.RR.CC.SS» (capítulos 1 a 5)");
     const n = name(b.name);
     if (!n.ok) return n;
@@ -74,4 +76,27 @@ export function buildAccountUpdate(body: unknown): Result<AccountUpdate> {
 export function buildApplyModel(body: unknown): Result<ChartModel> {
     const m = typeof body === "object" && body !== null ? (body as Record<string, unknown>).model : undefined;
     return (CHART_MODELS as readonly unknown[]).includes(m) ? { ok: true, value: m as ChartModel } : bad("model", "plan modelo inválido");
+}
+
+/** Máximo de subcuentas por cuenta madre (dos dígitos). */
+export const SUBACCOUNTS_MAX = 99;
+
+/** Próximo código de subcuenta: «madre.01», «madre.02»… (el siguiente al mayor existente). null si no hay lugar. */
+export function nextSubaccountCode(parent: string, existingCodes: readonly string[]): string | null {
+    if (!isImputableCode(parent)) return null;
+    let max = 0;
+    for (const c of existingCodes) if (isSubaccountCode(c) && c.startsWith(`${parent}.`)) max = Math.max(max, Number(c.slice(11)));
+    return max >= SUBACCOUNTS_MAX ? null : `${parent}.${String(max + 1).padStart(2, "0")}`;
+}
+
+export interface SubaccountCreate { name: string; moveLines: boolean }
+
+export function buildSubaccountCreate(body: unknown): Result<SubaccountCreate> {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return bad("body", "cuerpo inválido");
+    const b = body as Record<string, unknown>;
+    for (const k of Object.keys(b)) if (!["name", "moveLines"].includes(k)) return bad(k, "campo no admitido");
+    const n = name(b.name);
+    if (!n.ok) return n;
+    if (b.moveLines !== undefined && typeof b.moveLines !== "boolean") return bad("moveLines", "moveLines debe ser booleano");
+    return { ok: true, value: { name: n.value, moveLines: b.moveLines === true } };
 }
