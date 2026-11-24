@@ -249,6 +249,14 @@ export async function LiquidationScreen({ params, view }: { params: Promise<{ id
                             <span>Total liquidación del impuesto (alícuota efectiva {r.iibb.rate.toFixed(2).replace(".", ",")} %)</span>
                             <span style={{ fontWeight: 500 }}>${m(r.iibb.tax)}</span>
                         </div>
+                        {r.iibb.minimum && (
+                            <div style={{ display: "flex", justifyContent: "space-between", margin: "0 0 var(--spacing-sm)", color: r.iibb.minimum.applied ? "var(--warning, #b45309)" : "var(--secondary)" }}>
+                                <span>
+                                    Impuesto mínimo mensual (actividad {r.iibb.minimum.code}){r.iibb.minimum.applied ? ` — aplicado: el calculado fue $${m(r.iibb.minimum.calculatedTax)}` : " — no aplicado"}
+                                </span>
+                                <span>${m(r.iibb.minimum.amount)}</span>
+                            </div>
+                        )}
                         {r.iibb.warnings.length > 0 && (
                             <ul role="alert" className="iibb-warnings">
                                 {r.iibb.warnings.map((w) => <li key={w}>{w}</li>)}

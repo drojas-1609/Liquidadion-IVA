@@ -145,3 +145,33 @@ describe("validación de entradas", () => {
     expect(buildActivityAssignmentInput({ assignments: [] }, codes).ok).toBe(false);
   });
 });
+
+describe("mínimo mensual (F2): mayor mínimo contra el impuesto total", () => {
+    // Datos ficticios.
+    const withMin: IibbActivityConfig = {
+        ...cfg,
+        activities: [
+            { code: "471190", description: "Venta minorista", rate: D("3"), exempt: false, minimum: D("200") },
+            { code: "492110", description: "Transporte", rate: D("1.5"), exempt: false, minimum: D("500") },
+        ],
+    };
+    it("si el impuesto calculado no llega, rige el mayor mínimo", () => {
+        const r = iibbByActivity([{ pointOfSale: 1, manualCode: null, base: D("1000") }], withMin, D("3.5"));
+        expect(r.minimum?.code).toBe("492110");
+        expect(r.minimum?.amount.toString()).toBe("500");
+        expect(r.minimum?.calculatedTax.toString()).toBe("30");
+        expect(r.minimum?.applied).toBe(true);
+        expect(r.tax.toString()).toBe("500");
+        expect(r.warnings.some((w) => /mínimo/i.test(w))).toBe(true);
+    });
+    it("si el impuesto calculado supera el mínimo, queda el calculado", () => {
+        const r = iibbByActivity([{ pointOfSale: 1, manualCode: null, base: D("100000") }], withMin, D("3.5"));
+        expect(r.minimum?.applied).toBe(false);
+        expect(r.tax.toString()).toBe("3000");
+    });
+    it("sin mínimos cargados: minimum null y sin cambios", () => {
+        const r = iibbByActivity([{ pointOfSale: 1, manualCode: null, base: D("1000") }], cfg, D("3.5"));
+        expect(r.minimum).toBeNull();
+        expect(r.tax.toString()).toBe("30");
+    });
+});

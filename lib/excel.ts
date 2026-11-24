@@ -78,6 +78,9 @@ export const generateLiquidationExcel = (data: LiquidationData) => {
             n(l.tax),
             l.rateSource === "FALLBACK" ? "Sin alícuota informada: se usó la alícuota de respaldo" : l.rateSource === "EXEMPT" ? "Exenta" : "",
         ]),
+        ...(data.iibb.minimum
+            ? [[`   Impuesto mínimo mensual (actividad ${data.iibb.minimum.code})`, n(data.iibb.minimum.amount), data.iibb.minimum.applied ? `Aplicado: el impuesto calculado fue ${data.iibb.minimum.calculatedTax}` : "No aplicado: el impuesto calculado es mayor"]]
+            : []),
         ...(data.iibb.warnings ?? []).map((w) => ["   Advertencia", "", w]),
         ["Saldo a favor de períodos anteriores", n(data.iibb.previousBalance)],
         ["Total de retenciones", n(data.iibb.withholdings), "Retenciones de IIBB y SIRTAC"],

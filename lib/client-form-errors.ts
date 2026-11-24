@@ -41,6 +41,8 @@ export interface DraftRate {
     treatment: RateTreatment;
     origin: RateOrigin | null;
     ruleRef: string | null;
+    /** Impuesto mínimo mensual (pesos); vacío = sin mínimo. */
+    minimum?: string;
 }
 
 export interface DraftActivity {
@@ -117,12 +119,14 @@ export function ratesPayload(a: Pick<DraftActivity, "rates">, selectedCodes: rea
         .map(([jurisdiction, r]) => {
             const value = r.treatment === "EXEMPT" || r.rate.trim() === "" ? null : r.rate.trim();
             const absent = r.treatment === "RATE" && value === null;
+            const minimum = !absent && r.treatment === "RATE" && r.minimum && r.minimum.trim() !== "" ? r.minimum.trim() : null;
             return {
                 jurisdiction,
                 rate: value,
                 treatment: r.treatment,
                 origin: absent ? null : r.origin,
                 ruleRef: absent || r.origin !== "CONFIRMED_SUGGESTION" ? null : r.ruleRef,
+                ...(minimum !== null ? { minimum } : {}),
             };
         });
 }

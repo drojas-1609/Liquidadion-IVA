@@ -300,6 +300,8 @@ model ClientIibbRateYear {
   treatment        RateTreatment @default(RATE)
   rateOrigin       RateOrigin?
   ruleRef          String?
+  /// Impuesto mínimo mensual del año (la liquidación aplica el mayor contra el impuesto total).
+  minimumAmount    Decimal?      @db.Decimal(18, 2)
   /// Perfil que la confirmó (sin relación: el detalle queda en la auditoría).
   confirmedById    String?       @db.Uuid
   confirmedAt      DateTime      @default(now())
@@ -1245,6 +1247,8 @@ model ClientActivityRate {
   /// (con ruleRef). NULL = sin origen registrado (cargas previas) o sin dato.
   rateOrigin       RateOrigin?
   ruleRef          String?
+  /// Impuesto mínimo mensual de la actividad en la jurisdicción (fase IIBB F2).
+  minimumAmount    Decimal?      @db.Decimal(18, 2)
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 

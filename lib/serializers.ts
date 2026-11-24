@@ -260,6 +260,8 @@ export interface LiquidationDTO {
     /** Detalle por actividad (null: alícuota única de la ficha). */
     byActivity?: { code: string; description: string; base: string; rate: string; tax: string; rateSource: string; sources: string[] }[] | null;
     warnings?: string[];
+    /** Mínimo mensual (F2): se omite sin mínimos. */
+    minimum?: { amount: string; code: string; calculatedTax: string; applied: boolean };
   };
 }
 
@@ -314,6 +316,9 @@ export function serializeLiquidation(r: LiquidationResult): LiquidationDTO {
         ? { byActivity: r.iibb.byActivity.map((l) => ({ code: l.code ?? "", description: l.description, base: money(l.base), rate: rate(l.rate), tax: money(l.tax), rateSource: l.rateSource, sources: l.sources })) }
         : {}),
       warnings: r.iibb.warnings,
+      ...(r.iibb.minimum
+        ? { minimum: { amount: money(r.iibb.minimum.amount), code: r.iibb.minimum.code, calculatedTax: money(r.iibb.minimum.calculatedTax), applied: r.iibb.minimum.applied } }
+        : {}),
     },
   };
 }

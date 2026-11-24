@@ -1,7 +1,7 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { D, sum, sub, roundMoney } from "./decimal";
-import { iibbByActivity, type IibbActivityConfig, type IibbActivityLine, type IibbSaleSlice } from "./iibb/activity-base";
+import { iibbByActivity, type IibbActivityConfig, type IibbActivityLine, type IibbSaleSlice, type IibbActivityResult } from "./iibb/activity-base";
 import {
   normalizeInvoiceRow,
   globalCoefficientOf,
@@ -177,6 +177,8 @@ export interface LiquidationResult {
     byActivity: IibbActivityLine[] | null;
     /** Advertencias del cálculo por actividad (alícuotas sin informar, ventas sin actividad). */
     warnings: string[];
+    /** Impuesto mínimo mensual (F2): el mayor de las actividades, y si se aplicó. null = sin mínimos. */
+    minimum: IibbActivityResult["minimum"];
     /** Retenciones + percepciones + aduaneras + recaudaciones bancarias computadas. */
     retentions: Prisma.Decimal;
     withholdings: Prisma.Decimal;
@@ -277,6 +279,7 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
   let iibbTax = roundMoney(D(iibbBase).times(iibbRate).div(100));
   let iibbByAct: IibbActivityLine[] | null = null;
   let iibbWarnings: string[] = [];
+  let iibbMinimum: IibbActivityResult["minimum"] = null;
   if (period.iibbActivities) {
     const r = iibbByActivity(period.iibbActivities.slices, period.iibbActivities.config, fallbackIibbRate);
     // Falla cerrada: el detalle por actividad debe sumar la misma base que las ventas.
@@ -285,6 +288,7 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
     iibbTax = r.tax;
     iibbByAct = r.lines;
     iibbWarnings = r.warnings;
+    iibbMinimum = r.minimum;
   }
   const iibbJur = period.client.iibbJurisdiction ?? null;
   const iibbAll = period.taxRecords.filter((t) => isIibbRetention(t.type));
@@ -339,6 +343,7 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
       tax: iibbTax,
       byActivity: iibbByAct,
       warnings: iibbWarnings,
+      minimum: iibbMinimum,
       retentions: iibbRetentions,
       withholdings: iibbWithholdings,
       perceptions: iibbPerceptions,

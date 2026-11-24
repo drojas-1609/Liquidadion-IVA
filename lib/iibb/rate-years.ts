@@ -17,6 +17,7 @@ export interface RateYearValue {
     treatment: RateTreatmentValue;
     rateOrigin: "STUDIO_MANUAL" | "CONFIRMED_SUGGESTION" | null;
     ruleRef: string | null;
+    minimumAmount?: Prisma.Decimal | null;
 }
 
 /** Año fiscal en curso según la fecha de Argentina. */
@@ -34,7 +35,8 @@ const same = (a: RateYearValue, b: RateYearValue) =>
     a.treatment === b.treatment &&
     (a.rate === null ? b.rate === null : b.rate !== null && a.rate.equals(b.rate)) &&
     a.rateOrigin === b.rateOrigin &&
-    a.ruleRef === b.ruleRef;
+    a.ruleRef === b.ruleRef &&
+    ((a.minimumAmount ?? null) === null ? (b.minimumAmount ?? null) === null : b.minimumAmount != null && a.minimumAmount!.equals(b.minimumAmount));
 
 /**
  * Diferencia entre las filas de un año y las alícuotas de la ficha: qué borrar
@@ -56,15 +58,16 @@ export function diffRateYear(existing: readonly (RateYearValue & { id: string })
 
 /** Elige la alícuota del año si está; si no, la de la ficha con la marca `fromProfile`. */
 export function pickYearRate(
-    year: ReadonlyMap<string, Pick<RateYearValue, "rate" | "treatment">>,
-    profile: Pick<RateYearValue, "rate" | "treatment"> | undefined,
+    year: ReadonlyMap<string, Pick<RateYearValue, "rate" | "treatment" | "minimumAmount">>,
+    profile: Pick<RateYearValue, "rate" | "treatment" | "minimumAmount"> | undefined,
     jurisdictionCode: string,
     activityCode: string,
-): { rate: Prisma.Decimal | null; exempt: boolean; fromProfile: boolean } {
+): { rate: Prisma.Decimal | null; exempt: boolean; fromProfile: boolean; minimum: Prisma.Decimal | null } {
     const y = year.get(`${jurisdictionCode}|${activityCode}`);
-    if (y) return { rate: y.treatment === "RATE" ? y.rate : null, exempt: y.treatment === "EXEMPT", fromProfile: false };
-    if (profile && isInformed(profile)) return { rate: profile.treatment === "RATE" ? profile.rate : null, exempt: profile.treatment === "EXEMPT", fromProfile: true };
-    return { rate: null, exempt: false, fromProfile: false };
+    if (y) return { rate: y.treatment === "RATE" ? y.rate : null, exempt: y.treatment === "EXEMPT", fromProfile: false, minimum: y.minimumAmount ?? null };
+    if (profile && isInformed(profile))
+        return { rate: profile.treatment === "RATE" ? profile.rate : null, exempt: profile.treatment === "EXEMPT", fromProfile: true, minimum: profile.minimumAmount ?? null };
+    return { rate: null, exempt: false, fromProfile: false, minimum: null };
 }
 
 export const rateYearKey = key;

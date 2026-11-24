@@ -28,6 +28,8 @@ export interface IibbActivityRate {
      * de la ficha (año en curso). Se liquida igual, con advertencia.
      */
     fromProfile?: boolean;
+    /** Impuesto mínimo mensual de la actividad (F2), si lo hay. */
+    minimum?: Prisma.Decimal | null;
 }
 
 export interface IibbActivityConfig {
@@ -66,6 +68,12 @@ export interface IibbActivityResult {
     /** Alícuota efectiva (impuesto / base), para pantallas y exportaciones. */
     effectiveRate: Prisma.Decimal;
     warnings: string[];
+    /**
+     * Mínimo mensual (F2, criterio del estudio del 24/11/2026): el mayor mínimo
+     * de las actividades del cliente en la jurisdicción contra el impuesto total.
+     * `applied` = el impuesto del mes quedó en el mínimo. null = sin mínimos.
+     */
+    minimum: { amount: Prisma.Decimal; code: string; calculatedTax: Prisma.Decimal; applied: boolean } | null;
 }
 
 export function resolveActivity(slice: Pick<IibbSaleSlice, "pointOfSale" | "manualCode">, cfg: IibbActivityConfig): { code: string | null; source: ActivitySource } {
@@ -132,6 +140,17 @@ export function iibbByActivity(slices: readonly IibbSaleSlice[], cfg: IibbActivi
         });
     }
     const base = sum(lines.map((l) => l.base));
-    const tax = sum(lines.map((l) => l.tax));
-    return { lines, base, tax, effectiveRate: base.isZero() ? (lines[0]?.rate ?? fallbackRate) : tax.div(base).times(100).toDecimalPlaces(6), warnings };
+    const calculatedTax = sum(lines.map((l) => l.tax));
+    let minimum: IibbActivityResult["minimum"] = null;
+    for (const a of cfg.activities) {
+        if (a.minimum != null && !a.exempt && (minimum === null || a.minimum.greaterThan(minimum.amount))) minimum = { amount: a.minimum, code: a.code, calculatedTax, applied: false };
+    }
+    let tax = calculatedTax;
+    if (minimum && minimum.amount.greaterThan(calculatedTax)) {
+        minimum.applied = true;
+        tax = minimum.amount;
+        warnings.push(`Se aplicó el impuesto mínimo mensual de la actividad ${minimum.code} ($ ${minimum.amount.toFixed(2)}): el impuesto calculado ($ ${calculatedTax.toFixed(2)}) es menor.`);
+    }
+    // La alícuota efectiva sigue siendo la del cálculo por actividad (sin el mínimo).
+    return { lines, base, tax, effectiveRate: base.isZero() ? (lines[0]?.rate ?? fallbackRate) : calculatedTax.div(base).times(100).toDecimalPlaces(6), warnings, minimum };
 }

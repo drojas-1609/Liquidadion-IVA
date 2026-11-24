@@ -64,6 +64,12 @@ export interface RateRule {
      * la fuente que no se modeló y debe verificarse antes de confirmar la tasa.
      */
     caveat?: string;
+    /**
+     * Impuesto mínimo MENSUAL de la actividad según la norma (pesos, string
+     * decimal). Cómo se aplica con varias actividades lo decide el estudio
+     * (24/11/2026: el mayor mínimo contra el impuesto total del mes).
+     */
+    minimumMonthly?: string;
 }
 
 export interface RateRuleSetManifest {
@@ -71,7 +77,8 @@ export interface RateRuleSetManifest {
     /** Jurisdicción CM 901–924. */
     jurisdiction: string;
     /** Nomenclador de los códigos de las reglas. */
-    nomenclator: "NAES" | "PROVINCIAL";
+    /** ARCA sólo donde la ley provincial adopta los códigos de AFIP (ver ARCA_NOMENCLATOR_JURISDICTIONS). */
+    nomenclator: "NAES" | "PROVINCIAL" | "ARCA";
     /** Catálogos (ids) cuyos códigos usa la norma. */
     catalogIds: string[];
     organism: string;

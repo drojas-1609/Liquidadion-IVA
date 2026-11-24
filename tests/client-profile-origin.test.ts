@@ -51,3 +51,21 @@ describe("tratamiento y origen de la alícuota", () => {
         expect(first(rate({ rate: "3.5" }))).toMatchObject({ rate: "3.5", origin: null, ruleRef: null });
     });
 });
+
+describe("mínimo mensual de la alícuota (F2)", () => {
+    const rate = (over: Record<string, unknown>) => ok({ rates: [{ jurisdiction: "901", ...over }] });
+    const first = (r: ReturnType<typeof rate>) => (r.ok ? r.value.activities[0].rates[0] : null);
+    it("se acepta con alícuota informada; admite coma decimal", () => {
+        expect(first(rate({ rate: "3", origin: "STUDIO_MANUAL", minimum: "1.234,50" }))).toMatchObject({ minimum: "1234.5" });
+        expect(first(rate({ rate: "3", origin: "STUDIO_MANUAL", minimum: "800" }))).toMatchObject({ minimum: "800" });
+    });
+    it("vacío no agrega la clave (compatibilidad)", () => {
+        expect(first(rate({ rate: "3", origin: "STUDIO_MANUAL", minimum: "" }))).toEqual({ jurisdiction: "901", rate: "3", treatment: "RATE", origin: "STUDIO_MANUAL", ruleRef: null });
+    });
+    it("sin alícuota, exento, negativo o con 3 decimales: rechazado", () => {
+        expect(rate({ rate: null, minimum: "100" })).toMatchObject({ ok: false });
+        expect(rate({ treatment: "EXEMPT", origin: "STUDIO_MANUAL", minimum: "100" })).toMatchObject({ ok: false });
+        expect(rate({ rate: "3", origin: "STUDIO_MANUAL", minimum: "-1" })).toMatchObject({ ok: false });
+        expect(rate({ rate: "3", origin: "STUDIO_MANUAL", minimum: "1.234" })).toMatchObject({ ok: false });
+    });
+});

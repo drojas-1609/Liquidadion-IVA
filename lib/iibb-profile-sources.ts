@@ -37,7 +37,7 @@ export interface StoredProfileForSources {
         origin: string;
         catalogId: string | null;
         catalogVersion: string | null;
-        rates: ReadonlyArray<{ jurisdiction: string; rate: string | null; treatment: string; origin: string | null; ruleRef: string | null }>;
+        rates: ReadonlyArray<{ jurisdiction: string; rate: string | null; treatment: string; origin: string | null; ruleRef: string | null; minimum?: string | null }>;
     }>;
 }
 
@@ -116,7 +116,8 @@ export function verifyProfileSources(
             if (set.manifest.jurisdiction !== r.jurisdiction || set.manifest.nomenclator !== a.nomenclator || !rule.activityCodes.includes(a.code) || !catalogOk) {
                 return { field: fr, error: "la regla confirmada no corresponde a esta actividad y jurisdicción" };
             }
-            if (rule.treatment !== r.treatment || (r.rate !== null && checkRateString(r.rate) !== null) || !sameRate(rule.rate, r.rate)) {
+            const sameMinimum = (rule.minimumMonthly == null ? null : Number(rule.minimumMonthly)) === (r.minimum == null ? null : Number(r.minimum));
+            if (rule.treatment !== r.treatment || (r.rate !== null && checkRateString(r.rate) !== null) || !sameRate(rule.rate, r.rate) || !sameMinimum) {
                 return { field: fr, error: "el valor confirmado no coincide con la regla sugerida" };
             }
             if (rule.conditions.length > 0) {

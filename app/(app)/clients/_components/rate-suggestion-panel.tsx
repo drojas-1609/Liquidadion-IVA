@@ -187,6 +187,7 @@ export function RateSuggestionPanel({
                                 Vigencia: {a.validFrom} a {a.validTo ?? "sin fecha de fin"} ·{" "}
                                 <a href={a.sourceUrl} target="_blank" rel="noopener noreferrer">fuente oficial</a>
                             </span>
+                            {a.minimumMonthly && <span style={HINT}>Impuesto mínimo mensual: $ {a.minimumMonthly}</span>}
                             {a.caveat && (
                                 <span role="note" style={{ ...HINT, color: "var(--warning, #b45309)" }}>
                                     ⚠ {a.caveat}
