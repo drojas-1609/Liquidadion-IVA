@@ -63,6 +63,7 @@ import PurchasesPage from "@/app/(app)/client/[id]/period/[periodId]/purchases/p
 import SalesPage from "@/app/(app)/client/[id]/period/[periodId]/sales/page";
 import TaxesPage from "@/app/(app)/client/[id]/period/[periodId]/taxes/page";
 import LiquidationPage from "@/app/(app)/client/[id]/period/[periodId]/liquidation/page";
+import IibbLiquidationPage from "@/app/(app)/client/[id]/period/[periodId]/iibb-liquidation/page";
 
 type PageFn = (a: { params: Promise<{ id: string; periodId: string }> }) => Promise<unknown>;
 const PAGES: Array<[string, PageFn]> = [
@@ -71,6 +72,7 @@ const PAGES: Array<[string, PageFn]> = [
   ["sales", SalesPage as PageFn],
   ["taxes", TaxesPage as PageFn],
   ["liquidation", LiquidationPage as PageFn],
+  ["iibb-liquidation", IibbLiquidationPage as PageFn],
 ];
 
 let db: ReturnType<typeof freshDbMock>;
@@ -199,13 +201,28 @@ describe("liquidation — sección IIBB", () => {
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
+  it("IVA e IIBB en módulos separados: cada pantalla muestra sólo su impuesto", async () => {
+    db.period.findFirst.mockImplementation(async ({ where }: { where: { id: string; organizationId: string } }) =>
+      where.id === "p_a" && where.organizationId === ORG_A
+        ? { ...periodRow("p_a", "c_a", ORG_A), invoices: [sale], taxRecords: [], client: clientRow("c_a", ORG_A), vatSettings: null, vatCreditAdjustments: [] }
+        : null,
+    );
+    const iva = text(await call(LiquidationPage as PageFn, "c_a", "p_a"));
+    const iibb = text(await call(IibbLiquidationPage as PageFn, "c_a", "p_a"));
+    expect(iva).toContain("Liquidación de IVA");
+    expect(iva).not.toContain("Ingresos Brutos (IIBB)");
+    expect(iibb).toContain("Liquidación de Ingresos Brutos");
+    expect(iibb).toContain("Ingresos Brutos (IIBB)");
+    expect(iibb).not.toContain("Presentación ARCA");
+  });
+
   it("la base imponible de IIBB muestra iibb.base (no las ventas netas), con los rótulos de la DDJJ", async () => {
     db.period.findFirst.mockImplementation(async ({ where }: { where: { id: string; organizationId: string } }) =>
       where.id === "p_a" && where.organizationId === ORG_A
         ? { ...periodRow("p_a", "c_a", ORG_A), invoices: [sale], taxRecords: [], client: clientRow("c_a", ORG_A), vatSettings: null, vatCreditAdjustments: [] }
         : null,
     );
-    const r = rows(await call(LiquidationPage as PageFn, "c_a", "p_a"));
+    const r = rows(await call(IibbLiquidationPage as PageFn, "c_a", "p_a"));
     const labels = r.map(([l]) => l);
 
     const BASE = "Base imponible (ventas sin IVA: gravado + no gravado + exento)";
@@ -214,7 +231,7 @@ describe("liquidation — sección IIBB", () => {
     expect(r).toContainEqual([TAX, `$${formatMoney("3600.00")}`]);
     expect(labels.indexOf(TAX)).toBe(labels.indexOf(BASE) + 1);
     // Aclaración de alcance junto a la alícuota (sólo texto).
-    expect(text(await call(LiquidationPage as PageFn, "c_a", "p_a"))).toContain("No se obtiene automáticamente de las actividades y no representa una liquidación por jurisdicción.");
+    expect(text(await call(IibbLiquidationPage as PageFn, "c_a", "p_a"))).toContain("No se obtiene automáticamente de las actividades y no representa una liquidación por jurisdicción.");
     expect(labels).not.toContain("Ventas Netas");
     expect(r.map(([, v]) => v)).not.toContain(`$${formatMoney("150000.00")}`);
   });

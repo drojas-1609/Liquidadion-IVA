@@ -98,7 +98,7 @@ export default async function IibbActivitiesPeriodPage({ params, searchParams }:
         <div className="container stack-lg">
             <header className="page-header" style={{ marginBottom: 0 }}>
                 <div>
-                    <p className="eyebrow"><Link href={`/client/${id}/period/${periodId}/liquidation`}>← Volver a la liquidación</Link></p>
+                    <p className="eyebrow"><Link href={`/client/${id}/period/${periodId}/iibb-liquidation`}>← Volver a la liquidación de IIBB</Link></p>
                     <h1>Ventas por actividad de IIBB · {label}</h1>
                     <p className="subtitle">
                         {client.name}. Por defecto cada venta va a la actividad de su punto de venta o, si no tiene, a la principal (<Link href={`/client/${id}/iibb`}>configurar</Link>). Corregí acá sólo los comprobantes que correspondan a otra actividad.

@@ -8,6 +8,8 @@ export interface MenuItem {
     /** Sin href: ítem anunciado pero todavía no disponible. */
     href?: string;
     hint?: string;
+    /** Subtítulo dentro del grupo (p. ej. «IVA» e «Ingresos Brutos» en Impuestos). */
+    section?: string;
 }
 
 export interface MenuGroup {
@@ -32,7 +34,7 @@ export function parseRoute(pathname: string): RouteContext {
 }
 
 /** Pantallas de un período que el selector de período conserva al cambiarlo. */
-export const PERIOD_PAGES = ["sales", "purchases", "liquidation", "taxes", "presentation", "import"] as const;
+export const PERIOD_PAGES = ["sales", "purchases", "liquidation", "iibb-liquidation", "iibb-activities", "taxes", "presentation", "import"] as const;
 
 export function periodHref(clientId: string, periodId: string, page: string | null): string {
     const base = `/client/${clientId}/period/${periodId}`;
@@ -59,15 +61,20 @@ export function buildClientMenu(opts: { clientId: string; periodId: string | nul
             items: p
                 ? [
                       { label: "Período", href: `${c}/period/${p}` },
-                      { label: "Libro IVA ventas", href: `${c}/period/${p}/sales` },
-                      { label: "Libro IVA compras", href: `${c}/period/${p}/purchases` },
-                      { label: "Liquidación IVA e IIBB", href: `${c}/period/${p}/liquidation` },
-                      { label: "Ventas por actividad IIBB", href: `${c}/period/${p}/iibb-activities` },
-                      { label: "Retenciones y percepciones", href: `${c}/period/${p}/taxes` },
-                      { label: "Presentación ARCA", href: `${c}/period/${p}/presentation` },
-                      { label: "Importar Libro IVA Digital", href: `${c}/period/${p}/import` },
+                      { section: "IVA", label: "Libro IVA ventas", href: `${c}/period/${p}/sales` },
+                      { section: "IVA", label: "Libro IVA compras", href: `${c}/period/${p}/purchases` },
+                      { section: "IVA", label: "Liquidación de IVA", href: `${c}/period/${p}/liquidation` },
+                      { section: "IVA", label: "Presentación ARCA", href: `${c}/period/${p}/presentation` },
+                      { section: "IVA", label: "Importar Libro IVA Digital", href: `${c}/period/${p}/import` },
+                      { section: "Ingresos Brutos", label: "Liquidación de IIBB", href: `${c}/period/${p}/iibb-liquidation` },
+                      { section: "Ingresos Brutos", label: "Ventas por actividad", href: `${c}/period/${p}/iibb-activities` },
+                      { section: "Ingresos Brutos", label: "Alícuotas e ingresos anuales", href: `${c}/iibb` },
+                      { section: "IVA e IIBB", label: "Retenciones y percepciones", href: `${c}/period/${p}/taxes` },
                   ]
-                : [{ label: "Crear el primer período", href: `${c}/period/new` }],
+                : [
+                      { label: "Crear el primer período", href: `${c}/period/new` },
+                      { section: "Ingresos Brutos", label: "Alícuotas e ingresos anuales", href: `${c}/iibb` },
+                  ],
         });
     }
     groups.push(
@@ -82,7 +89,7 @@ export function buildClientMenu(opts: { clientId: string; periodId: string | nul
         },
         { key: "sueldos", label: "Sueldos", items: [{ label: "F.931 y boletas sindicales", href: `${c}/payroll` }] },
         { key: "respaldos", label: "Respaldos", items: [{ label: "Respaldos en Drive", href: `${c}/backups` }] },
-        { key: "cliente", label: "Cliente", items: [{ label: "Datos del cliente", href: `${c}/edit` }, { label: "IIBB por actividad", href: `${c}/iibb` }] },
+        { key: "cliente", label: "Cliente", items: [{ label: "Datos del cliente", href: `${c}/edit` }] },
     );
     return groups;
 }

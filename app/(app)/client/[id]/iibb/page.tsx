@@ -62,7 +62,7 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
             <header className="page-header" style={{ marginBottom: 0 }}>
                 <div>
                     <p className="eyebrow"><Link href={`/client/${id}/dashboard`}>← Volver al cliente</Link></p>
-                    <h1>IIBB por actividad · {client.name}</h1>
+                    <h1>Alícuotas e ingresos anuales de IIBB · {client.name}</h1>
                     <p className="subtitle">
                         Cada venta se liquida con la alícuota de su actividad: primero la corrección manual del comprobante (desde la liquidación de cada período), luego la actividad del punto de venta y, si no hay, la actividad principal.
                         {jur ? ` Jurisdicción local: ${jur}.` : ""}

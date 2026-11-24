@@ -119,8 +119,8 @@ export function RateSuggestionPanel({
                 <input className="input" inputMode="decimal" value={income} onChange={(e) => setIncome(e.target.value)} placeholder="Ej. 150000000" style={{ maxWidth: "220px" }} />
                 <span style={HINT}>
                     {incomeFromProfile
-                        ? `Tomados de los ingresos de ${Number(date.slice(0, 4)) - 1} cargados en «IIBB por actividad». Si los cambiás acá, valen sólo para esta consulta.`
-                        : "Se cargan por año en «IIBB por actividad»; lo que escribas acá vale sólo para esta consulta."}
+                        ? `Tomados de los ingresos de ${Number(date.slice(0, 4)) - 1} cargados en «Alícuotas e ingresos anuales» (Impuestos → Ingresos Brutos). Si los cambiás acá, valen sólo para esta consulta.`
+                        : "Se cargan por año en Impuestos → Ingresos Brutos → «Alícuotas e ingresos anuales»; lo que escribas acá vale sólo para esta consulta."}
                 </span>
             </label>
             {Object.keys(facts).length > 0 && (

@@ -195,7 +195,10 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
                         {vatPositionLabel}
                     </div>
                     <Link href={`/client/${id}/period/${periodId}/liquidation`} className="btn btn-primary" style={{ width: "100%" }}>
-                        Ver Liquidación Completa
+                        Ver liquidación de IVA
+                    </Link>
+                    <Link href={`/client/${id}/period/${periodId}/iibb-liquidation`} className="btn btn-secondary" style={{ width: "100%", marginTop: "var(--spacing-sm)" }}>
+                        Ver liquidación de IIBB
                     </Link>
                     <Link href={`/client/${id}/period/${periodId}/presentation`} className="btn btn-secondary" style={{ width: "100%", marginTop: "var(--spacing-sm)" }}>
                         Presentación ARCA (archivos y controles)
