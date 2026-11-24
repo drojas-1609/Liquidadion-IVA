@@ -221,6 +221,8 @@ export interface World {
   clientJurisdictions?: any[];
   clientActivities?: any[];
   clientActivityRates?: any[];
+  /** IIBB F2: alícuotas por año (ClientIibbRateYear). */
+  clientIibbRateYears?: any[];
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -263,6 +265,7 @@ export interface DbMock {
   clientJurisdiction: { findMany: Fn; deleteMany: Fn; createMany: Fn };
   clientActivity: { findMany: Fn; deleteMany: Fn; create: Fn; createManyAndReturn: Fn };
   clientActivityRate: { findMany: Fn; deleteMany: Fn; createMany: Fn };
+  clientIibbRateYear: { findMany: Fn; deleteMany: Fn; createMany: Fn };
   chartAccount: { count: Fn; createMany: Fn };
   $transaction: Fn;
   /** Simula lockPeriodForWrite (lock_timeout + FOR UPDATE de Period) y los FOR UPDATE de Invoice y TaxRecord; no hay locks reales. */
@@ -300,6 +303,7 @@ export function freshDbMock(): DbMock {
     clientJurisdiction: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     clientActivity: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn(), createManyAndReturn: vi.fn() },
     clientActivityRate: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
+    clientIibbRateYear: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     // Plan de cuentas modelo en el alta: sin cuentas previas, se copia el modelo.
     chartAccount: { count: vi.fn(async () => 0), createMany: vi.fn(async ({ data }: { data: unknown[] }) => ({ count: data.length })) },
     $transaction: vi.fn(),
@@ -896,6 +900,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   world.clientJurisdictions ??= [];
   world.clientActivities ??= [];
   world.clientActivityRates ??= [];
+  world.clientIibbRateYears ??= [];
   const matches = (row: any, where: any) => Object.entries(where ?? {}).every(([k, v]) => row[k] === v);
   const removeWhere = (rows: any[], where: any) => {
     const keep = rows.filter((r) => !matches(r, where));
@@ -917,6 +922,21 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
   db.clientActivity.findMany.mockImplementation(async ({ where }: AnyArgs) =>
     world.clientActivities!.filter((r) => matches(r, where)).map((r) => ({ ...activityDefaults, ...r })),
   );
+  db.clientIibbRateYear.findMany.mockImplementation(async ({ where }: AnyArgs) => world.clientIibbRateYears!.filter((r) => matches(r, where)));
+  db.clientIibbRateYear.deleteMany.mockImplementation(async ({ where }: AnyArgs) => {
+    const ids: Set<string> | null = where?.id?.in ? new Set(where.id.in) : null;
+    const { id: _ignored, ...rest } = where ?? {};
+    const before = world.clientIibbRateYears!.length;
+    world.clientIibbRateYears!.splice(0, before, ...world.clientIibbRateYears!.filter((r) => !((ids ? ids.has(r.id) : true) && matches(r, rest))));
+    return { count: before - world.clientIibbRateYears!.length };
+  });
+  db.clientIibbRateYear.createMany.mockImplementation(async ({ data }: AnyArgs) => {
+    for (const d of data) {
+      if (world.clientIibbRateYears!.some((r) => r.clientId === d.clientId && r.fiscalYear === d.fiscalYear && r.jurisdictionCode === d.jurisdictionCode && r.activityCode === d.activityCode)) throw uniqueError();
+      world.clientIibbRateYears!.push({ id: mkId("ry"), ...d });
+    }
+    return { count: data.length };
+  });
   db.clientActivityRate.findMany.mockImplementation(async ({ where }: AnyArgs) =>
     world.clientActivityRates!.filter((r) => matches(r, where)).map((r) => ({ ...rateDefaults, ...r })),
   );
@@ -1011,6 +1031,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
     const clientJurisdictionsBefore = world.clientJurisdictions!.slice();
     const clientActivitiesBefore = world.clientActivities!.slice();
     const clientActivityRatesBefore = world.clientActivityRates!.slice();
+    const clientIibbRateYearsBefore = world.clientIibbRateYears!.slice();
     try {
       return await fn(db);
     } catch (err) {
@@ -1027,6 +1048,7 @@ export function wireDb(db: DbMock, world: World, rec: Recorder): void {
       world.clientJurisdictions!.splice(0, world.clientJurisdictions!.length, ...clientJurisdictionsBefore);
       world.clientActivities!.splice(0, world.clientActivities!.length, ...clientActivitiesBefore);
       world.clientActivityRates!.splice(0, world.clientActivityRates!.length, ...clientActivityRatesBefore);
+      world.clientIibbRateYears!.splice(0, world.clientIibbRateYears!.length, ...clientIibbRateYearsBefore);
       throw err;
     }
   };

@@ -23,6 +23,11 @@ export interface IibbActivityRate {
     /** Alícuota en la jurisdicción (porcentaje); null = sin informar. */
     rate: Prisma.Decimal | null;
     exempt: boolean;
+    /**
+     * Fase F2: la alícuota no está confirmada para el año del período y se tomó
+     * de la ficha (año en curso). Se liquida igual, con advertencia.
+     */
+    fromProfile?: boolean;
 }
 
 export interface IibbActivityConfig {
@@ -31,6 +36,8 @@ export interface IibbActivityConfig {
     /** Punto de venta → código de actividad. */
     posMap: Readonly<Record<number, string>>;
     activities: readonly IibbActivityRate[];
+    /** Año fiscal del período (para las advertencias). */
+    fiscalYear?: number;
 }
 
 /** Ventas agrupadas: base IIBB con signo por punto de venta y corrección manual. */
@@ -108,6 +115,11 @@ export function iibbByActivity(slices: readonly IibbSaleSlice[], cfg: IibbActivi
                         : `Hay ventas sin actividad asignada: se usó la alícuota de respaldo (${pct(fallbackRate)} %).`,
                 );
             }
+        }
+        if (act?.fromProfile && !base.isZero() && rateSource !== "FALLBACK") {
+            warnings.push(
+                `La alícuota de la actividad ${act.code} no está confirmada para ${cfg.fiscalYear ?? "el año del período"}: se usó la de la ficha del cliente.`,
+            );
         }
         lines.push({
             code: g.code,

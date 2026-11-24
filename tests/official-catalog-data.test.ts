@@ -33,8 +33,8 @@ describe("catálogos oficiales importados", () => {
             expect(c.manifest.review.reviewedBy).toContain("Diego Rojas");
             expect(searchCatalogs([c], "011111", {date: "2026-10-28"})).toHaveLength(1);
         }
-        expect(CABA.manifest.review.status).toBe("PENDIENTE_REVISION");
-        expect(arbaRules.manifest.review.status).toBe("PENDIENTE_REVISION");
+        // Reglas de alícuotas: aprobación propia del estudio (24/11/2026), separada de la de los nomencladores.
+        for (const r of [CABA, arbaRules]) expect(r.manifest.review).toMatchObject({ status: "REVISADO", reviewedAt: "2026-11-24" });
     });
 
     it("estructura válida e íntegra (checksum de entradas)", () => {
@@ -68,17 +68,17 @@ describe("reglas oficiales de alícuotas: CABA 2026", () => {
         const codes = new Set(CABA.rules.flatMap((r) => r.activityCodes));
         expect([...codes].filter((c) => !valid2026.has(c))).toEqual([]);
         expect(codes.size).toBe(799);
-        expect(CABA.rules.filter((r) => r.pendingInterpretation).length).toBe(15);
+        // Decisión C3 (24/11/2026): sólo el 4 % residencial sigue retenido.
+        expect(CABA.rules.filter((r) => r.pendingInterpretation).map((r) => r.id)).toEqual(["a3-residencial"]);
         for (const c of ["301200", "302000", "303000", "639100", "639900"]) expect(codes.has(c), c).toBe(false);
         expect(CABA.manifest).toMatchObject({ jurisdiction: "901", catalogIds: ["naes-rg-ca-19-2025"], validFrom: "2026-01-01", validTo: "2026-12-31" });
     });
-    it("mientras esté PENDIENTE de revisión no sugiere nada", () => {
-        expect(CABA.manifest.review.status).toBe("PENDIENTE_REVISION");
+    it("revisado por el estudio: sugiere (con los datos faltantes a la vista)", () => {
         const s = suggestRate([CABA], { jurisdiction: "901", nomenclator: "NAES", catalogId: "naes-rg-ca-19-2025", code: "351110", date: "2026-07-01", registration: null, facts: {} });
-        expect(s.status).toBe("SIN_COBERTURA");
+        expect(s.status).toBe("ALTERNATIVAS");
     });
-    it("lectura de la norma (con el conjunto marcado como revisado sólo en el test)", () => {
-        const set = { ...CABA, manifest: { ...CABA.manifest, review: REVIEWED_RULES } };
+    it("lectura de la norma", () => {
+        const set = CABA;
         const ask = (code: string, date: string, income: string) =>
             suggestRate([set], {
                 jurisdiction: "901",
@@ -90,11 +90,12 @@ describe("reglas oficiales de alícuotas: CABA 2026", () => {
                 facts: { priorYearGrossIncome: income, declared: { cabaSinOtroTratamiento: true, cabaConsumidorResidencial: false } },
             });
         // 351110 (Planilla 3): $2.100 M supera el umbral de la Ley 6927 ($2.004 M). Aun declarando todo, el 4 %
-        // residencial retenido impide una respuesta única; desde junio (Ley 6948) todo está retenido.
+        // residencial retenido impide una respuesta única. Desde junio rige el umbral de la Ley 6948 ($2.154,3 M):
+        // los mismos $2.100 M quedan por debajo y corresponde la tasa baja.
         const may = ask("351110", "2026-05-15", "2100000000");
         const jul = ask("351110", "2026-07-15", "2100000000");
         expect(may.status === "ALTERNATIVAS" && may.alternatives.map((a) => a.rate)).toEqual(["3.75"]);
-        expect(jul.status).toBe("SIN_REGLA");
+        expect(jul.status === "ALTERNATIVAS" && jul.alternatives.map((a) => a.rate)).toEqual(["3"]);
         // 331101 (Planilla 5, sin retenciones en enero-mayo): umbral de $364 M.
         expect((({ s }) => s.status === "UNICA" && s.alternative.rate)({ s: ask("331101", "2026-03-01", "364000001") })).toBe("5");
         // 551010 (alojamiento por hora, art. 26) y los códigos de los arts. 12 a 21 no tienen regla de planilla.
@@ -127,17 +128,28 @@ describe("Provincia de Buenos Aires: NAIIB-18 (exportación oficial) y Ley 15.55
         expect(arbaCorr.rows).toHaveLength(3525);
         expect(new Set(arbaCorr.rows.map((r) => r.type))).toEqual(new Set(["CORRESPONDENCIA NAIIB 99", "EQUIVALENCIA AFIP", "DOCUMENTACION TRIBUTARIA"]));
     });
-    it("reglas 2026 válidas, pendientes, sobre códigos del catálogo; todas condicionadas y 222 códigos retenidos", () => {
+    it("reglas 2026 válidas, revisadas, sobre códigos del catálogo; todas condicionadas, sin retenidas (decisiones B2 a B5)", () => {
         expect(validateRuleSet(RULES)).toEqual([]);
-        expect(RULES.manifest).toMatchObject({ jurisdiction: "902", nomenclator: "PROVINCIAL", validFrom: "2026-01-01", validTo: "2026-12-31", review: { status: "PENDIENTE_REVISION" } });
+        expect(RULES.manifest).toMatchObject({ jurisdiction: "902", nomenclator: "PROVINCIAL", validFrom: "2026-01-01", validTo: "2026-12-31", review: { status: "REVISADO" } });
         const catCodes = new Set(CAT.entries.map((e) => e.code));
         const ruleCodes = new Set(RULES.rules.flatMap((r) => r.activityCodes));
         expect([...ruleCodes].filter((c) => !catCodes.has(c))).toEqual([]);
         expect(ruleCodes.size).toBe(1022);
         expect(RULES.rules.every((r) => r.conditions.length > 0)).toBe(true);
-        const heldCodes = new Set(RULES.rules.filter((r) => r.pendingInterpretation).flatMap((r) => r.activityCodes));
-        expect(heldCodes.size).toBe(222);
-        for (const c of ["390000", "812090", "631201", "631204"]) expect(heldCodes.has(c), c).toBe(true);
+        expect(RULES.rules.filter((r) => r.pendingInterpretation)).toEqual([]);
+        // B2/B3: códigos con bonif_actiba o AlicuotaSUS, habilitados con aviso.
+        const warned = new Set(RULES.rules.filter((r) => r.caveat).flatMap((r) => r.activityCodes));
+        expect(warned.size).toBe(216);
+        for (const c of ["410011", "591110"]) expect(warned.has(c), c).toBe(true);
+        // B4: alternativas de los arts. 22 y 134, excluyentes de los tramos por un hecho declarado.
+        const fact = (id: string) => RULES.rules.find((r) => r.id === id)!;
+        expect([fact("art22-municipios").rate, fact("art22-municipios").activityCodes]).toEqual(["1.5", ["390000", "812090"]]);
+        expect([fact("art134-no-residentes").rate, fact("art134-no-residentes").activityCodes]).toEqual(["2", ["631201", "631202", "631203", "631204"]]);
+        for (const c of ["390000", "631201"]) {
+            const tramos = RULES.rules.filter((r) => r.activityCodes.includes(c) && !r.id.startsWith("art"));
+            expect(tramos.length, c).toBeGreaterThan(0);
+            expect(tramos.every((r) => r.conditions.some((k) => k.kind === "DECLARED_FACT" && k.factKey.startsWith("pbaArt") && k.expected === false)), c).toBe(true);
+        }
     });
     it("aun aprobado, nada se guarda como sugerencia de la norma (todas las reglas son condicionadas)", () => {
         const set = { ...RULES, manifest: { ...RULES.manifest, review: REVIEWED_RULES } };

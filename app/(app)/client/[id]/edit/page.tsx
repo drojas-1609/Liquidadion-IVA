@@ -27,7 +27,9 @@ export default async function EditClientPage({ params }: { params: Promise<{ id:
             where: { clientId: id, organizationId, targetCuit: client.cuit.replace(/\D/g, "") },
             select: { clientId: true },
         }));
-        return { client, iibb, canManageArca, arcaConfigured };
+        // F2: ingresos anuales cargados (tramos) para precargar la consulta de alícuotas.
+        const grossIncomes = await prisma.clientGrossIncomeYear.findMany({ where: { clientId: id, organizationId }, select: { incomeYear: true, amount: true } });
+        return { client, iibb, canManageArca, arcaConfigured, grossIncomes };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
     const { client, iibb } = guard.data;
@@ -51,6 +53,7 @@ export default async function EditClientPage({ params }: { params: Promise<{ id:
                 iibbRegistration: client.iibbRegistration,
                 jurisdictions: iibb.jurisdictions,
                 activities: iibb.activities,
+                grossIncomes: Object.fromEntries(guard.data.grossIncomes.map((g) => [g.incomeYear, g.amount.toFixed(2)])),
             }}
         />
     );

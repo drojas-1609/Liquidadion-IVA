@@ -14,8 +14,7 @@ import arbaLey15558_2026 from "@/data/iibb-rate-rules/arba-ley-15558-2026.json";
  *
  * Estado actual: CABA 2026 (Ley 6927 con fe de erratas y Ley 6948,
  * scripts/iibb-rates/caba-2026.ts) y Provincia de Buenos Aires 2026 (Ley 15.558,
- * scripts/iibb-rates/arba-2026.ts), ambos PENDIENTES de la revisión del estudio
- * (no se usan todavía). Santa Cruz sigue pendiente: fuentes oficiales no verificables.
+ * scripts/iibb-rates/arba-2026.ts), ambos REVISADOS por el estudio el 24/11/2026. Santa Cruz sigue pendiente: fuentes oficiales no verificables.
  * Ver docs/catalogos-actividades/README.md, «Cobertura de alícuotas».
  */
 // El JSON se tipa con strings amplios; la forma real se valida al cargar.

@@ -117,6 +117,8 @@ export interface ClientProfileInitial {
     iibbRegistration: string | null;
     jurisdictions: Array<{ code: string; headquarters: boolean }>;
     activities: ClientProfileActivity[];
+    /** F2: ingresos brutos anuales cargados (año → monto "1234.56"), para precargar los tramos. */
+    grossIncomes?: Readonly<Record<number, string>>;
 }
 
 interface ActivityRow extends DraftActivity {
@@ -1099,6 +1101,7 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                                                                 jurisdiction={code}
                                                                 activity={{ nomenclator: a.nomenclator, catalogId: a.origin === "CATALOG" ? a.catalogId : null, code: a.code }}
                                                                 registration={reg}
+                                                                grossIncomes={initial.grossIncomes}
                                                                 current={
                                                                     r.associated && !(r.treatment === "RATE" && r.rate.trim() === "")
                                                                         ? {

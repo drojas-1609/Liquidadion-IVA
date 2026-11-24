@@ -6,7 +6,7 @@ Sólo se usan para sugerir los conjuntos aprobados (niveles `technical`, `validi
 
 | Archivo | Norma | Generador | Estado |
 |---|---|---|---|
-| `caba-ley-6927-2026.json` | CABA, Ley 6927 (Ley Impositiva 2026, con fe de erratas) y Ley 6948 | `scripts/iibb-rates/caba-2026.ts` | PENDIENTE_REVISION |
-| `arba-ley-15558-2026.json` | Provincia de Buenos Aires, Ley 15.558 (Impositiva 2026), art. 20, contrastada con la exportación de ARBA | `scripts/iibb-rates/arba-2026.ts` | PENDIENTE_REVISION |
+| `caba-ley-6927-2026.json` | CABA, Ley 6927 (Ley Impositiva 2026, con fe de erratas) y Ley 6948 | `scripts/iibb-rates/caba-2026.ts` | REVISADO (24/11/2026); retenido sólo el 4 % residencial |
+| `arba-ley-15558-2026.json` | Provincia de Buenos Aires, Ley 15.558 (Impositiva 2026), art. 20, contrastada con la exportación de ARBA | `scripts/iibb-rates/arba-2026.ts` | REVISADO (24/11/2026); 1022 códigos, con avisos y alternativas arts. 22 y 134 |
 
 Qué cubre y qué no: `docs/catalogos-actividades/README.md`, «Reglas de alícuotas de CABA 2026». Guía de revisión: `docs/catalogos-actividades/REVISION.md`.

@@ -17,8 +17,8 @@ import { compareArcaWebMain } from "./compare-arca-web";
 import { crosscheckMain } from "./crosscheck-pdf";
 import { importMain } from "./import";
 import { importPdfTableMain } from "./pdf-table";
-import { arba2026Main } from "../iibb-rates/arba-2026";
-import { cabaMain } from "../iibb-rates/caba-2026";
+import { arba2026DecisionsMain, arba2026Main } from "../iibb-rates/arba-2026";
+import { cabaDecisionsMain, cabaMain } from "../iibb-rates/caba-2026";
 import { addCheckMain, approveMain, reviewMain } from "./review";
 
 const [command, ...rest] = process.argv.slice(2).filter((x, i) => !(i === 0 && x === "--"));
@@ -33,6 +33,8 @@ const commands: Record<string, (argv: string[]) => number> = {
     "arba-naiibb": arbaMain,
     "caba-2026": cabaMain,
     "arba-2026": arba2026Main,
+    "caba-2026-decisiones": cabaDecisionsMain,
+    "arba-2026-decisiones": arba2026DecisionsMain,
 };
 
 try {

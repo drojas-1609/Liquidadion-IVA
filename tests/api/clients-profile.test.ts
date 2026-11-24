@@ -171,6 +171,12 @@ describe("POST /api/clients — perfil IIBB informativo", () => {
             activities: ["620100", "702092"],
             rates: [["901", "0"], ["902", null], ["921", "4.25"]],
         });
+        // F2: las alícuotas informadas quedan también como las del año en curso (la «sin informar» no).
+        const year = Number(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric" }).format(new Date()));
+        expect(world.clientIibbRateYears!.filter((r) => r.clientId === created.id).map((r) => [r.fiscalYear, r.jurisdictionCode, r.activityCode, r.rate?.toString() ?? null]).sort()).toEqual([
+            [year, "901", "620100", "0"],
+            [year, "921", "702092", "4.25"],
+        ]);
         // La alícuota heredada NO se toca ni se reparte.
         expect(created.defaultIibbRate.toString()).toBe("2.5");
         expect(rec.audits[0].metadata).toEqual({ condition: "Responsable Inscripto", iibbRegistration: "CONVENIO_MULTILATERAL" });

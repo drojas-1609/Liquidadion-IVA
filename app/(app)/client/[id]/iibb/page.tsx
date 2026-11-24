@@ -5,8 +5,11 @@ import { ROLES_READ, ROLES_UPDATE, roleAllows } from "@/lib/auth/roles";
 import { MODULES_CLIENT_DIRECTORY } from "@/lib/auth/permissions";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
-import { localIibbJurisdiction } from "@/lib/liquidation-totals";
+import { localIibbJurisdiction, salesIibbBaseForYear } from "@/lib/liquidation-totals";
+import { currentFiscalYear } from "@/lib/iibb/rate-years";
+import { formatMoney } from "@/lib/format";
 import { IibbActivityForm } from "./iibb-activity-form";
+import { GrossIncomeForm } from "./gross-income-form";
 
 export const dynamic = "force-dynamic";
 
@@ -27,11 +30,26 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
             },
         });
         if (!client) throw new NotFoundError();
+        const thisYear = currentFiscalYear();
+        const incomeYears = [thisYear - 1, thisYear - 2];
+        const [incomes, rateYears, references] = await Promise.all([
+            prisma.clientGrossIncomeYear.findMany({ where: { organizationId, clientId: id }, select: { incomeYear: true, amount: true, note: true, updatedAt: true }, orderBy: { incomeYear: "desc" } }),
+            prisma.clientIibbRateYear.findMany({
+                where: { organizationId, clientId: id },
+                select: { fiscalYear: true, jurisdictionCode: true, activityCode: true, rate: true, treatment: true, confirmedAt: true },
+                orderBy: [{ fiscalYear: "desc" }, { jurisdictionCode: "asc" }, { activityCode: "asc" }],
+            }),
+            Promise.all(incomeYears.map((y) => salesIibbBaseForYear(prisma, { organizationId, clientId: id, year: y }).then((r) => ({ year: y, ...r })))),
+        ]);
         const seen = await prisma.invoice.groupBy({ by: ["pointOfSale"], where: { organizationId, category: "SALES", period: { clientId: id } }, _count: { _all: true } });
-        return { client, seenPos: seen.map((s) => s.pointOfSale).sort((a, b) => a - b), canEdit: roleAllows(ROLES_UPDATE, role) };
+        return { client, seenPos: seen.map((s) => s.pointOfSale).sort((a, b) => a - b), canEdit: roleAllows(ROLES_UPDATE, role), thisYear, incomeYears, incomes, rateYears, references };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { client, seenPos, canEdit } = guard.data;
+    const { client, seenPos, canEdit, thisYear, incomeYears, incomes, rateYears, references } = guard.data;
+    const years = [...new Set(rateYears.map((r) => r.fiscalYear))];
+    const descByCode = new Map(client.activities.map((a) => [a.code, a.description]));
+    const pctLabel = (r: { rate: { toFixed: (n: number) => string } | null; treatment: string }) =>
+        r.treatment === "EXEMPT" ? "exenta" : r.rate == null ? "sin informar" : `${r.rate.toFixed(2).replace(".", ",")} %`;
     const jur = localIibbJurisdiction(client);
     const activities = client.activities.map((a) => {
         const r = jur ? a.rates.find((x) => x.jurisdictionCode === jur) : undefined;
@@ -81,6 +99,50 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
                     <p>Actividad principal: <strong>{client.iibbPrincipalActivityCode ?? "sin definir"}</strong>. Puntos de venta asignados: {client.posActivities.length === 0 ? "ninguno" : client.posActivities.map((p) => `${p.pointOfSale} → ${p.activityCode}`).join(", ")}.</p>
                 )
             )}
+            <section className="card" aria-labelledby="income-title">
+                <h2 id="income-title" style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "var(--spacing-xs)" }}>Ingresos brutos anuales (para los tramos)</h2>
+                <p style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-sm)" }}>
+                    Total de ingresos del año por todas las actividades y jurisdicciones, según lo pida cada norma. Los de {thisYear - 1} definen el tramo de las alícuotas de {thisYear}. La referencia es lo que la app tiene registrado y puede estar incompleta.
+                </p>
+                <GrossIncomeForm
+                    clientId={client.id}
+                    canEdit={canEdit}
+                    rows={incomeYears.map((y) => {
+                        const saved = incomes.find((i) => i.incomeYear === y);
+                        const ref = references.find((r) => r.year === y)!;
+                        return {
+                            year: y,
+                            amount: saved ? saved.amount.toFixed(2).replace(".", ",") : "",
+                            note: saved?.note ?? "",
+                            reference: ref.periods > 0 ? `$ ${formatMoney(ref.base.toFixed(2))} en ${ref.periods} período(s) cargado(s)` : "sin períodos cargados en la app",
+                        };
+                    })}
+                />
+            </section>
+            <section className="card" aria-labelledby="years-title">
+                <h2 id="years-title" style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "var(--spacing-xs)" }}>Alícuotas por año</h2>
+                <p style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-sm)" }}>
+                    Cada período se liquida con las alícuotas de su año. Las de {thisYear} se actualizan al guardar la ficha; las de años anteriores quedan fijas.
+                </p>
+                {years.length === 0 ? <p>Todavía no hay alícuotas confirmadas por año.</p> : years.map((y) => (
+                    <div key={y} style={{ marginBottom: "var(--spacing-md)" }}>
+                        <h3 style={{ fontSize: "1rem", fontWeight: 600 }}>{y}{y === thisYear ? " (año en curso)" : ""}</h3>
+                        <table className="table" style={{ width: "100%" }}>
+                            <thead><tr><th>Jurisdicción</th><th>Actividad</th><th style={{ textAlign: "right" }}>Alícuota</th><th>Confirmada</th></tr></thead>
+                            <tbody>
+                                {rateYears.filter((r) => r.fiscalYear === y).map((r) => (
+                                    <tr key={`${r.jurisdictionCode}-${r.activityCode}`}>
+                                        <td>{r.jurisdictionCode}</td>
+                                        <td>{r.activityCode} · {descByCode.get(r.activityCode) ?? "(ya no está en la ficha)"}</td>
+                                        <td style={{ textAlign: "right" }}>{pctLabel(r)}</td>
+                                        <td>{r.confirmedAt.toISOString().slice(0, 10).split("-").reverse().join("/")}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ))}
+            </section>
         </div>
     );
 }

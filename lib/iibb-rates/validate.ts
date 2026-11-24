@@ -49,6 +49,7 @@ export function validateRuleSet(raw: unknown): string[] {
         if (r.pendingInterpretation !== undefined && (typeof r.pendingInterpretation !== "string" || r.pendingInterpretation.trim() === "")) {
             p.push(`${at}: pendingInterpretation debe describir la interpretación pendiente`);
         }
+        if (r.caveat !== undefined && (typeof r.caveat !== "string" || r.caveat.trim() === "")) p.push(`${at}: el aviso debe tener texto`);
         if (r.sourceUrl !== undefined && (typeof r.sourceUrl !== "string" || !/^https:\/\//.test(r.sourceUrl))) p.push(`${at}: sourceUrl debe ser https`);
         if (!Array.isArray(r.conditions)) p.push(`${at}: condiciones inválidas`);
         else

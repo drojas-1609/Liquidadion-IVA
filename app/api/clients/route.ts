@@ -95,7 +95,7 @@ export const POST = withApiAuthz(async (request: Request) => {
         // Perfil IIBB informativo (jurisdicciones, actividades, alícuotas): no
         // modifica defaultIibbRate ni el cálculo.
         if (parsed.data.iibb && (parsed.data.iibb.jurisdictions.length > 0 || parsed.data.iibb.activities.length > 0)) {
-            await replaceIibbProfile(tx, { clientId: client.id, organizationId, profile: parsed.data.iibb });
+            await replaceIibbProfile(tx, { clientId: client.id, organizationId, profile: parsed.data.iibb, actorProfileId: profileId });
         }
         // Perfil contable: certificado MiPyME y plan de cuentas modelo. Sin
         // elección expresa, el modelo sale de la actividad principal (la primera

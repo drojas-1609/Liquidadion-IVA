@@ -59,3 +59,34 @@ export function buildActivityAssignmentInput(body: unknown, clientCodes: readonl
     }
     return { ok: true, value: { assignments: out } };
 }
+
+export interface GrossIncomeInput {
+    incomeYear: number;
+    /** null = borrar el dato del año. */
+    amount: string | null;
+    note: string | null;
+}
+
+/** { incomeYear, amount: "1234567,89" | null, note } — monto en pesos, no negativo, con hasta 2 decimales. */
+export function buildGrossIncomeInput(body: unknown, thisYear: number): Result<GrossIncomeInput> {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return bad("body", "cuerpo inválido");
+    const b = body as Record<string, unknown>;
+    for (const k of Object.keys(b)) if (!["incomeYear", "amount", "note"].includes(k)) return bad(k, "campo no admitido");
+    const y = b.incomeYear;
+    if (typeof y !== "number" || !Number.isInteger(y) || y < 2000 || y > thisYear) return bad("incomeYear", `año inválido (2000 a ${thisYear})`);
+    let amount: string | null = null;
+    if (b.amount !== null && b.amount !== undefined && b.amount !== "") {
+        if (typeof b.amount !== "string") return bad("amount", "monto inválido");
+        const raw = b.amount.trim().replace(/\s/g, "");
+        // Acepta 1.234.567,89 o 1234567.89 / 1234567,89.
+        const normalized = /,/.test(raw) ? raw.replace(/\./g, "").replace(",", ".") : raw;
+        if (!/^\d{1,16}(\.\d{1,2})?$/.test(normalized)) return bad("amount", "monto inválido: pesos, sin signo, hasta 2 decimales");
+        amount = normalized;
+    }
+    let note: string | null = null;
+    if (b.note !== null && b.note !== undefined && b.note !== "") {
+        if (typeof b.note !== "string" || b.note.length > 300) return bad("note", "nota inválida (hasta 300 caracteres)");
+        note = b.note.trim() || null;
+    }
+    return { ok: true, value: { incomeYear: y, amount, note } };
+}
