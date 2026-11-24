@@ -26,10 +26,21 @@ describe("menú lateral por módulos", () => {
 
   it("sin períodos ofrece crearlo; los estados contables se anuncian sin enlace", () => {
     const g = buildClientMenu({ clientId: "c1", periodId: null, hasIva: true });
-    expect(g.find((x) => x.key === "impuestos")!.items).toEqual([{ label: "Crear el primer período", href: "/client/c1/period/new" }]);
+    expect(g.find((x) => x.key === "impuestos")!.items).toEqual([
+      { label: "Crear el primer período", href: "/client/c1/period/new" },
+      { section: "Ingresos Brutos", label: "Alícuotas e ingresos anuales", href: "/client/c1/iibb" },
+    ]);
     const ec = g.find((x) => x.key === "contabilidad")!.items.find((i) => i.label === "Estados contables")!;
     expect(ec.href).toBeUndefined();
     expect(ec.hint).toContain("Estado de situación patrimonial");
+  });
+
+  it("Impuestos separa IVA e Ingresos Brutos en secciones", () => {
+    const items = buildClientMenu({ clientId: "c1", periodId: "p1", hasIva: true }).find((x) => x.key === "impuestos")!.items;
+    const of = (sec: string) => items.filter((i) => i.section === sec).map((i) => i.label);
+    expect(of("IVA")).toEqual(["Libro IVA ventas", "Libro IVA compras", "Liquidación de IVA", "Presentación ARCA", "Importar Libro IVA Digital"]);
+    expect(of("Ingresos Brutos")).toEqual(["Liquidación de IIBB", "Ventas por actividad", "Alícuotas e ingresos anuales"]);
+    expect(items.find((i) => i.label === "Liquidación de IIBB")!.href).toBe("/client/c1/period/p1/iibb-liquidation");
   });
 
   it("marca el ítem más específico", () => {

@@ -95,6 +95,8 @@ const LAW = parsePdfLines(
         "6|493.2|70.5|521.4|ARTÍCULO 20. De acuerdo a lo establecido",
         "8|397.2|74.6|92.9|0111",
         ...[274, 314, 351, 388, 425, 463, 500, 538].map((x, i) => `8|394.9|${x}|${x + 20}|${i < 4 ? "0,75%" : "0%"}`),
+        "9|397.2|74.6|92.9|6312",
+        ...[274, 314, 351, 388, 425, 463, 500, 538].map((x, i) => `9|394.9|${x}|${x + 20}|${i < 4 ? "0,75%" : "0%"}`),
         "19|263.7|102.0|297.4|502102 Servicio de transporte escolar fluvial. 1,50%",
         ...[308, 345, 382, 420, 457, 495, 532].map((x) => `19|263.7|${x}|${x + 20}|1,50%`),
         "25|654.4|70.5|331.2|ARTÍCULO 21. Suspéndense",
@@ -137,25 +139,49 @@ describe("contraste con la Ley 15.558 y reglas 2026", () => {
         expect(dedup).toHaveLength(2);
         expect(notes[0]).toMatch(/fila duplicada/);
     });
-    it("reglas: condicionadas por ingresos y hechos declarados; retención de códigos con datos no definidos o tratamientos especiales", () => {
+    it("reglas: condicionadas por ingresos y hechos declarados; avisos y alternativas excluyentes (decisiones B2 a B4)", () => {
         const same = (code: string) => [N("0", TRAMO_CAPS[3], "0", code), N(`${TRAMO_CAPS[3]}.01`, null, "0.75", code)];
         const rows = [
             ...same("011111"),
             { ...N("0", null, "0.75", "011111"), rateType: "G" },
-            ...same("011112"),
-            { ...N("0", null, "2", "011112"), article: "Art.134" },
+            ...same("631201"),
+            { ...N("0", null, "2", "631201"), article: "Art.134" },
             ...same("011119").map((r) => ({ ...r, bonification: true })),
         ];
-        const { rules, held, problems } = buildArbaRules(rows, law, new Set(["011111", "011112", "011119"]));
+        const { rules, held, problems } = buildArbaRules(rows, law, new Set(["011111", "631201", "011119"]));
         expect(problems).toEqual([]);
-        expect(held).toEqual(["011112", "011119"]);
+        expect(held).toEqual(["011119", "631201"]);
         const r = rules.find((x) => x.activityCodes.includes("011111") && x.rate === "0")!;
         expect(r.activityCodes).toEqual(["011111"]);
         expect(r.conditions.map((c) => (c.kind === "DECLARED_FACT" ? c.factKey : c.kind))).toEqual(["pbaSinExencion", "pbaNoInicioEnEjercicio", "PRIOR_YEAR_GROSS_INCOME"]);
         expect(r.registrations).toEqual(["LOCAL", "CONVENIO_MULTILATERAL"]);
-        expect(r.pendingInterpretation).toBeUndefined();
-        expect(rules.filter((x) => x.activityCodes.some((c) => held.includes(c))).every((x) => typeof x.pendingInterpretation === "string")).toBe(true);
+        expect(rules.every((x) => x.pendingInterpretation === undefined)).toBe(true);
+        // B2/B3: aviso, sin cambiar la tasa.
+        const warned = rules.filter((x) => x.activityCodes.includes("011119"));
+        expect(warned.every((x) => typeof x.caveat === "string" && x.id.endsWith("-aviso"))).toBe(true);
+        // B4: tramos con el hecho en false y alternativa del art. 134 con el hecho en true.
+        const tramos = rules.filter((x) => x.activityCodes.includes("631201") && x.id.endsWith("-no-art134"));
+        expect(tramos.length).toBe(2);
+        expect(rules.find((x) => x.id === "art134-no-residentes")!.conditions.at(-1)).toMatchObject({ factKey: "pbaArt184bisNoResidente", expected: true });
+        // Un tratamiento especial sin decisión del estudio no genera regla.
+        expect(buildArbaRules([...same("011112"), { ...N("0", null, "2", "011112"), article: "Art.999" }], law, new Set(["011112"])).problems[0]).toMatch(/sin decisión del estudio/);
         // Código que no está en el catálogo: sin regla.
         expect(buildArbaRules(same("999999"), law, new Set()).problems[0]).toMatch(/no está en el catálogo/);
+    });
+});
+
+describe("decisiones del 24/11/2026 aplicadas a un conjunto ya generado", () => {
+    it("quita las retenciones, agrega avisos y alternativas; idempotente", async () => {
+        const { applyArbaDecisions } = await import("../scripts/iibb-rates/arba-2026-decisions");
+        const { COMMON } = await import("../scripts/iibb-rates/arba-2026");
+        const held = (id: string, codes: string[], hold: string) => ({ id, activityCodes: codes, registrations: ["LOCAL"], validFrom: null, validTo: null, treatment: "RATE", rate: "3", conditions: [], legalReference: "x", pendingInterpretation: hold });
+        const set = {
+            manifest: { id: "arba-ley-15558-2026" },
+            rules: [held("t3-0-1-habc", ["011119", "631201"], "Exportación de ARBA con bonif_actiba = S"), held("t3-0-1-hdef", ["390000"], "Además de los tramos, ARBA publica un tratamiento especial (Art.22 1.5 %)")],
+        } as never;
+        const once = applyArbaDecisions(set, COMMON);
+        expect(once.rules.map((r) => r.id).sort()).toEqual(["art134-no-residentes", "art22-municipios", "t3-0-1-aviso", "t3-0-1-no-art134", "t3-0-1-no-art22"]);
+        expect(once.rules.every((r) => r.pendingInterpretation === undefined)).toBe(true);
+        expect(applyArbaDecisions(once, COMMON)).toEqual(once);
     });
 });

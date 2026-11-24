@@ -57,7 +57,10 @@ export function ClientMenu({ clients, hasIva, rememberedId }: { clients: Sidebar
                     {g.key === "impuestos" && periodId && client.periods.length === 1 && (
                         <p className="menu-period-single">Período {client.periods[0].label}</p>
                     )}
-                    {g.items.map((it) =>
+                    {g.items.map((it, i) => [
+                        it.section && it.section !== g.items[i - 1]?.section && (
+                            <p key={`s-${it.section}`} className="menu-section">{it.section}</p>
+                        ),
                         it.href ? (
                             <Link key={it.label} href={it.href} className="menu-item" aria-current={it.href === current ? "page" : undefined}>
                                 {it.label}
@@ -67,7 +70,7 @@ export function ClientMenu({ clients, hasIva, rememberedId }: { clients: Sidebar
                                 {it.label} <em>próximamente</em>
                             </span>
                         ),
-                    )}
+                    ])}
                 </details>
             ))}
         </div>

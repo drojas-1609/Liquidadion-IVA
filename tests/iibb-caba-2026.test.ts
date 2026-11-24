@@ -80,11 +80,10 @@ describe("reglas generadas para CABA 2026", () => {
         expect(suggestRate([set], q({ code: "905099" })).status).toBe("SIN_REGLA");
         expect(suggestRate([set], q({ code: "999001", facts: { declared: { cabaSinOtroTratamiento: true } } })).status).toBe("SIN_REGLA");
     });
-    it("retenidas: las reglas de la Ley 6948 (desde junio) y el 4 % residencial del art. 3°", () => {
+    it("retenida sólo el 4 % residencial del art. 3° (decisiones C1 a C3 del 24/11/2026)", () => {
         const held = rules.filter((r) => r.pendingInterpretation).map((r) => r.id);
-        expect(held).toContain("a3-residencial");
-        expect(held.filter((id) => id.includes("jun-dic"))).toHaveLength(14);
-        expect(rules.filter((r) => r.id.includes("ene-may")).every((r) => r.pendingInterpretation === undefined)).toBe(true);
+        expect(held).toEqual(["a3-residencial"]);
+        expect(rules.filter((r) => r.id.includes("jun-dic"))).toHaveLength(14);
     });
     it("una tasa del PDF distinta de la del artículo, o un código ausente del catálogo, hacen fallar la generación", () => {
         const wrong = ROWS.map((r) => (r.code === "905001" ? { ...r, rates: ["3,00%", "4,00%"] } : r));
@@ -100,14 +99,13 @@ describe("reglas generadas para CABA 2026", () => {
         expect(s.missing.some((m) => m.includes("no tiene previsto otro tratamiento"))).toBe(true);
     });
     const declared = { cabaSinOtroTratamiento: true };
-    it("art. 5°: umbral de la Ley 6927 hasta el 31/05; desde junio, retenido (no se sugiere ni se acepta)", () => {
+    it("art. 5°: umbral de la Ley 6927 hasta el 31/05; desde el 01/06, el de la Ley 6948", () => {
         const income = "380000000"; // entre $364.000.000 y $391.128.000
         const before = suggestRate([set], q({ date: "2026-05-31", facts: { priorYearGrossIncome: income, declared } }));
         const after = suggestRate([set], q({ date: "2026-06-01", facts: { priorYearGrossIncome: income, declared } }));
         expect(before.status === "UNICA" && [before.alternative.rate, before.alternative.ruleRef]).toEqual(["5", "caba-ley-6927-2026#a5-ene-may-supera"]);
-        expect(after.status).toBe("SIN_REGLA");
-        if (after.status === "SIN_REGLA") expect(after.message).toMatch(/retenidas/);
-        // Las reglas retenidas se conservan con su texto y fuente para la revisión.
+        expect(after.status === "UNICA" && [after.alternative.rate, after.alternative.ruleRef]).toEqual(["3", "caba-ley-6927-2026#a5-jun-dic-hasta"]);
+        // Las reglas de junio citan la Ley 6948 como fuente.
         const jun = rules.find((r) => r.id === "a5-jun-dic-hasta")!;
         expect([jun.rate, jun.legalReference, jun.sourceUrl?.includes("6948")]).toEqual(["3", "Ley 6948 (sustituye el art. 5° del Anexo de la Ley 6927) y Planilla 5", true]);
         expect(jun.conditions.find((c) => c.kind === "PRIOR_YEAR_GROSS_INCOME")).toMatchObject({ maxInclusive: "391128000" });

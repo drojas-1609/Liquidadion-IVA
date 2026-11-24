@@ -61,7 +61,7 @@ beforeEach(() => {
     }),
     freshRecorder(),
   );
-  H.db.current = Object.assign(db, { arcaClientCredential: { findFirst: vi.fn().mockResolvedValue(null) } });
+  H.db.current = Object.assign(db, { arcaClientCredential: { findFirst: vi.fn().mockResolvedValue(null) }, clientGrossIncomeYear: { findMany: vi.fn().mockResolvedValue([]) } });
   H.claims.throw = null;
   H.claims.value = claimsFor(SUB_OWNER_A);
 });
@@ -115,6 +115,7 @@ describe("app/client/[id]/edit/page — sólo OWNER / ADMIN", () => {
       id: "c_a",
       // Token de versión: Client.updatedAt leído ANTES que la ficha IIBB.
       expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+      grossIncomes: {},
       name: "Alfa SA",
       cuit: expect.any(String),
       condition: "Responsable Inscripto",

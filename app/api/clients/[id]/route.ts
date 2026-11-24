@@ -145,7 +145,7 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 data: { ...data, updatedById: profileId, updatedAt: nextClientVersion(locked.updatedAt, Date.now()) },
             });
             if (credential) await saveClientCredential(tx, client, credential);
-            if (replaceProfile && iibb) await replaceIibbProfile(tx, { clientId: id, organizationId, profile: iibb });
+            if (replaceProfile && iibb) await replaceIibbProfile(tx, { clientId: id, organizationId, profile: iibb, actorProfileId: profileId });
             await recordAudit(tx, {
                 organizationId,
                 actorProfileId: profileId,

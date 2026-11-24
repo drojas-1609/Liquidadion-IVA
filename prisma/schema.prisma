@@ -236,6 +236,8 @@ model Client {
   /// por defecto de las ventas sin punto de venta asignado ni corrección manual.
   iibbPrincipalActivityCode String? @db.VarChar(12)
   posActivities    ClientPosActivity[]
+  iibbRateYears    ClientIibbRateYear[]
+  grossIncomeYears ClientGrossIncomeYear[]
   chartAccounts    ChartAccount[]
   journalEntries   JournalEntry[]
   documentBackups  DocumentBackup[]
@@ -279,6 +281,54 @@ model ClientPosActivity {
   client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([clientId, pointOfSale])
+  @@index([organizationId])
+}
+
+/// Alícuota de IIBB de una actividad en una jurisdicción para un año fiscal
+/// (fase IIBB F2). La liquidación de un período usa la de su año; la ficha
+/// representa el año en curso y, al guardarse, actualiza las filas de ese año.
+/// Se referencia la actividad por su código (las filas de ClientActivity se
+/// recrean al guardar la ficha).
+model ClientIibbRateYear {
+  id               String        @id @default(cuid())
+  organizationId   String
+  clientId         String
+  fiscalYear       Int
+  jurisdictionCode String        @db.VarChar(3)
+  activityCode     String        @db.VarChar(12)
+  rate             Decimal?      @db.Decimal(9, 6)
+  treatment        RateTreatment @default(RATE)
+  rateOrigin       RateOrigin?
+  ruleRef          String?
+  /// Perfil que la confirmó (sin relación: el detalle queda en la auditoría).
+  confirmedById    String?       @db.Uuid
+  confirmedAt      DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([clientId, fiscalYear, jurisdictionCode, activityCode])
+  @@index([organizationId])
+}
+
+/// Ingresos brutos anuales del cliente (todas las actividades y jurisdicciones),
+/// cargados por el estudio: definen el tramo de alícuota del año siguiente.
+model ClientGrossIncomeYear {
+  id             String   @id @default(cuid())
+  organizationId String
+  clientId       String
+  /// Año de los ingresos (se usan para las alícuotas de incomeYear + 1).
+  incomeYear     Int
+  amount         Decimal  @db.Decimal(18, 2)
+  note           String?  @db.VarChar(300)
+  updatedById    String?  @db.Uuid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([clientId, incomeYear])
   @@index([organizationId])
 }
 

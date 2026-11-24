@@ -16,16 +16,16 @@
   "validTo": "2026-12-31",
   "sourceSha256": "318aad341e11313775c6b3ac02f1743f169d1266dc85ed0929b5472a3e7827b0",
   "review": {
-   "status": "PENDIENTE_REVISION",
-   "reviewedBy": null,
-   "reviewedAt": null,
+   "status": "REVISADO",
+   "reviewedBy": "Diego Rojas",
+   "reviewedAt": "2026-11-24",
    "notes": null,
    "levels": {
     "technical": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-24",
+     "notes": "Aprobado en chat: tasas de las Planillas 1 a 11 cotejadas sin diferencias contra la Ley 6927 (con fe de erratas) y la Ley 6948.",
      "checks": [
       {
        "kind": "AUTOMATICO",
@@ -42,10 +42,10 @@
      ]
     },
     "validity": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-24",
+     "notes": "C1: Ley 6948 vigente desde el 01/06/2026 (art. 10, BOCBA 19/05/2026). Enero a mayo con los umbrales de la Ley 6927.",
      "checks": [
       {
        "kind": "INVESTIGACION",
@@ -63,10 +63,10 @@
      ]
     },
     "interpretation": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-24",
+     "notes": "C2: la adecuación del art. 9° de la Ley 6948 cambia sólo los umbrales; las planillas conservan sus códigos. C3: el 4 % residencial del art. 3° sigue retenido (remisión al art. 58 sin resolver); se carga a mano. C4 fuera de alcance.",
      "checks": [
       {
        "kind": "INVESTIGACION",
@@ -632,8 +632,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 3° del Anexo de la Ley 6927) y Planilla 3",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -676,8 +675,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 3° del Anexo de la Ley 6927) y Planilla 3",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -1459,8 +1457,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 5° del Anexo de la Ley 6927) y Planilla 5",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -1694,8 +1691,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 5° del Anexo de la Ley 6927) y Planilla 5",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -1822,8 +1818,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 6° del Anexo de la Ley 6927) y Planilla 6",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -1866,8 +1861,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 6° del Anexo de la Ley 6927) y Planilla 6",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -2028,8 +2022,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 8° del Anexo de la Ley 6927) y Planilla 8",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -2070,8 +2063,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 8° del Anexo de la Ley 6927) y Planilla 8",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -2372,8 +2364,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 9° del Anexo de la Ley 6927) y Planilla 9",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -2474,8 +2465,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 9° del Anexo de la Ley 6927) y Planilla 9",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -2572,8 +2562,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 10 del Anexo de la Ley 6927) y Planilla 10",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -2606,8 +2595,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 10 del Anexo de la Ley 6927) y Planilla 10",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -2839,8 +2827,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 11 del Anexo de la Ley 6927) y Planilla 11",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   },
   {
    "activityCodes": [
@@ -2918,8 +2905,7 @@
     }
    ],
    "legalReference": "Ley 6948 (sustituye el art. 11 del Anexo de la Ley 6927) y Planilla 11",
-   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf",
-   "pendingInterpretation": "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales)."
+   "sourceUrl": "https://documentosboletinoficial.buenosaires.gob.ar/publico/ck_PL-LEY-LCABA-LCBA-6948-26-7369.pdf"
   }
  ]
 }

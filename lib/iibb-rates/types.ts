@@ -59,6 +59,11 @@ export interface RateRule {
      * el conjunto esté aprobado; se habilita sólo regenerando el conjunto sin la marca.
      */
     pendingInterpretation?: string;
+    /**
+     * Aviso que acompaña a la regla habilitada (decisión del estudio): un dato de
+     * la fuente que no se modeló y debe verificarse antes de confirmar la tasa.
+     */
+    caveat?: string;
 }
 
 export interface RateRuleSetManifest {

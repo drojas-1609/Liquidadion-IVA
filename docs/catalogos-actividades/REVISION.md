@@ -1,5 +1,18 @@
 # Revisión pendiente de datos oficiales (preparada el 27/10/2026)
 
+**Actualización del 24/11/2026:** Diego Rojas decidió en el chat las fichas C1 a C3 y B2 a B5 y aprobó los conjuntos de CABA 2026 y Provincia de Buenos Aires 2026 en los tres niveles (REVISADO). Resumen:
+
+| Ficha | Decisión |
+|---|---|
+| C1 | Ley 6948 vigente desde el 01/06/2026. |
+| C2 | La adecuación de planillas (art. 9°) cambia sólo los umbrales; mismos códigos. |
+| C3 | El 4 % residencial sigue **retenido**; se carga a mano. |
+| B2/B3 | `bonif_actiba` y `AlicuotaSUS`: tramos habilitados **con aviso** «verificar antes de confirmar». |
+| B4 | Arts. 22 (1,5 %, servicios a municipios) y 134 (2 %, art. 184 bis CF: no residentes) como alternativas excluyentes de los tramos, con hecho declarado. |
+| B5 | Hecho «no inició actividades en el ejercicio»; límite de Convenio Multilateral para la F4; errata del tramo 6 según el texto en letras. |
+
+Aplicado con `cli.ts -- caba-2026-decisiones` y `cli.ts -- arba-2026-decisiones` sobre los conjuntos generados el 27/10/2026 (los generadores aplican lo mismo en una regeneración).
+
 **Actualización del 28/10/2026:** aprobación expresa de Diego Rojas para los tres nomencladores cargados (NAES, CLAE y NAIIB-18). Se registraron `technical` y `validity` CONFORME y aprobación final REVISADO, sin cambiar códigos, descripciones ni vigencias. Las fichas siguientes conservan el análisis y sus incertidumbres como antecedentes. **Las decisiones sobre alícuotas e interpretaciones permanecen pendientes; la aprobación de nomencladores no las resuelve.**
 
 Los **checks** registrados en cada archivo (`manifest.review.levels.<nivel>.checks`) son resultados del preparador, cotejos y búsquedas, con su evidencia. **No son decisiones.**

@@ -126,6 +126,12 @@ const RESIDENTIAL_RATE = "4";
  * Interpretaciones que el estudio todavía no decidió: las reglas que dependen
  * de ellas se generan RETENIDAS (nunca se sugieren ni se aceptan al guardar).
  */
+/**
+ * Retención anterior de las reglas de junio a diciembre. Decisión del estudio
+ * (Diego Rojas, 24/11/2026, fichas C1 y C2): vigencia desde el 01/06/2026 y
+ * mismas planillas con los umbrales nuevos. Se conserva el texto sólo para
+ * aplicar la decisión a un conjunto ya generado (caba-2026-decisiones).
+ */
 export const HOLD_LEY_6948 =
     "Ley 6948: confirmar (a) el inicio de vigencia del art. 10 («primer día hábil del mes siguiente al de su publicación», BOCBA 19/05/2026; se propone el lunes 01/06/2026) y (b) el alcance del art. 9° («adecuación de las planillas»: se propone mantener los códigos de las planillas de la Ley 6927 y cambiar sólo umbrales).";
 export const HOLD_RESIDENTIAL =
@@ -240,7 +246,6 @@ export function buildCabaRules(rows: readonly PlanillaRow[], special: ReadonlySe
                     conditions: [...conditions, income(null, t2.threshold, "Ley 6948")],
                     legalReference: ref2,
                     sourceUrl: LAW_6948_URL,
-                    pendingInterpretation: HOLD_LEY_6948,
                 },
                 {
                     ...base,
@@ -251,7 +256,6 @@ export function buildCabaRules(rows: readonly PlanillaRow[], special: ReadonlySe
                     conditions: [...conditions, income(t2.threshold, null, "Ley 6948")],
                     legalReference: ref2,
                     sourceUrl: LAW_6948_URL,
-                    pendingInterpretation: HOLD_LEY_6948,
                 },
             );
         }
@@ -315,5 +319,29 @@ export function cabaMain(argv: string[]): number {
     }
     writeFileSync(req("out"), `${JSON.stringify(set, null, 1)}\n`, { flag: "wx" });
     console.log(`escrito ${req("out")} en estado PENDIENTE_REVISION.`);
+    return 0;
+}
+
+/**
+ * Aplica las decisiones C1 y C2 del 24/11/2026 a un conjunto ya generado: quita
+ * la retención de la Ley 6948 (la del 4 % residencial, C3, sigue). Idempotente.
+ *   cli.ts -- caba-2026-decisiones --in <json> --out <json>
+ */
+export function cabaDecisionsMain(argv: string[]): number {
+    const a = parseArgs(argv);
+    const set = JSON.parse(readFileSync(required(a, "in"), "utf8")) as RateRuleSet;
+    const rules: RateRule[] = set.rules.map((r) => {
+        if (r.pendingInterpretation !== HOLD_LEY_6948) return r;
+        const { pendingInterpretation: _held, ...rest } = r;
+        return rest;
+    });
+    const next: RateRuleSet = { ...set, rules };
+    const invalid = validateRuleSet(next);
+    if (invalid.length > 0) {
+        console.error(`CONJUNTO RECHAZADO:\n- ${invalid.slice(0, 20).join("\n- ")}`);
+        return 2;
+    }
+    writeFileSync(required(a, "out"), `${JSON.stringify(next, null, 1)}\n`);
+    console.log(`retenidas: ${set.rules.filter((r) => r.pendingInterpretation).length} → ${next.rules.filter((r) => r.pendingInterpretation).length}`);
     return 0;
 }

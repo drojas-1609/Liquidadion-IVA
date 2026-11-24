@@ -36,6 +36,8 @@ export interface RateAlternative {
     norm: string;
     legalReference: string;
     sourceUrl: string;
+    /** Aviso de la regla (dato de la fuente no modelado), si lo tiene. */
+    caveat?: string;
     /** `factKey`/`expected` sólo en hechos declarables por el estudio (DECLARED_FACT). */
     conditions: Array<{ description: string; status: "CUMPLE" | "DESCONOCIDO"; factKey?: string; expected?: boolean }>;
 }
@@ -131,6 +133,7 @@ export function suggestRate(sets: readonly RateRuleSet[], q: RateQuery): RateSug
             norm: m.norm,
             legalReference: r.legalReference,
             sourceUrl: r.sourceUrl ?? m.sourceUrl,
+            ...(r.caveat ? { caveat: r.caveat } : {}),
             conditions: evals.map((e) => ({
                 description: e.c.description,
                 status: e.status === "CUMPLE" ? "CUMPLE" : "DESCONOCIDO",

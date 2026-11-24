@@ -163,7 +163,8 @@ export default async function ClientDashboard({ params }: { params: Promise<{ id
                         ) : null}
                         {position?.ok && position.data && (
                             <footer>
-                                <Link href={`${c}/period/${position.data.periodId}/liquidation`}>Ver liquidación completa →</Link>
+                                <Link href={`${c}/period/${position.data.periodId}/liquidation`}>Liquidación de IVA →</Link>{" "}
+                                <Link href={`${c}/period/${position.data.periodId}/iibb-liquidation`}>Liquidación de IIBB →</Link>
                             </footer>
                         )}
                     </section>

@@ -36,6 +36,7 @@ export function RateSuggestionPanel({
     jurisdiction,
     activity,
     registration,
+    grossIncomes,
     current,
     onConfirm,
     onRecordAsStudioDecision,
@@ -44,6 +45,8 @@ export function RateSuggestionPanel({
     jurisdiction: string;
     activity: { nomenclator: string; catalogId: string | null; code: string };
     registration: string | null;
+    /** F2: ingresos brutos anuales cargados en la ficha (año → monto); el del año anterior a la fecha precarga la consulta. */
+    grossIncomes?: Readonly<Record<number, string>>;
     /** Alícuota que hoy tiene el borrador para esta actividad y jurisdicción (lo que se reemplazaría). */
     current: { description: string } | null;
     /** Sólo para reglas sin condiciones, con respuesta única: se guarda con su procedencia normativa. */
@@ -52,9 +55,21 @@ export function RateSuggestionPanel({
     onRecordAsStudioDecision: (alt: Pick<RateAlternative, "treatment" | "rate">) => void;
     onClose: () => void;
 }) {
-    const [income, setIncome] = useState("");
     // Las normas cambian dentro del año: la consulta es para una fecha del período, no siempre para hoy.
     const [date, setDate] = useState(() => todayInArgentina());
+    const storedIncome = (d: string) => (isIsoDateString(d) ? grossIncomes?.[Number(d.slice(0, 4)) - 1] : undefined);
+    const [income, setIncomeRaw] = useState(() => storedIncome(todayInArgentina()) ?? "");
+    // Mientras no se escriba a mano, los ingresos siguen al año de la fecha consultada.
+    const [incomeTouched, setIncomeTouched] = useState(false);
+    const setIncome = (v: string) => {
+        setIncomeTouched(true);
+        setIncomeRaw(v);
+    };
+    const changeDate = (d: string) => {
+        setDate(d);
+        if (!incomeTouched) setIncomeRaw(storedIncome(d) ?? "");
+    };
+    const incomeFromProfile = !incomeTouched && storedIncome(date) !== undefined;
     // Hechos que la norma exige y el estudio puede declarar (se acumulan para poder cambiarlos).
     const [facts, setFacts] = useState<Record<string, string>>({});
     const [declared, setDeclared] = useState<Record<string, boolean>>({});
@@ -97,11 +112,16 @@ export function RateSuggestionPanel({
             </p>
             <label>
                 <span style={{ display: "block", fontWeight: 500 }}>Fecha de referencia (un día del período que se va a liquidar)</span>
-                <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ maxWidth: "220px" }} />
+                <input className="input" type="date" value={date} onChange={(e) => changeDate(e.target.value)} style={{ maxWidth: "220px" }} />
             </label>
             <label>
-                <span style={{ display: "block", fontWeight: 500 }}>Ingresos brutos anuales del ejercicio anterior (opcional, sólo para esta consulta; no se guarda)</span>
+                <span style={{ display: "block", fontWeight: 500 }}>Ingresos brutos anuales del ejercicio anterior (opcional)</span>
                 <input className="input" inputMode="decimal" value={income} onChange={(e) => setIncome(e.target.value)} placeholder="Ej. 150000000" style={{ maxWidth: "220px" }} />
+                <span style={HINT}>
+                    {incomeFromProfile
+                        ? `Tomados de los ingresos de ${Number(date.slice(0, 4)) - 1} cargados en «Alícuotas e ingresos anuales» (Impuestos → Ingresos Brutos). Si los cambiás acá, valen sólo para esta consulta.`
+                        : "Se cargan por año en Impuestos → Ingresos Brutos → «Alícuotas e ingresos anuales»; lo que escribas acá vale sólo para esta consulta."}
+                </span>
             </label>
             {Object.keys(facts).length > 0 && (
                 <fieldset style={{ border: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
@@ -167,6 +187,11 @@ export function RateSuggestionPanel({
                                 Vigencia: {a.validFrom} a {a.validTo ?? "sin fecha de fin"} ·{" "}
                                 <a href={a.sourceUrl} target="_blank" rel="noopener noreferrer">fuente oficial</a>
                             </span>
+                            {a.caveat && (
+                                <span role="note" style={{ ...HINT, color: "var(--warning, #b45309)" }}>
+                                    ⚠ {a.caveat}
+                                </span>
+                            )}
                             {a.conditions.length > 0 && (
                                 <ul style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.875rem" }}>
                                     {a.conditions.map((c) => (

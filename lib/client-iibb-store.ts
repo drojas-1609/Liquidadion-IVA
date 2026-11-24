@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { parseRate } from "./validation/decimal";
 import { activityKey, type ActivityOrigin, type IibbProfileData } from "./client-profile";
 import type { RateOrigin, RateTreatment } from "./iibb-rates/types";
+import { currentFiscalYear, diffRateYear, type RateYearValue } from "./iibb/rate-years";
 import type { IibbRegistration } from "./iibb/registration";
 
 /**
@@ -15,7 +16,7 @@ import type { IibbRegistration } from "./iibb/registration";
  * cálculo de la liquidación.
  */
 
-type Tx = Pick<Prisma.TransactionClient, "clientJurisdiction" | "clientActivity" | "clientActivityRate">;
+type Tx = Pick<Prisma.TransactionClient, "clientJurisdiction" | "clientActivity" | "clientActivityRate" | "clientIibbRateYear">;
 
 export interface StoredIibbProfile {
     jurisdictions: Array<{ code: string; headquarters: boolean }>;
@@ -115,9 +116,10 @@ export function iibbProfileChanged(
  */
 export async function replaceIibbProfile(
     tx: Tx,
-    args: { clientId: string; organizationId: string; profile: IibbProfileData },
+    args: { clientId: string; organizationId: string; profile: IibbProfileData; actorProfileId?: string | null; fiscalYear?: number },
 ): Promise<void> {
     const { clientId, organizationId, profile } = args;
+    await syncCurrentRateYear(tx, args);
     const where = { clientId, organizationId };
     await tx.clientActivityRate.deleteMany({ where });
     await tx.clientActivity.deleteMany({ where });
@@ -176,4 +178,39 @@ export async function replaceIibbProfile(
         });
     });
     if (rates.length > 0) await tx.clientActivityRate.createMany({ data: rates });
+}
+
+/**
+ * IIBB F2: la ficha representa el año en curso; guardar sus alícuotas actualiza
+ * las de ese año (las que no cambian conservan su confirmación). Los años
+ * anteriores no se tocan.
+ */
+async function syncCurrentRateYear(
+    tx: Tx,
+    args: { clientId: string; organizationId: string; profile: IibbProfileData; actorProfileId?: string | null; fiscalYear?: number },
+): Promise<void> {
+    const { clientId, organizationId, profile } = args;
+    const fiscalYear = args.fiscalYear ?? currentFiscalYear();
+    const desired: RateYearValue[] = profile.activities.flatMap((a) =>
+        a.rates.map((r) => {
+            let rate: Prisma.Decimal | null = null;
+            if (r.rate !== null) {
+                const parsed = parseRate(r.rate);
+                if (!parsed.ok) throw new Error("alícuota inválida tras la validación");
+                rate = parsed.value;
+            }
+            return { jurisdictionCode: r.jurisdiction, activityCode: a.code, rate, treatment: r.treatment, rateOrigin: r.origin, ruleRef: r.ruleRef };
+        }),
+    );
+    const existing = await tx.clientIibbRateYear.findMany({
+        where: { clientId, organizationId, fiscalYear },
+        select: { id: true, jurisdictionCode: true, activityCode: true, rate: true, treatment: true, rateOrigin: true, ruleRef: true },
+    });
+    const { remove, create } = diffRateYear(existing, desired);
+    if (remove.length > 0) await tx.clientIibbRateYear.deleteMany({ where: { id: { in: remove }, clientId, organizationId } });
+    if (create.length > 0) {
+        await tx.clientIibbRateYear.createMany({
+            data: create.map((c) => ({ ...c, organizationId, clientId, fiscalYear, confirmedById: args.actorProfileId ?? null })),
+        });
+    }
 }

@@ -3,6 +3,8 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import type { InvoiceForCalc, PeriodForCalc } from "./liquidation-calc";
 import { previousIibbBalance, iibbPositionWithPrevious, type PreviousIibbBalance } from "./iibb-previous-balance";
 import { normalizeInvoiceRow } from "./invoice-model";
+import { pickYearRate, rateYearKey } from "./iibb/rate-years";
+import { sum } from "./decimal";
 import type { IibbSaleSlice } from "./iibb/activity-base";
 
 /**
@@ -63,7 +65,7 @@ export function localIibbJurisdiction(c: { iibbRegistration: string | null; juri
 }
 const z = (v: Prisma.Decimal | null | undefined) => v ?? ZERO;
 
-type Db = Pick<PrismaClient, "period" | "invoice" | "invoiceVatLine">;
+type Db = Pick<PrismaClient, "period" | "invoice" | "invoiceVatLine" | "clientIibbRateYear">;
 
 export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidationScope): Promise<PeriodLiquidationInput | null> {
     const period = await db.period.findFirst({
@@ -183,15 +185,22 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
             })),
             ...legacySales.map((g) => ({ pointOfSale: g.pointOfSale, manualCode: g.iibbActivityCode, base: z(g._sum.netAmount) })),
         ];
+        // F2: alícuota del año del período; si no está confirmada, la de la ficha (con advertencia).
+        const yearRows = await db.clientIibbRateYear.findMany({
+            where: { clientId: period.clientId, organizationId: scope.organizationId, fiscalYear: period.year, jurisdictionCode: jur },
+            select: { jurisdictionCode: true, activityCode: true, rate: true, treatment: true },
+        });
+        const yearMap = new Map(yearRows.map((r) => [rateYearKey(r), r]));
         iibbActivities = {
             slices,
             config: {
                 jurisdictionCode: jur,
+                fiscalYear: period.year,
                 principalCode: period.client.iibbPrincipalActivityCode,
                 posMap: Object.fromEntries(period.client.posActivities.map((p) => [p.pointOfSale, p.activityCode])),
                 activities: period.client.activities.map((a) => {
                     const r = a.rates.find((x) => x.jurisdictionCode === jur);
-                    return { code: a.code, description: a.description, rate: r && r.treatment === "RATE" ? r.rate : null, exempt: r?.treatment === "EXEMPT" };
+                    return { code: a.code, description: a.description, ...pickYearRate(yearMap, r, jur, a.code) };
                 }),
             },
         };
@@ -208,4 +217,31 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
         vatCreditAdjustments: period.vatCreditAdjustments,
         invoiceCount: [...modeled, ...legacy].reduce((n, g) => n + g._count._all, 0),
     };
+}
+
+/**
+ * IIBB F2: base de IIBB de las ventas registradas en la app para un año (todas
+ * las jurisdicciones; mismo signo que la liquidación). Es sólo una REFERENCIA
+ * para cargar los ingresos anuales: la app puede no tener todos los períodos ni
+ * los ingresos que no pasan por ella.
+ */
+export async function salesIibbBaseForYear(
+    db: Pick<PrismaClient, "invoice" | "period">,
+    scope: { organizationId: string; clientId: string; year: number },
+): Promise<{ base: Prisma.Decimal; periods: number }> {
+    const where = { organizationId: scope.organizationId, category: "SALES", period: { clientId: scope.clientId, year: scope.year } };
+    const [periods, modeled, legacy] = await Promise.all([
+        db.period.count({ where: { organizationId: scope.organizationId, clientId: scope.clientId, year: scope.year } }),
+        db.invoice.groupBy({ by: ["voucherCode"], where: { ...where, ...MODELED }, _sum: { grossIncomeTaxBaseAmount: true }, orderBy: { voucherCode: "asc" } }),
+        db.invoice.aggregate({ where: { ...where, NOT: MODELED }, _sum: { netAmount: true } }),
+    ]);
+    const modeledBase = modeled.map(
+        (g) =>
+            normalizeInvoiceRow({
+                category: "SALES", netAmount: ZERO, vatAmount: ZERO, totalAmount: ZERO, voucherCode: g.voucherCode,
+                taxedNetAmount: ZERO, totalVatAmount: ZERO, netWithoutVatBreakdownAmount: ZERO, directComputableVatCreditAmount: ZERO,
+                grossIncomeTaxBaseAmount: z(g._sum.grossIncomeTaxBaseAmount), voucherTotalAmount: ZERO,
+            }).grossIncomeTaxBase,
+    );
+    return { base: sum([...modeledBase, z(legacy._sum.netAmount)]), periods };
 }

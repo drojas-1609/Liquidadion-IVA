@@ -13,10 +13,11 @@
  *     --catalog data/activity-catalogs/arba-naiibb18-<fecha>.json --consulted AAAA-MM-DD \
  *     --out data/iibb-rate-rules/arba-ley-15558-2026.json
  *
+ * Decisiones del estudio del 24/11/2026 (arba-2026-decisions.ts):
+ *  - filas «Art.22» / «Art.134»: alternativa excluyente con hecho declarado;
+ *  - códigos con `bonif_actiba = S` o `AlicuotaSUS`: tramos habilitados con aviso.
+ *
  * Qué NO se convierte en regla habilitada:
- *  - filas «Art.22» / «Art.134» (tratamientos especiales condicionados): retenidas;
- *  - códigos con `bonif_actiba = S` o `AlicuotaSUS` (sin definición normativa
- *    verificada): retenidos;
  *  - la alícuota «G» (general) como tasa automática: los tramos de la
  *    exportación ya cubren todo el rango de ingresos;
  *  - montos mínimos, régimen simplificado (importes fijos) y otros años.
@@ -31,6 +32,7 @@ import { compareMoney } from "../../lib/iibb-rates/suggest";
 import { ALICUOTARIA_HEADER, arbaRates, readTsvLatin1, type ArbaRateRow } from "../activity-catalogs/arba-naiibb";
 import { parseArgs, required } from "../activity-catalogs/import";
 import { parsePdfLines, type PdfLine } from "../activity-catalogs/pdf-table";
+import { applyArbaDecisions, arbaTreatment, specialRules, TREATMENT_SUFFIX, treatmentExtras } from "./arba-2026-decisions";
 
 export const SET_ID = "arba-ley-15558-2026";
 const LAW_URL = "https://www.arba.gov.ar/archivos/Publicaciones/leyimpositiva2026.pdf";
@@ -142,7 +144,7 @@ export function contrastWithLaw(code: string, tiers: readonly ArbaRateRow[], law
     return null;
 }
 
-const COMMON: RuleCondition[] = [
+export const COMMON: RuleCondition[] = [
     {
         kind: "DECLARED_FACT",
         factKey: "pbaSinExencion",
@@ -195,18 +197,20 @@ export function buildArbaRules(rates: readonly ArbaRateRow[], law: ReadonlyMap<s
         }
         const special = rows.filter((r) => (r.article ?? "").startsWith("Art"));
         const unknownFlags = rows.some((r) => r.bonification) || rows.some((r) => r.rateSUS !== null);
-        const hold = unknownFlags
-            ? "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota."
-            : special.length > 0
-              ? `Además de los tramos, ARBA publica un tratamiento especial (${special.map((s) => `${s.article} ${n(s.rate)} %`).join(", ")}): confirmar cómo se excluyen mutuamente.`
-              : undefined;
-        if (hold) held.add(code);
+        const treatment = arbaTreatment(code, unknownFlags);
+        if (special.length > 0 && treatment !== "ART22" && treatment !== "ART134") {
+            problems.push(`código ${code}: tratamiento especial ${special.map((x) => x.article).join(", ")} sin decisión del estudio`);
+            continue;
+        }
+        if (treatment !== "NORMAL") held.add(code);
+        const suffix = TREATMENT_SUFFIX[treatment];
+        const extra = treatmentExtras(treatment);
         let prevCap: string | null = null;
         for (const t of tiers) {
             const cap = t.upperAmount === null || t.upperAmount === "9999999999999.99" ? null : t.upperAmount;
             const single = tiers.length === 1;
-            const key = `${n(t.rate)}|${single ? "única" : `${prevCap}|${cap}`}|${hold ?? ""}`;
-            const id = `t${n(t.rate).replace(".", "_")}-${single ? "unica" : `${prevCap ?? "0"}-${cap ?? "max"}`}${hold ? `-h${[...hold].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36)}` : ""}`;
+            const key = `${n(t.rate)}|${single ? "única" : `${prevCap}|${cap}`}|${suffix}`;
+            const id = `t${n(t.rate).replace(".", "_")}-${single ? "unica" : `${prevCap ?? "0"}-${cap ?? "max"}`}${suffix}`;
             const g = groups.get(key) ?? {
                 rule: {
                     id,
@@ -215,9 +219,9 @@ export function buildArbaRules(rates: readonly ArbaRateRow[], law: ReadonlyMap<s
                     validTo: null,
                     treatment: "RATE",
                     rate: n(t.rate),
-                    conditions: single ? [...COMMON] : [...COMMON, incomeCondition(prevCap, cap)],
+                    conditions: [...COMMON, ...(single ? [] : [incomeCondition(prevCap, cap)]), ...extra.conditions],
                     legalReference: `Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; ${single ? "alícuota general, sin tramos reducidos" : (t.article ?? "tramo superior: alícuota general")})`,
-                    ...(hold ? { pendingInterpretation: hold } : {}),
+                    ...(extra.caveat ? { caveat: extra.caveat } : {}),
                 },
                 codes: [],
             };
@@ -226,7 +230,7 @@ export function buildArbaRules(rates: readonly ArbaRateRow[], law: ReadonlyMap<s
             prevCap = cap;
         }
     }
-    const rules: RateRule[] = [...groups.values()].map((g) => ({ ...g.rule, activityCodes: g.codes }));
+    const rules: RateRule[] = [...[...groups.values()].map((g) => ({ ...g.rule, activityCodes: g.codes })), ...specialRules(COMMON)];
     return { rules, problems, overlaps, held: [...held].sort(), codes: byCode.size };
 }
 
@@ -238,7 +242,7 @@ export function arba2026Main(argv: string[]): number {
     if (catalog.manifest.jurisdiction !== "902") throw new Error("se espera el catálogo NAIIB-18 (902)");
     const law = readLawTable(parsePdfLines(readFileSync(req("law-lines"), "utf8")));
     const { rules, problems, overlaps, held, codes } = buildArbaRules(arbaRates(alic).rows, law, new Set(catalog.entries.map((e) => e.code)));
-    console.log(`${law.size} filas de la ley; ${codes} códigos con alícuotas 2026; ${rules.length} reglas; ${held.length} códigos retenidos; ${problems.length} códigos sin regla`);
+    console.log(`${law.size} filas de la ley; ${codes} códigos con alícuotas 2026; ${rules.length} reglas; ${held.length} códigos con tratamiento especial o aviso; ${problems.length} códigos sin regla`);
     for (const p of problems) console.log(`  - ${p}`);
     console.log(`${overlaps.length} solapes en topes de la exportación (resueltos por «no supere»):`);
     for (const o of overlaps) console.log(`  - ${o}`);
@@ -268,5 +272,25 @@ export function arba2026Main(argv: string[]): number {
     }
     writeFileSync(req("out"), `${JSON.stringify(set, null, 1)}\n`, { flag: "wx" });
     console.log(`escrito ${req("out")} en estado PENDIENTE_REVISION.`);
+    return 0;
+}
+
+/**
+ * Aplica las decisiones del estudio del 24/11/2026 a un conjunto ya generado
+ * (sin volver a leer las fuentes) y lo deja PENDIENTE de la aprobación final.
+ *   cli.ts -- arba-2026-decisiones --in <json> --out <json>
+ */
+export function arba2026DecisionsMain(argv: string[]): number {
+    const a = parseArgs(argv);
+    const set = JSON.parse(readFileSync(required(a, "in"), "utf8")) as RateRuleSet;
+    if (set.manifest.id !== SET_ID) throw new Error(`se espera ${SET_ID}`);
+    const next = applyArbaDecisions(set, COMMON);
+    const invalid = validateRuleSet(next);
+    if (invalid.length > 0) {
+        console.error(`CONJUNTO RECHAZADO:\n- ${invalid.slice(0, 20).join("\n- ")}`);
+        return 2;
+    }
+    writeFileSync(required(a, "out"), `${JSON.stringify(next, null, 1)}\n`);
+    console.log(`${set.rules.length} reglas → ${next.rules.length}; retenidas: ${next.rules.filter((r) => r.pendingInterpretation).length}`);
     return 0;
 }

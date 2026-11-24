@@ -16,16 +16,16 @@
   "validTo": "2026-12-31",
   "sourceSha256": "84c434d75eb8e7bcfa40a5c0ef01db6b32bbd6db68c6400a56de6975f102834e",
   "review": {
-   "status": "PENDIENTE_REVISION",
-   "reviewedBy": null,
-   "reviewedAt": null,
+   "status": "REVISADO",
+   "reviewedBy": "Diego Rojas",
+   "reviewedAt": "2026-11-24",
    "notes": null,
    "levels": {
     "technical": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-24",
+     "notes": "Aprobado en chat: 1022 códigos coinciden con el art. 20 de la Ley 15.558 en las 8 columnas; 32 filas duplicadas de la exportación descartadas.",
      "checks": [
       {
        "kind": "AUTOMATICO",
@@ -41,10 +41,10 @@
      ]
     },
     "validity": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-24",
+     "notes": "Ley 15.558 (BO 15/12/2025), ejercicio 2026; no se hallaron modificaciones posteriores. B5: la errata del tramo 6 se lee según el texto en letras.",
      "checks": [
       {
        "kind": "INVESTIGACION",
@@ -58,10 +58,10 @@
      ]
     },
     "interpretation": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-24",
+     "notes": "B2/B3: bonif_actiba y AlicuotaSUS se habilitan con aviso. B4: arts. 22 y 134 como alternativas excluyentes de los tramos con hecho declarado. B5: hecho 'no inició actividades en el ejercicio'; límite de Convenio Multilateral para la F4.",
      "checks": [
       {
        "kind": "INVESTIGACION",
@@ -702,7 +702,7 @@
    ]
   },
   {
-   "id": "t0-0-1834326000-hsv438p",
+   "id": "t0-0-1834326000-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -732,7 +732,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 1 al 7)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "011911",
     "011912",
@@ -743,10 +742,11 @@
     "591110",
     "591120",
     "592000"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t0_75-1834326000-max-hsv438p",
+   "id": "t0_75-1834326000-max-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -776,12 +776,12 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "011911",
     "011912",
     "017010"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
    "id": "t0_5-1834326000-max",
@@ -1266,7 +1266,7 @@
    ]
   },
   {
-   "id": "t1_5-1834326000-max-hsv438p",
+   "id": "t1_5-1834326000-max-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -1296,13 +1296,13 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "182000",
     "322001",
     "581100",
     "592000"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
    "id": "t0_1-unica",
@@ -1548,7 +1548,7 @@
    ]
   },
   {
-   "id": "t3_5-0-15286053-hm4s8em",
+   "id": "t3_5-0-15286053-no-art22",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -1575,17 +1575,22 @@
      "minExclusive": null,
      "maxInclusive": "15286053",
      "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $15286053 (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaArt22Municipios",
+     "expected": false,
+     "description": "Los servicios NO se prestan a Municipios en las condiciones del art. 22 de la Ley 15.558"
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 7)",
-   "pendingInterpretation": "Además de los tramos, ARBA publica un tratamiento especial (Art.22 1.5 %): confirmar cómo se excluyen mutuamente.",
    "activityCodes": [
     "390000",
     "812090"
    ]
   },
   {
-   "id": "t4-15286053-917163000-hm4s8em",
+   "id": "t4-15286053-917163000-no-art22",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -1612,17 +1617,22 @@
      "minExclusive": "15286053",
      "maxInclusive": "917163000",
      "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $917163000 y mayor a $15286053 (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaArt22Municipios",
+     "expected": false,
+     "description": "Los servicios NO se prestan a Municipios en las condiciones del art. 22 de la Ley 15.558"
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 6)",
-   "pendingInterpretation": "Además de los tramos, ARBA publica un tratamiento especial (Art.22 1.5 %): confirmar cómo se excluyen mutuamente.",
    "activityCodes": [
     "390000",
     "812090"
    ]
   },
   {
-   "id": "t4_5-917163000-max-hm4s8em",
+   "id": "t4_5-917163000-max-no-art22",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -1649,17 +1659,22 @@
      "minExclusive": "917163000",
      "maxInclusive": null,
      "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $917163000 (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaArt22Municipios",
+     "expected": false,
+     "description": "Los servicios NO se prestan a Municipios en las condiciones del art. 22 de la Ley 15.558"
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
-   "pendingInterpretation": "Además de los tramos, ARBA publica un tratamiento especial (Art.22 1.5 %): confirmar cómo se excluyen mutuamente.",
    "activityCodes": [
     "390000",
     "812090"
    ]
   },
   {
-   "id": "t2_5-unica-hsv438p",
+   "id": "t2_5-unica-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -1683,7 +1698,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "410011",
     "422100",
@@ -1702,7 +1716,8 @@
     "439998",
     "439999",
     "711001"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
    "id": "t2_3-unica",
@@ -1769,7 +1784,7 @@
    ]
   },
   {
-   "id": "t3_5-0-15286053-hsv438p",
+   "id": "t3_5-0-15286053-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -1799,7 +1814,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 7)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "452101",
     "454020",
@@ -1832,10 +1846,6 @@
     "620103",
     "620104",
     "620300",
-    "631201",
-    "631202",
-    "631203",
-    "631204",
     "681096",
     "742000",
     "772010",
@@ -1887,10 +1897,55 @@
     "960202",
     "960910",
     "960990"
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
+  },
+  {
+   "id": "t3_5-0-15286053-no-art134",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "3.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": null,
+     "maxInclusive": "15286053",
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, de hasta $15286053 (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaArt184bisNoResidente",
+     "expected": false,
+     "description": "El prestador NO es un sujeto no residente comprendido en el art. 184 bis del Código Fiscal (art. 134, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 7)",
+   "activityCodes": [
+    "631201",
+    "631202",
+    "631203",
+    "631204"
    ]
   },
   {
-   "id": "t4-15286053-917163000-hsv438p",
+   "id": "t4-15286053-917163000-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -1920,7 +1975,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 6)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "452101",
     "454020",
@@ -1995,10 +2049,11 @@
     "960202",
     "960910",
     "960990"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t4_5-917163000-max-hsv438p",
+   "id": "t4_5-917163000-max-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -2028,7 +2083,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "452101",
     "454020",
@@ -2106,7 +2160,8 @@
     "960202",
     "960910",
     "960990"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
    "id": "t3_5-0-15286053",
@@ -2937,7 +2992,7 @@
    ]
   },
   {
-   "id": "t2_5-0-47034000-hsv438p",
+   "id": "t2_5-0-47034000-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -2967,7 +3022,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 5 al 7)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "453220",
     "453291",
@@ -3020,10 +3074,11 @@
     "477830",
     "477840",
     "477890"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t3_5-47034000-1222884000-hsv438p",
+   "id": "t3_5-47034000-1222884000-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -3053,7 +3108,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 2 al 4)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "453220",
     "453291",
@@ -3106,10 +3160,11 @@
     "477830",
     "477840",
     "477890"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t5-1222884000-max-hsv438p",
+   "id": "t5-1222884000-max-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -3139,7 +3194,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "453220",
     "453291",
@@ -3192,10 +3246,11 @@
     "477830",
     "477840",
     "477890"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t8-unica-hsv438p",
+   "id": "t8-unica-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -3219,7 +3274,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "454012",
     "461091",
@@ -3228,7 +3282,8 @@
     "910900",
     "939020",
     "939099"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
    "id": "t0_2-unica",
@@ -3511,7 +3566,7 @@
    ]
   },
   {
-   "id": "t1_5-unica-hsv438p",
+   "id": "t1_5-unica-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -3535,16 +3590,16 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "492130",
     "492150",
     "502102",
     "511001"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t2-unica-hsv438p",
+   "id": "t2-unica-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -3568,7 +3623,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "492180",
     "501100",
@@ -3578,10 +3632,11 @@
     "511009",
     "524190",
     "524230"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t5-1834326000-max-hsv438p",
+   "id": "t5-1834326000-max-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -3611,14 +3666,14 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "591110",
     "591120"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t5-15286053-max-hsv438p",
+   "id": "t5-15286053-max-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -3648,7 +3703,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "591200",
     "591300",
@@ -3658,7 +3712,48 @@
     "620102",
     "620103",
     "620104",
-    "620300",
+    "620300"
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
+  },
+  {
+   "id": "t5-15286053-max-no-art134",
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "PRIOR_YEAR_GROSS_INCOME",
+     "minExclusive": "15286053",
+     "maxInclusive": null,
+     "description": "Total de ingresos gravados, no gravados y exentos del período fiscal anterior, por cualquier actividad dentro o fuera de la Provincia, mayor a $15286053 (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaArt184bisNoResidente",
+     "expected": false,
+     "description": "El prestador NO es un sujeto no residente comprendido en el art. 184 bis del Código Fiscal (art. 134, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
+   "activityCodes": [
     "631201",
     "631202",
     "631203",
@@ -3666,7 +3761,7 @@
    ]
   },
   {
-   "id": "t5-unica-hsv438p",
+   "id": "t5-unica-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -3690,7 +3785,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "601001",
     "602100",
@@ -3708,10 +3802,11 @@
     "681099",
     "682091",
     "682099"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t6_5-unica-hsv438p",
+   "id": "t6_5-unica-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -3735,11 +3830,11 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "612000",
     "619001"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
    "id": "t5-15286053-max",
@@ -4180,7 +4275,7 @@
    ]
   },
   {
-   "id": "t4-0-15286053-hsv438p",
+   "id": "t4-0-15286053-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -4210,7 +4305,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramo 7)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "711003",
     "711009",
@@ -4226,10 +4320,11 @@
     "822001",
     "823000",
     "829902"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t4_5-15286053-917163000-hsv438p",
+   "id": "t4_5-15286053-917163000-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -4259,7 +4354,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 6)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "711003",
     "711009",
@@ -4275,10 +4369,11 @@
     "822001",
     "823000",
     "829902"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t5-917163000-max-hsv438p",
+   "id": "t5-917163000-max-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -4308,7 +4403,6 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; tramo superior: alícuota general)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "711003",
     "711009",
@@ -4324,10 +4418,11 @@
     "822001",
     "823000",
     "829902"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t4-0-917163000-hsv438p",
+   "id": "t4-0-917163000-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -4357,15 +4452,15 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; Tramos 3 al 7)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "741000",
     "749009",
     "791201"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t1_75-unica-hsv438p",
+   "id": "t1_75-unica-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -4389,13 +4484,13 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "780001"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
-   "id": "t1-unica-hsv438p",
+   "id": "t1-unica-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -4419,10 +4514,10 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "822009"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
    "id": "t15-unica",
@@ -4456,7 +4551,7 @@
    ]
   },
   {
-   "id": "t0-unica-hsv438p",
+   "id": "t0-unica-aviso",
    "registrations": [
     "LOCAL",
     "CONVENIO_MULTILATERAL"
@@ -4480,10 +4575,10 @@
     }
    ],
    "legalReference": "Ley 15.558, art. 20 (tabla por clase/código NAIIB-18; alícuota general, sin tramos reducidos)",
-   "pendingInterpretation": "Exportación de ARBA con bonif_actiba = S o AlicuotaSUS: campos sin definición normativa verificada; confirmar si alteran la alícuota.",
    "activityCodes": [
     "939091"
-   ]
+   ],
+   "caveat": "La exportación oficial de ARBA marca este código con «bonif_actiba» o «AlicuotaSUS», campos sin definición en la Ley 15.558: puede haber una bonificación o una alícuota especial no modelada. Verificar antes de confirmar."
   },
   {
    "id": "t4_75-unica",
@@ -4513,6 +4608,80 @@
    "activityCodes": [
     "949910"
    ]
+  },
+  {
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "id": "art22-municipios",
+   "activityCodes": [
+    "390000",
+    "812090"
+   ],
+   "rate": "1.5",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaArt22Municipios",
+     "expected": true,
+     "description": "Los servicios se prestan a Municipios de la Provincia por un contribuyente que también desarrolla las actividades 381100 y 381200 (art. 22, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 22 (exportación ARBA: «Art.22», 1,5 %)"
+  },
+  {
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "id": "art134-no-residentes",
+   "activityCodes": [
+    "631201",
+    "631202",
+    "631203",
+    "631204"
+   ],
+   "rate": "2",
+   "conditions": [
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaSinExencion",
+     "expected": true,
+     "description": "La actividad no está comprendida en beneficios de exención del Código Fiscal o de leyes especiales (art. 20, Ley 15.558)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaNoInicioEnEjercicio",
+     "expected": true,
+     "description": "El contribuyente no inició actividades en el ejercicio en curso (en ese caso rigen los umbrales de los dos primeros meses, art. 20)"
+    },
+    {
+     "kind": "DECLARED_FACT",
+     "factKey": "pbaArt184bisNoResidente",
+     "expected": true,
+     "description": "Servicios digitales prestados por un sujeto no residente en el país (art. 184 bis del Código Fiscal; art. 134, Ley 15.558)"
+    }
+   ],
+   "legalReference": "Ley 15.558, art. 134 y art. 184 bis del Código Fiscal (exportación ARBA: «Art.134», 2 %)"
   }
  ]
 }
