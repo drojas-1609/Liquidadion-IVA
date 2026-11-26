@@ -17,7 +17,7 @@ describe("Tierra del Fuego 2026: conjunto con adicional FFSS", () => {
     it("es válido, jurisdicción 923 y los 4 códigos de agencias de viajes al 0,50 % + FFSS 1,50 %", () => {
         expect(validateRuleSet(set)).toEqual([]);
         expect(set.manifest.jurisdiction).toBe("923");
-        expect(set.manifest.review.status).toBe("PENDIENTE_REVISION");
+        expect(set.manifest.review.status).toBe("REVISADO");
         const codes = set.rules.flatMap((r) => r.activityCodes).sort();
         expect(codes).toEqual(["791101", "791102", "791201", "791202"]);
         for (const r of set.rules) {

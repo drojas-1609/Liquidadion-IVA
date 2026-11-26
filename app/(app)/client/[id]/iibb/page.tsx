@@ -28,7 +28,7 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
             select: {
                 id: true, name: true, iibbRegistration: true, iibbPrincipalActivityCode: true,
                 jurisdictions: { select: { jurisdictionCode: true } },
-                activities: { select: { code: true, description: true, rates: { select: { jurisdictionCode: true, rate: true, treatment: true } } }, orderBy: { code: "asc" } },
+                activities: { select: { code: true, description: true, rates: { select: { jurisdictionCode: true, rate: true, treatment: true, minimumAmount: true, additionalLabel: true, additionalRate: true } } }, orderBy: { code: "asc" } },
                 posActivities: { select: { pointOfSale: true, activityCode: true }, orderBy: { pointOfSale: "asc" } },
             },
         });
@@ -78,7 +78,7 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
     const jur = localIibbJurisdiction(client);
     const activities = client.activities.map((a) => {
         const r = jur ? a.rates.find((x) => x.jurisdictionCode === jur) : undefined;
-        const rate = !r ? "sin informar" : r.treatment === "EXEMPT" ? "exenta" : r.rate == null ? "sin informar" : `${r.rate.toFixed(2).replace(".", ",")} %`;
+        const rate = !r ? "sin informar" : fmtRate({ rate: r.rate?.toString() ?? null, treatment: r.treatment, minimum: r.minimumAmount?.toString() ?? null, additional: r.additionalLabel && r.additionalRate != null ? { label: r.additionalLabel, rate: r.additionalRate.toString() } : null });
         return { code: a.code, label: `${a.code} · ${a.description}`, rate };
     });
 
