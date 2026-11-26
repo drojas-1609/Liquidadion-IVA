@@ -138,6 +138,8 @@ export interface IibbRateData {
     origin: RateOrigin | null;
     /** Regla confirmada ("<conjunto>#<regla>"), sólo con origen CONFIRMED_SUGGESTION. */
     ruleRef: string | null;
+    /** Impuesto mínimo mensual (pesos "1234.56"); se omite si no hay. Sólo con alícuota informada. */
+    minimum?: string | null;
 }
 
 export const ACTIVITY_ORIGINS = ["CATALOG", "MANUAL"] as const;
@@ -356,7 +358,7 @@ export function validateIibbProfile(raw: unknown): FieldResult<IibbProfileData> 
         for (const [k, x] of rawRates.entries()) {
             const fr = `${f}.rates[${k}]`;
             if (typeof x !== "object" || x === null) return fail(fr, "alícuota inválida");
-            const { jurisdiction, rate, treatment: rawTreatment, origin: rawOrigin, ruleRef: rawRuleRef } = x as Record<string, unknown>;
+            const { jurisdiction, rate, treatment: rawTreatment, origin: rawOrigin, ruleRef: rawRuleRef, minimum: rawMinimum } = x as Record<string, unknown>;
             if (!isJurisdictionCode(jurisdiction)) return fail(fr, "jurisdicción inexistente");
             if (!profileCodes.has(jurisdiction)) {
                 return fail(fr, `la jurisdicción ${jurisdictionLabel(jurisdiction)} no está registrada para el cliente`);
@@ -384,7 +386,16 @@ export function validateIibbProfile(raw: unknown): FieldResult<IibbProfileData> 
             } else if (rawRuleRef !== undefined && rawRuleRef !== null && rawRuleRef !== "") {
                 return fail(fr, "sólo una sugerencia confirmada lleva referencia de regla");
             }
-            rates.push({ jurisdiction, rate: value, treatment: treatment as RateTreatment, origin: origin as RateOrigin | null, ruleRef: ruleRefValue });
+            let minimum: string | null = null;
+            if (rawMinimum !== undefined && rawMinimum !== null && rawMinimum !== "") {
+                if (typeof rawMinimum !== "string") return fail(fr, "el mínimo debe enviarse como texto");
+                const raw = rawMinimum.trim().replace(/\s/g, "");
+                const normalized = /,/.test(raw) ? raw.replace(/\./g, "").replace(",", ".") : raw;
+                if (!/^\d{1,12}(\.\d{1,2})?$/.test(normalized)) return fail(fr, "mínimo mensual inválido: pesos, sin signo, hasta 2 decimales");
+                if (treatment !== "RATE" || value === null) return fail(fr, "el mínimo mensual sólo va con una alícuota informada");
+                minimum = String(Number(normalized));
+            }
+            rates.push({ jurisdiction, rate: value, treatment: treatment as RateTreatment, origin: origin as RateOrigin | null, ruleRef: ruleRefValue, ...(minimum !== null ? { minimum } : {}) });
         }
 
         activities.push({

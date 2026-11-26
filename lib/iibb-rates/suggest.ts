@@ -38,6 +38,8 @@ export interface RateAlternative {
     sourceUrl: string;
     /** Aviso de la regla (dato de la fuente no modelado), si lo tiene. */
     caveat?: string;
+    /** Impuesto mínimo mensual de la norma, si lo fija. */
+    minimumMonthly?: string;
     /** `factKey`/`expected` sólo en hechos declarables por el estudio (DECLARED_FACT). */
     conditions: Array<{ description: string; status: "CUMPLE" | "DESCONOCIDO"; factKey?: string; expected?: boolean }>;
 }
@@ -134,6 +136,7 @@ export function suggestRate(sets: readonly RateRuleSet[], q: RateQuery): RateSug
             legalReference: r.legalReference,
             sourceUrl: r.sourceUrl ?? m.sourceUrl,
             ...(r.caveat ? { caveat: r.caveat } : {}),
+            ...(r.minimumMonthly ? { minimumMonthly: r.minimumMonthly } : {}),
             conditions: evals.map((e) => ({
                 description: e.c.description,
                 status: e.status === "CUMPLE" ? "CUMPLE" : "DESCONOCIDO",

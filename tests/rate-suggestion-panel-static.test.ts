@@ -24,7 +24,7 @@ describe("panel de asistencia de alícuotas — revisión estática", () => {
         expect(panel).toContain("checked={accepted[a.ruleRef] === true}");
         expect(panel).toContain("setAccepted({});");
         const form = readFileSync(new URL("../app/(app)/clients/_components/client-profile-form.tsx", import.meta.url), "utf8");
-        expect(form).toContain('origin: "STUDIO_MANUAL", ruleRef: null });');
+        expect(form).toContain('origin: "STUDIO_MANUAL", ruleRef: null, minimum: alt.minimumMonthly ?? "" });');
     });
     it("explica qué se reemplaza y qué se registra; nada se guarda hasta «Guardar» la ficha", () => {
         expect(panel).toContain("Registrar una alternativa reemplaza sólo este valor en el borrador; nada cambia en la base hasta «Guardar» la ficha");

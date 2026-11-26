@@ -14,6 +14,15 @@ const MONEY = /^\d+(\.\d{1,2})?$/;
 const ID_RE = /^[a-z0-9][a-z0-9-]{2,79}$/;
 const RULE_ID_RE = /^[A-Za-z0-9._-]{1,60}$/;
 
+/**
+ * Jurisdicciones cuya ley impositiva adopta, ella misma, los códigos de
+ * actividad de AFIP/ARCA (F-883). Sólo ahí un conjunto de reglas puede usar el
+ * nomenclador ARCA: la alícuota sigue saliendo de la norma provincial, nunca
+ * de ARCA. Decisión del estudio del 24/11/2026: Santa Cruz (Ley 3485, Anexo I
+ * «CÓDIGO AFIP CIIU»).
+ */
+export const ARCA_NOMENCLATOR_JURISDICTIONS: ReadonlySet<string> = new Set(["920"]);
+
 export function validateRuleSet(raw: unknown): string[] {
     const p: string[] = [];
     if (typeof raw !== "object" || raw === null) return ["el conjunto no es un objeto"];
@@ -21,7 +30,8 @@ export function validateRuleSet(raw: unknown): string[] {
     if (typeof m !== "object" || m === null) return ["falta el manifiesto"];
     if (typeof m.id !== "string" || !ID_RE.test(m.id)) p.push("id inválido");
     if (!isJurisdictionCode(m.jurisdiction)) p.push("jurisdicción inválida");
-    if (m.nomenclator !== "NAES" && m.nomenclator !== "PROVINCIAL") p.push("nomenclador inválido");
+    if (m.nomenclator !== "NAES" && m.nomenclator !== "PROVINCIAL" && !(m.nomenclator === "ARCA" && ARCA_NOMENCLATOR_JURISDICTIONS.has(m.jurisdiction as string)))
+        p.push("nomenclador inválido");
     if (!Array.isArray(m.catalogIds) || m.catalogIds.length === 0) p.push("catalogIds requerido");
     for (const k of ["organism", "norm", "sourceUrl", "version"] as const) if (typeof m[k] !== "string" || m[k].trim() === "") p.push(`falta ${k}`);
     for (const k of ["publishedAt", "consultedAt", "validFrom"] as const) if (typeof m[k] !== "string" || !ISO_DATE.test(m[k])) p.push(`${k} inválido`);
@@ -49,6 +59,7 @@ export function validateRuleSet(raw: unknown): string[] {
         if (r.pendingInterpretation !== undefined && (typeof r.pendingInterpretation !== "string" || r.pendingInterpretation.trim() === "")) {
             p.push(`${at}: pendingInterpretation debe describir la interpretación pendiente`);
         }
+        if (r.minimumMonthly !== undefined && (typeof r.minimumMonthly !== "string" || !/^\d{1,12}(\.\d{1,2})?$/.test(r.minimumMonthly))) p.push(`${at}: mínimo mensual inválido`);
         if (r.caveat !== undefined && (typeof r.caveat !== "string" || r.caveat.trim() === "")) p.push(`${at}: el aviso debe tener texto`);
         if (r.sourceUrl !== undefined && (typeof r.sourceUrl !== "string" || !/^https:\/\//.test(r.sourceUrl))) p.push(`${at}: sourceUrl debe ser https`);
         if (!Array.isArray(r.conditions)) p.push(`${at}: condiciones inválidas`);

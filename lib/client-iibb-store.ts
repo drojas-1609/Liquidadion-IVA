@@ -29,7 +29,7 @@ export interface StoredIibbProfile {
         origin: ActivityOrigin;
         catalogId: string | null;
         catalogVersion: string | null;
-        rates: Array<{ jurisdiction: string; rate: string | null; treatment: RateTreatment; origin: RateOrigin | null; ruleRef: string | null }>;
+        rates: Array<{ jurisdiction: string; rate: string | null; treatment: RateTreatment; origin: RateOrigin | null; ruleRef: string | null; minimum?: string | null }>;
     }>;
 }
 
@@ -63,6 +63,7 @@ export async function loadIibbProfile(tx: Tx, clientId: string, organizationId: 
                     treatment: r.treatment,
                     origin: r.rateOrigin,
                     ruleRef: r.ruleRef,
+                    ...(r.minimumAmount != null ? { minimum: r.minimumAmount.toString() } : {}),
                 })),
         })),
     };
@@ -91,7 +92,7 @@ function canonical(registration: IibbRegistration | null, p: Pick<StoredIibbProf
                 catalogId: a.catalogId,
                 catalogVersion: a.catalogVersion,
                 rates: [...a.rates]
-                    .map((r) => ({ jurisdiction: r.jurisdiction, rate: canonRate(r.rate), treatment: r.treatment, origin: r.origin, ruleRef: r.ruleRef }))
+                    .map((r) => ({ jurisdiction: r.jurisdiction, rate: canonRate(r.rate), treatment: r.treatment, origin: r.origin, ruleRef: r.ruleRef, minimum: r.minimum == null ? null : String(Number(r.minimum)) }))
                     .sort((x, y) => x.jurisdiction.localeCompare(y.jurisdiction)),
             }))
             .sort((x, y) => activityKey(x).localeCompare(activityKey(y))),
@@ -174,6 +175,7 @@ export async function replaceIibbProfile(
                 treatment: r.treatment,
                 rateOrigin: r.origin,
                 ruleRef: r.ruleRef,
+                minimumAmount: r.minimum ?? null,
             };
         });
     });
@@ -199,12 +201,12 @@ async function syncCurrentRateYear(
                 if (!parsed.ok) throw new Error("alícuota inválida tras la validación");
                 rate = parsed.value;
             }
-            return { jurisdictionCode: r.jurisdiction, activityCode: a.code, rate, treatment: r.treatment, rateOrigin: r.origin, ruleRef: r.ruleRef };
+            return { jurisdictionCode: r.jurisdiction, activityCode: a.code, rate, treatment: r.treatment, rateOrigin: r.origin, ruleRef: r.ruleRef, minimumAmount: r.minimum == null ? null : new Prisma.Decimal(r.minimum) };
         }),
     );
     const existing = await tx.clientIibbRateYear.findMany({
         where: { clientId, organizationId, fiscalYear },
-        select: { id: true, jurisdictionCode: true, activityCode: true, rate: true, treatment: true, rateOrigin: true, ruleRef: true },
+        select: { id: true, jurisdictionCode: true, activityCode: true, rate: true, treatment: true, rateOrigin: true, ruleRef: true, minimumAmount: true },
     });
     const { remove, create } = diffRateYear(existing, desired);
     if (remove.length > 0) await tx.clientIibbRateYear.deleteMany({ where: { id: { in: remove }, clientId, organizationId } });

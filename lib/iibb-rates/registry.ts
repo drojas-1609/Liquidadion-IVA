@@ -6,6 +6,8 @@ import { previewFixtures } from "../preview-fixtures/loader";
 import type { RateRuleSet } from "./types";
 import cabaLey6927_2026 from "@/data/iibb-rate-rules/caba-ley-6927-2026.json";
 import arbaLey15558_2026 from "@/data/iibb-rate-rules/arba-ley-15558-2026.json";
+import corrientesRg293_2025 from "@/data/iibb-rate-rules/corrientes-rg-293-2025.json";
+import santaCruzLey3485_2026 from "@/data/iibb-rate-rules/santa-cruz-ley-3485-2026.json";
 
 /**
  * Conjuntos de reglas de alícuotas incluidos en la aplicación (import
@@ -14,11 +16,13 @@ import arbaLey15558_2026 from "@/data/iibb-rate-rules/arba-ley-15558-2026.json";
  *
  * Estado actual: CABA 2026 (Ley 6927 con fe de erratas y Ley 6948,
  * scripts/iibb-rates/caba-2026.ts) y Provincia de Buenos Aires 2026 (Ley 15.558,
- * scripts/iibb-rates/arba-2026.ts), ambos REVISADOS por el estudio el 24/11/2026. Santa Cruz sigue pendiente: fuentes oficiales no verificables.
+ * scripts/iibb-rates/arba-2026.ts), ambos REVISADOS por el estudio el 24/11/2026;
+ * Corrientes 2026 (RG DGR 293/2025) y Santa Cruz 2026 (Ley 3485, nomenclador
+ * ARCA), scripts/iibb-rates/table-2026.ts.
  * Ver docs/catalogos-actividades/README.md, «Cobertura de alícuotas».
  */
 // El JSON se tipa con strings amplios; la forma real se valida al cargar.
-const RULE_SETS: readonly RateRuleSet[] = [cabaLey6927_2026, arbaLey15558_2026] as unknown as RateRuleSet[];
+const RULE_SETS: readonly RateRuleSet[] = [cabaLey6927_2026, arbaLey15558_2026, corrientesRg293_2025, santaCruzLey3485_2026] as unknown as RateRuleSet[];
 
 let cache: RateRuleSet[] | null = null;
 

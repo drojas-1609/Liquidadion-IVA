@@ -99,7 +99,7 @@ export interface ClientProfileActivity {
     origin: ActivityOrigin;
     catalogId: string | null;
     catalogVersion: string | null;
-    rates: Array<{ jurisdiction: string; rate: string | null; treatment: RateTreatment; origin: RateOrigin | null; ruleRef: string | null }>;
+    rates: Array<{ jurisdiction: string; rate: string | null; treatment: RateTreatment; origin: RateOrigin | null; ruleRef: string | null; minimum?: string | null }>;
 }
 
 export interface ClientProfileInitial {
@@ -146,7 +146,7 @@ const ERROR_BOX = { padding: "var(--spacing-sm)", backgroundColor: "rgba(239, 68
 const SECTION = { display: "flex", flexDirection: "column", gap: "var(--spacing-md)", borderTop: "1px solid var(--border, rgba(127,127,127,0.25))", paddingTop: "var(--spacing-md)" } as const;
 const BADGE = { fontSize: "0.75rem", padding: "1px 6px", borderRadius: "999px", border: "1px solid currentColor", color: "var(--secondary)" } as const;
 
-const EMPTY_RATE: DraftRate = { associated: false, rate: "", treatment: "RATE", origin: null, ruleRef: null };
+const EMPTY_RATE: DraftRate = { associated: false, rate: "", treatment: "RATE", origin: null, ruleRef: null, minimum: "" };
 
 function rowFromActivity(a: ClientProfileActivity, uid: number): ActivityRow {
     return {
@@ -162,7 +162,7 @@ function rowFromActivity(a: ClientProfileActivity, uid: number): ActivityRow {
         catalogId: a.catalogId,
         catalogVersion: a.catalogVersion,
         rates: Object.fromEntries(
-            a.rates.map((r) => [r.jurisdiction, { associated: true, rate: r.rate ?? "", treatment: r.treatment, origin: r.origin, ruleRef: r.ruleRef }]),
+            a.rates.map((r) => [r.jurisdiction, { associated: true, rate: r.rate ?? "", treatment: r.treatment, origin: r.origin, ruleRef: r.ruleRef, minimum: r.minimum ?? "" }]),
         ),
     };
 }
@@ -423,7 +423,7 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
     }
 
     /** Edición manual de la tasa o del tratamiento: origen "manual del estudio" (o sin origen si queda vacía). */
-    function setManualRate(uid: number, code: string, patch: Partial<Pick<DraftRate, "rate" | "treatment">>) {
+    function setManualRate(uid: number, code: string, patch: Partial<Pick<DraftRate, "rate" | "treatment" | "minimum">>) {
         const row = activities.find((a) => a.uid === uid);
         const prev = row?.rates[code] ?? EMPTY_RATE;
         const next = { ...prev, ...patch };
@@ -432,13 +432,13 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
     }
 
     function confirmSuggestion(uid: number, code: string, alt: RateAlternative) {
-        setRate(uid, code, { associated: true, treatment: alt.treatment, rate: alt.rate ?? "", origin: "CONFIRMED_SUGGESTION", ruleRef: alt.ruleRef });
+        setRate(uid, code, { associated: true, treatment: alt.treatment, rate: alt.rate ?? "", origin: "CONFIRMED_SUGGESTION", ruleRef: alt.ruleRef, minimum: alt.minimumMonthly ?? "" });
         setSuggestFor(null);
     }
 
     /** Alternativa no acreditable: queda como decisión del estudio, sin referencia a la regla. */
-    function recordAsStudioDecision(uid: number, code: string, alt: Pick<RateAlternative, "treatment" | "rate">) {
-        setRate(uid, code, { associated: true, treatment: alt.treatment, rate: alt.rate ?? "", origin: "STUDIO_MANUAL", ruleRef: null });
+    function recordAsStudioDecision(uid: number, code: string, alt: Pick<RateAlternative, "treatment" | "rate" | "minimumMonthly">) {
+        setRate(uid, code, { associated: true, treatment: alt.treatment, rate: alt.rate ?? "", origin: "STUDIO_MANUAL", ruleRef: null, minimum: alt.minimumMonthly ?? "" });
         setSuggestFor(null);
     }
 
@@ -1069,6 +1069,18 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                                                                             onChange={(e) => setManualRate(a.uid, code, { rate: e.target.value })}
                                                                         />
                                                                     )}
+                                                                    {r.treatment === "RATE" && r.rate.trim() !== "" && (
+                                                                        <input
+                                                                            className="input"
+                                                                            style={{ maxWidth: "150px" }}
+                                                                            inputMode="decimal"
+                                                                            aria-label={`Mínimo mensual ${a.code || `actividad ${idx + 1}`} en ${jurisdictionLabel(code)} ($)`}
+                                                                            placeholder="mínimo $/mes"
+                                                                            title="Impuesto mínimo mensual de la actividad (opcional)"
+                                                                            value={r.minimum ?? ""}
+                                                                            onChange={(e) => setManualRate(a.uid, code, { minimum: e.target.value })}
+                                                                        />
+                                                                    )}
                                                                     {r.treatment === "EXEMPT" && (
                                                                         // Destino estable del error de la alícuota cuando es exención.
                                                                         <span {...a11y(rk, originId)} tabIndex={-1} style={fieldStyle(rk, errorMap)}>
@@ -1091,7 +1103,7 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                                                                 {r.treatment === "RATE" && r.rate.trim() === ""
                                                                     ? "Sin informar"
                                                                     : r.origin
-                                                                      ? `${RATE_ORIGIN_LABEL[r.origin]}${r.ruleRef ? ` (${r.ruleRef})` : ""}`
+                                                                      ? `${RATE_ORIGIN_LABEL[r.origin]}${r.ruleRef ? ` (${r.ruleRef})` : ""}${r.minimum && r.minimum.trim() !== "" ? ` · mínimo $ ${r.minimum}/mes` : ""}`
                                                                       : "Sin origen registrado (carga anterior)"}
                                                             </span>
                                                         )}
