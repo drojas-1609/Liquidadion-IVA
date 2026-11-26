@@ -1,5 +1,18 @@
 # Revisión pendiente de datos oficiales (preparada el 27/10/2026)
 
+**Actualización del 26/11/2026:** Diego Rojas aprobó en el chat los conjuntos 2026 de Corrientes y Santa Cruz en los tres niveles (REVISADO). Las fichas S1 y R1 quedan como antecedentes; las reemplazan estas decisiones:
+
+| Tema | Decisión |
+|---|---|
+| Corrientes, fuente | RG DGR 293/2025, Anexo I (sha256 `ca8b99323b16…`), con los mínimos de la Ley Tarifaria 6249, art. 10. |
+| Corrientes, regímenes | Por menor (0003), por mayor (0004) y comisión (0005) son alternativas que exigen un hecho declarado; el régimen general exige el hecho contrario. |
+| Corrientes, retenidos | 16 códigos con fuente contradictoria (régimen duplicado) o mínimo distinto del art. 10 (p. ej. 551010 por habitación, 551021/551090 $ 3, 864000 $ 127,50) no se sugieren; se cargan a mano. |
+| Santa Cruz, fuente | Ley 3485, anexo de referencia publicado por ASIP (sha256 `92ab6caf…`), con la salvedad de que ASIP no acredita su fecha de actualización. |
+| Santa Cruz, nomenclador | Códigos ARCA (clae RG AFIP 3537/2013), habilitado sólo para la jurisdicción 920. |
+| Mínimos | El impuesto del mes es el mayor entre el calculado y el mayor mínimo de las actividades del cliente (decisión del 24/11/2026). |
+| ARBA, art. 163 Ley 15558 | Adicional extraordinario por tonelada para terminales portuarias (13 códigos NAIIB18; RN ARBA 35/2025): **no se calcula**; la ficha y la liquidación avisan si el cliente tiene alguno de esos códigos en ARBA. |
+| Tierra del Fuego | El nomenclador vigente es el Anexo de la Ley 1498/2023 (escaneado; incluye adicionales FFSS/FOFISP). Se verifican sólo los códigos que use el estudio. |
+
 **Actualización del 24/11/2026:** Diego Rojas decidió en el chat las fichas C1 a C3 y B2 a B5 y aprobó los conjuntos de CABA 2026 y Provincia de Buenos Aires 2026 en los tres niveles (REVISADO). Resumen:
 
 | Ficha | Decisión |

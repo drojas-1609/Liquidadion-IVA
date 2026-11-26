@@ -71,6 +71,7 @@ export const AUDIT_ACTIONS = [
   "client.arca_constancia",
   "client.iibb_activity_config",
   "client.gross_income_year",
+  "client.iibb_annual_review",
   "invoice.iibb_activity",
   "chart.model_apply",
   "client.accounting_profile",
@@ -175,6 +176,8 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "client.iibb_activity_config": ["principalCode", "posCount"],
   // Ingresos brutos anuales (tramos de alícuota): año y si se cargó o se borró; nunca el monto.
   "client.gross_income_year": ["incomeYear", "cleared"],
+  // Revisión anual de alícuotas: año y cantidad de alícuotas confirmadas; nunca las tasas.
+  "client.iibb_annual_review": ["fiscalYear", "count"],
   // Corrección manual de actividad de IIBB: cantidad de comprobantes y período.
   "invoice.iibb_activity": ["count", "periodId", "code"],
   "chart.model_apply": ["model", "accounts"],

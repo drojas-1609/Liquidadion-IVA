@@ -16,30 +16,30 @@
   "validTo": "2026-12-31",
   "sourceSha256": "92ab6cafc6cc5048b25bd9f23fda95adef6de1db270fd829cd143f5a4cc040d2",
   "review": {
-   "status": "PENDIENTE_REVISION",
-   "reviewedBy": null,
-   "reviewedAt": null,
-   "notes": null,
+   "status": "REVISADO",
+   "reviewedBy": "Diego Rojas",
+   "reviewedAt": "2026-11-26",
+   "notes": "Aprobación final del estudio.",
    "levels": {
     "technical": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-26",
+     "notes": "Aprobado por el estudio en el chat (26/11/2026).",
      "checks": []
     },
     "validity": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-26",
+     "notes": "Ley 3485, anexo de referencia publicado por ASIP; ASIP no acredita la fecha de actualización (salvedad aceptada por el estudio).",
      "checks": []
     },
     "interpretation": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-26",
+     "notes": "Nomenclador ARCA (clae RG AFIP 3537/2013) habilitado sólo para Santa Cruz.",
      "checks": []
     }
    }

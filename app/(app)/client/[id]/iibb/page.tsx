@@ -1,7 +1,7 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, requireClientAccess, guardPage } from "@/lib/auth/authz";
-import { ROLES_READ, ROLES_UPDATE, roleAllows } from "@/lib/auth/roles";
+import { ROLES_CLIENT_MANAGE, ROLES_READ, ROLES_UPDATE, roleAllows } from "@/lib/auth/roles";
 import { MODULES_CLIENT_DIRECTORY } from "@/lib/auth/permissions";
 import { NotFoundError } from "@/lib/auth/errors";
 import { AccessNotice } from "@/app/_components/access-notice";
@@ -10,6 +10,9 @@ import { currentFiscalYear } from "@/lib/iibb/rate-years";
 import { formatMoney } from "@/lib/format";
 import { IibbActivityForm } from "./iibb-activity-form";
 import { GrossIncomeForm } from "./gross-income-form";
+import { AnnualReview, type ReviewRowView } from "./annual-review";
+import { loadAnnualReview } from "@/lib/iibb/annual-review-store";
+import { canApplyRule, canKeep } from "@/lib/iibb/annual-review";
 
 export const dynamic = "force-dynamic";
 
@@ -41,15 +44,36 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
             }),
             Promise.all(incomeYears.map((y) => salesIibbBaseForYear(prisma, { organizationId, clientId: id, year: y }).then((r) => ({ year: y, ...r })))),
         ]);
+        const review = await loadAnnualReview(prisma, { organizationId, clientId: id });
         const seen = await prisma.invoice.groupBy({ by: ["pointOfSale"], where: { organizationId, category: "SALES", period: { clientId: id } }, _count: { _all: true } });
-        return { client, seenPos: seen.map((s) => s.pointOfSale).sort((a, b) => a - b), canEdit: roleAllows(ROLES_UPDATE, role), thisYear, incomeYears, incomes, rateYears, references };
+        return { client, seenPos: seen.map((s) => s.pointOfSale).sort((a, b) => a - b), canEdit: roleAllows(ROLES_UPDATE, role), canReview: roleAllows(ROLES_CLIENT_MANAGE, role), review, thisYear, incomeYears, incomes, rateYears, references };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { client, seenPos, canEdit, thisYear, incomeYears, incomes, rateYears, references } = guard.data;
+    const { client, seenPos, canEdit, canReview, review, thisYear, incomeYears, incomes, rateYears, references } = guard.data;
     const years = [...new Set(rateYears.map((r) => r.fiscalYear))];
     const descByCode = new Map(client.activities.map((a) => [a.code, a.description]));
     const pctLabel = (r: { rate: { toFixed: (n: number) => string } | null; treatment: string }) =>
         r.treatment === "EXEMPT" ? "exenta" : r.rate == null ? "sin informar" : `${r.rate.toFixed(2).replace(".", ",")} %`;
+    const fmtRate = (v: { rate: string | null; treatment: string; minimum: string | null } | null) => {
+        if (!v) return "—";
+        const base = v.treatment === "EXEMPT" ? "exenta" : v.rate == null ? "sin informar" : `${Number(v.rate).toFixed(2).replace(".", ",")} %`;
+        return v.minimum ? `${base} · mín. $ ${formatMoney(Number(v.minimum).toFixed(2))}` : base;
+    };
+    const reviewRows: ReviewRowView[] = (review?.rows ?? []).map((r) => ({
+        rateId: r.rateId,
+        jurisdictionCode: r.jurisdictionCode,
+        activity: `${r.activityCode} · ${r.description}`,
+        prior: fmtRate(r.prior),
+        current: fmtRate(r),
+        suggestion: r.suggestion ? fmtRate({ rate: r.suggestion.rate, treatment: r.suggestion.treatment, minimum: r.suggestion.minimumMonthly ?? null }) : null,
+        norm: r.suggestion ? `${r.suggestion.norm} — ${r.suggestion.legalReference}` : null,
+        ruleRef: r.suggestion?.ruleRef ?? null,
+        status: r.status,
+        message: r.message,
+        yearConfirmedAt: r.yearConfirmedAt ? r.yearConfirmedAt.split("-").reverse().join("/") : null,
+        canApply: canApplyRule(r),
+        canKeep: canKeep(r),
+    }));
     const jur = localIibbJurisdiction(client);
     const activities = client.activities.map((a) => {
         const r = jur ? a.rates.find((x) => x.jurisdictionCode === jur) : undefined;
@@ -119,6 +143,15 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
                     })}
                 />
             </section>
+            {review && (
+                <section className="card" aria-labelledby="review-title">
+                    <h2 id="review-title" style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "var(--spacing-xs)" }}>Revisión anual de alícuotas {review.year}</h2>
+                    <p style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-sm)" }}>
+                        Compara cada alícuota de la ficha con la del año anterior y con la que fija la norma aprobada de {review.year} (con los ingresos de {review.year - 1} para los tramos). «Aplicar norma» actualiza la ficha con la sugerencia de la norma; «Mantener la actual» la deja igual. Las dos la registran para {review.year} con quién y cuándo. Elegir entre alternativas (hechos declarados) o cargar una alícuota sin regla se hace en la ficha.
+                    </p>
+                    <AnnualReview clientId={client.id} year={review.year} incomeLoaded={review.incomeLoaded} rows={reviewRows} canEdit={canReview} />
+                </section>
+            )}
             <section className="card" aria-labelledby="years-title">
                 <h2 id="years-title" style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "var(--spacing-xs)" }}>Alícuotas por año</h2>
                 <p style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-sm)" }}>
