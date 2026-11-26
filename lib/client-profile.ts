@@ -17,7 +17,7 @@ import {
     isIibbRegistration,
     type IibbRegistration,
 } from "./iibb/registration";
-import { RATE_ORIGINS, RATE_TREATMENTS, parseRuleRef, type RateOrigin, type RateTreatment } from "./iibb-rates/types";
+import { ADDITIONAL_LABEL_RE, RATE_ORIGINS, RATE_TREATMENTS, parseRuleRef, type RateOrigin, type RateTreatment } from "./iibb-rates/types";
 
 export type FieldResult<T> = { ok: true; value: T } | { ok: false; field: string; error: string };
 
@@ -140,6 +140,8 @@ export interface IibbRateData {
     ruleRef: string | null;
     /** Impuesto mínimo mensual (pesos "1234.56"); se omite si no hay. Sólo con alícuota informada. */
     minimum?: string | null;
+    /** Alícuota adicional que se liquida aparte (p. ej. FFSS); se omite si no hay. Sólo con alícuota informada. */
+    additional?: { label: string; rate: string } | null;
 }
 
 export const ACTIVITY_ORIGINS = ["CATALOG", "MANUAL"] as const;
@@ -358,7 +360,7 @@ export function validateIibbProfile(raw: unknown): FieldResult<IibbProfileData> 
         for (const [k, x] of rawRates.entries()) {
             const fr = `${f}.rates[${k}]`;
             if (typeof x !== "object" || x === null) return fail(fr, "alícuota inválida");
-            const { jurisdiction, rate, treatment: rawTreatment, origin: rawOrigin, ruleRef: rawRuleRef, minimum: rawMinimum } = x as Record<string, unknown>;
+            const { jurisdiction, rate, treatment: rawTreatment, origin: rawOrigin, ruleRef: rawRuleRef, minimum: rawMinimum, additional: rawAdditional } = x as Record<string, unknown>;
             if (!isJurisdictionCode(jurisdiction)) return fail(fr, "jurisdicción inexistente");
             if (!profileCodes.has(jurisdiction)) {
                 return fail(fr, `la jurisdicción ${jurisdictionLabel(jurisdiction)} no está registrada para el cliente`);
@@ -395,7 +397,22 @@ export function validateIibbProfile(raw: unknown): FieldResult<IibbProfileData> 
                 if (treatment !== "RATE" || value === null) return fail(fr, "el mínimo mensual sólo va con una alícuota informada");
                 minimum = String(Number(normalized));
             }
-            rates.push({ jurisdiction, rate: value, treatment: treatment as RateTreatment, origin: origin as RateOrigin | null, ruleRef: ruleRefValue, ...(minimum !== null ? { minimum } : {}) });
+            let additional: { label: string; rate: string } | null = null;
+            if (rawAdditional !== undefined && rawAdditional !== null) {
+                if (typeof rawAdditional !== "object" || Array.isArray(rawAdditional)) return fail(fr, "adicional inválido");
+                const { label, rate: aRate } = rawAdditional as Record<string, unknown>;
+                const lab = typeof label === "string" ? label.trim().toUpperCase() : "";
+                const r = typeof aRate === "string" ? aRate.trim().replace(",", ".") : "";
+                if (lab !== "" || r !== "") {
+                    if (!ADDITIONAL_LABEL_RE.test(lab)) return fail(fr, "sigla del adicional inválida (2 a 10 letras, p. ej. FFSS)");
+                    const err = checkRateString(r);
+                    if (err) return fail(fr, `alícuota adicional: ${err}`);
+                    if (Number(r) <= 0) return fail(fr, "la alícuota adicional debe ser mayor que 0");
+                    if (treatment !== "RATE" || value === null) return fail(fr, "el adicional sólo va con una alícuota informada");
+                    additional = { label: lab, rate: r };
+                }
+            }
+            rates.push({ jurisdiction, rate: value, treatment: treatment as RateTreatment, origin: origin as RateOrigin | null, ruleRef: ruleRefValue, ...(minimum !== null ? { minimum } : {}), ...(additional !== null ? { additional } : {}) });
         }
 
         activities.push({

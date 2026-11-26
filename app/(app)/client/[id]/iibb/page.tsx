@@ -28,7 +28,7 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
             select: {
                 id: true, name: true, iibbRegistration: true, iibbPrincipalActivityCode: true,
                 jurisdictions: { select: { jurisdictionCode: true } },
-                activities: { select: { code: true, description: true, rates: { select: { jurisdictionCode: true, rate: true, treatment: true } } }, orderBy: { code: "asc" } },
+                activities: { select: { code: true, description: true, rates: { select: { jurisdictionCode: true, rate: true, treatment: true, minimumAmount: true, additionalLabel: true, additionalRate: true } } }, orderBy: { code: "asc" } },
                 posActivities: { select: { pointOfSale: true, activityCode: true }, orderBy: { pointOfSale: "asc" } },
             },
         });
@@ -39,7 +39,7 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
             prisma.clientGrossIncomeYear.findMany({ where: { organizationId, clientId: id }, select: { incomeYear: true, amount: true, note: true, updatedAt: true }, orderBy: { incomeYear: "desc" } }),
             prisma.clientIibbRateYear.findMany({
                 where: { organizationId, clientId: id },
-                select: { fiscalYear: true, jurisdictionCode: true, activityCode: true, rate: true, treatment: true, confirmedAt: true },
+                select: { fiscalYear: true, jurisdictionCode: true, activityCode: true, rate: true, treatment: true, minimumAmount: true, additionalLabel: true, additionalRate: true, confirmedAt: true },
                 orderBy: [{ fiscalYear: "desc" }, { jurisdictionCode: "asc" }, { activityCode: "asc" }],
             }),
             Promise.all(incomeYears.map((y) => salesIibbBaseForYear(prisma, { organizationId, clientId: id, year: y }).then((r) => ({ year: y, ...r })))),
@@ -54,10 +54,11 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
     const descByCode = new Map(client.activities.map((a) => [a.code, a.description]));
     const pctLabel = (r: { rate: { toFixed: (n: number) => string } | null; treatment: string }) =>
         r.treatment === "EXEMPT" ? "exenta" : r.rate == null ? "sin informar" : `${r.rate.toFixed(2).replace(".", ",")} %`;
-    const fmtRate = (v: { rate: string | null; treatment: string; minimum: string | null } | null) => {
+    const fmtRate = (v: { rate: string | null; treatment: string; minimum: string | null; additional?: { label: string; rate: string } | null } | null) => {
         if (!v) return "—";
         const base = v.treatment === "EXEMPT" ? "exenta" : v.rate == null ? "sin informar" : `${Number(v.rate).toFixed(2).replace(".", ",")} %`;
-        return v.minimum ? `${base} · mín. $ ${formatMoney(Number(v.minimum).toFixed(2))}` : base;
+        const withMin = v.minimum ? `${base} · mín. $ ${formatMoney(Number(v.minimum).toFixed(2))}` : base;
+        return v.additional ? `${withMin} + ${v.additional.label} ${Number(v.additional.rate).toFixed(2).replace(".", ",")} %` : withMin;
     };
     const reviewRows: ReviewRowView[] = (review?.rows ?? []).map((r) => ({
         rateId: r.rateId,
@@ -65,7 +66,7 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
         activity: `${r.activityCode} · ${r.description}`,
         prior: fmtRate(r.prior),
         current: fmtRate(r),
-        suggestion: r.suggestion ? fmtRate({ rate: r.suggestion.rate, treatment: r.suggestion.treatment, minimum: r.suggestion.minimumMonthly ?? null }) : null,
+        suggestion: r.suggestion ? fmtRate({ rate: r.suggestion.rate, treatment: r.suggestion.treatment, minimum: r.suggestion.minimumMonthly ?? null, additional: r.suggestion.additional ?? null }) : null,
         norm: r.suggestion ? `${r.suggestion.norm} — ${r.suggestion.legalReference}` : null,
         ruleRef: r.suggestion?.ruleRef ?? null,
         status: r.status,
@@ -77,7 +78,7 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
     const jur = localIibbJurisdiction(client);
     const activities = client.activities.map((a) => {
         const r = jur ? a.rates.find((x) => x.jurisdictionCode === jur) : undefined;
-        const rate = !r ? "sin informar" : r.treatment === "EXEMPT" ? "exenta" : r.rate == null ? "sin informar" : `${r.rate.toFixed(2).replace(".", ",")} %`;
+        const rate = !r ? "sin informar" : fmtRate({ rate: r.rate?.toString() ?? null, treatment: r.treatment, minimum: r.minimumAmount?.toString() ?? null, additional: r.additionalLabel && r.additionalRate != null ? { label: r.additionalLabel, rate: r.additionalRate.toString() } : null });
         return { code: a.code, label: `${a.code} · ${a.description}`, rate };
     });
 
@@ -167,7 +168,11 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
                                     <tr key={`${r.jurisdictionCode}-${r.activityCode}`}>
                                         <td>{r.jurisdictionCode}</td>
                                         <td>{r.activityCode} · {descByCode.get(r.activityCode) ?? "(ya no está en la ficha)"}</td>
-                                        <td style={{ textAlign: "right" }}>{pctLabel(r)}</td>
+                                        <td style={{ textAlign: "right" }}>
+                                            {pctLabel(r)}
+                                            {r.minimumAmount != null && <div style={{ color: "var(--secondary)", fontSize: "0.8125rem" }}>mín. $ {formatMoney(r.minimumAmount.toFixed(2))}</div>}
+                                            {r.additionalLabel && r.additionalRate != null && <div style={{ color: "var(--secondary)", fontSize: "0.8125rem" }}>+ {r.additionalLabel} {r.additionalRate.toFixed(2).replace(".", ",")} %</div>}
+                                        </td>
                                         <td>{r.confirmedAt.toISOString().slice(0, 10).split("-").reverse().join("/")}</td>
                                     </tr>
                                 ))}

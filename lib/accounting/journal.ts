@@ -127,6 +127,8 @@ export function buildVatEntry(iva: VatPosition, month: number, year: number): Dr
 /** DDJJ de IIBB (LiquidationResult.iibb + SIRTAC separado de las retenciones). */
 export interface IibbPosition {
     tax: Decimalish;
+    /** Adicionales por actividad (p. ej. FFSS de Tierra del Fuego); suman al débito. */
+    additionalsTotal?: Decimalish;
     otherDebits: Decimalish;
     previousBalance: Decimalish;
     /** Retenciones incluyendo SIRTAC (como en la DDJJ). */
@@ -144,7 +146,7 @@ export interface IibbPosition {
 
 /**
  * Cierre de la DDJJ de IIBB:
- *  Debe  Impuesto sobre los Ingresos Brutos (impuesto determinado + otros débitos)
+ *  Debe  Impuesto sobre los Ingresos Brutos (impuesto determinado + adicionales + otros débitos)
  *  Haber saldo a favor anterior · retenciones · SIRTAC · percepciones · SIRCREB · pagos a cuenta · otros créditos
  *  Haber IIBB a pagar  /  Debe IIBB saldo a favor
  */
@@ -156,6 +158,7 @@ export function buildIibbEntry(i: IibbPosition, month: number, year: number): Dr
         description: `DDJJ de Ingresos Brutos ${p}`,
         lines: compact([
             line({ role: "IIBB_EXPENSE" }, "D", i.tax, "Impuesto determinado"),
+            line({ role: "IIBB_EXPENSE" }, "D", i.additionalsTotal ?? 0, "Adicionales de la DDJJ (alícuotas adicionales por actividad)"),
             line({ role: "IIBB_EXPENSE" }, "D", i.otherDebits, "Otros débitos de la DDJJ"),
             line({ role: "IIBB_BALANCE" }, "D", i.balanceTaxpayer, "Saldo a favor del contribuyente"),
             line({ role: "IIBB_BALANCE" }, "H", i.previousBalance, "Saldo a favor del período anterior"),

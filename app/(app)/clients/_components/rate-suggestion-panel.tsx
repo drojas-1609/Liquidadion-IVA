@@ -188,6 +188,7 @@ export function RateSuggestionPanel({
                                 <a href={a.sourceUrl} target="_blank" rel="noopener noreferrer">fuente oficial</a>
                             </span>
                             {a.minimumMonthly && <span style={HINT}>Impuesto mínimo mensual: $ {a.minimumMonthly}</span>}
+                            {a.additional && <span style={HINT}>Alícuota adicional {a.additional.label}: {a.additional.rate} % (se liquida aparte)</span>}
                             {a.caveat && (
                                 <span role="note" style={{ ...HINT, color: "var(--warning, #b45309)" }}>
                                     ⚠ {a.caveat}

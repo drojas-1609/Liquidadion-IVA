@@ -78,6 +78,7 @@ export const generateLiquidationExcel = (data: LiquidationData) => {
             n(l.tax),
             l.rateSource === "FALLBACK" ? "Sin alícuota informada: se usó la alícuota de respaldo" : l.rateSource === "EXEMPT" ? "Exenta" : "",
         ]),
+        ...(data.iibb.additionals ?? []).map((a) => [`Adicionales: ${a.label}`, n(a.amount), "Alícuota adicional por actividad sobre la misma base; suma al saldo (débitos «Adicionales» de la DDJJ)"]),
         ...(data.iibb.minimum
             ? [[`   Impuesto mínimo mensual (actividad ${data.iibb.minimum.code})`, n(data.iibb.minimum.amount), data.iibb.minimum.applied ? `Aplicado: el impuesto calculado fue ${data.iibb.minimum.calculatedTax}` : "No aplicado: el impuesto calculado es mayor"]]
             : []),

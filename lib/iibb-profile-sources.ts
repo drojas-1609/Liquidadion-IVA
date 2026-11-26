@@ -37,7 +37,7 @@ export interface StoredProfileForSources {
         origin: string;
         catalogId: string | null;
         catalogVersion: string | null;
-        rates: ReadonlyArray<{ jurisdiction: string; rate: string | null; treatment: string; origin: string | null; ruleRef: string | null; minimum?: string | null }>;
+        rates: ReadonlyArray<{ jurisdiction: string; rate: string | null; treatment: string; origin: string | null; ruleRef: string | null; minimum?: string | null; additional?: { label: string; rate: string } | null }>;
     }>;
 }
 
@@ -117,7 +117,8 @@ export function verifyProfileSources(
                 return { field: fr, error: "la regla confirmada no corresponde a esta actividad y jurisdicción" };
             }
             const sameMinimum = (rule.minimumMonthly == null ? null : Number(rule.minimumMonthly)) === (r.minimum == null ? null : Number(r.minimum));
-            if (rule.treatment !== r.treatment || (r.rate !== null && checkRateString(r.rate) !== null) || !sameRate(rule.rate, r.rate) || !sameMinimum) {
+            const sameAdditional = (rule.additional?.label ?? null) === (r.additional?.label ?? null) && (rule.additional == null ? null : Number(rule.additional.rate)) === (r.additional == null ? null : Number(r.additional.rate));
+            if (rule.treatment !== r.treatment || (r.rate !== null && checkRateString(r.rate) !== null) || !sameRate(rule.rate, r.rate) || !sameMinimum || !sameAdditional) {
                 return { field: fr, error: "el valor confirmado no coincide con la regla sugerida" };
             }
             if (rule.conditions.length > 0) {

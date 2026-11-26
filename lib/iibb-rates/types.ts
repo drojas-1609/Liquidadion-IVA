@@ -70,7 +70,16 @@ export interface RateRule {
      * (24/11/2026: el mayor mínimo contra el impuesto total del mes).
      */
     minimumMonthly?: string;
+    /**
+     * Alícuota ADICIONAL que la norma fija para la actividad y que se liquida
+     * aparte del impuesto (p. ej. Tierra del Fuego: FFSS, Anexo I Ley 1498).
+     * `label` corto (A–Z, 2 a 10), `rate` en % como string decimal.
+     */
+    additional?: { label: string; rate: string };
 }
+
+/** Etiqueta válida de un adicional (p. ej. «FFSS», «FOFISP»). */
+export const ADDITIONAL_LABEL_RE = /^[A-Z]{2,10}$/;
 
 export interface RateRuleSetManifest {
     id: string;

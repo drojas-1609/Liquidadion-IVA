@@ -9,6 +9,7 @@ import { currentFiscalYear } from "./rate-years";
 type Db = Pick<Prisma.TransactionClient, "client" | "clientActivity" | "clientIibbRateYear" | "clientGrossIncomeYear">;
 
 const str = (d: Prisma.Decimal | null | undefined) => (d == null ? null : d.toString());
+const addOf = (r: { additionalLabel: string | null; additionalRate: Prisma.Decimal | null }) => (r.additionalLabel && r.additionalRate != null ? { label: r.additionalLabel, rate: r.additionalRate.toString() } : null);
 
 /**
  * Revisión anual del AÑO EN CURSO para un cliente (lecturas secuenciales para
@@ -22,20 +23,20 @@ export async function loadAnnualReview(db: Db, args: { organizationId: string; c
     if (!client) return null;
     const activities = await db.clientActivity.findMany({
         where: { clientId, organizationId },
-        select: { code: true, description: true, nomenclator: true, origin: true, catalogId: true, rates: { select: { id: true, jurisdictionCode: true, rate: true, treatment: true, rateOrigin: true, ruleRef: true, minimumAmount: true } } },
+        select: { code: true, description: true, nomenclator: true, origin: true, catalogId: true, rates: { select: { id: true, jurisdictionCode: true, rate: true, treatment: true, rateOrigin: true, ruleRef: true, minimumAmount: true, additionalLabel: true, additionalRate: true } } },
         orderBy: [{ code: "asc" }],
     });
     const yearRows = await db.clientIibbRateYear.findMany({
         where: { clientId, organizationId, fiscalYear: { in: [year - 1, year] } },
-        select: { fiscalYear: true, jurisdictionCode: true, activityCode: true, rate: true, treatment: true, minimumAmount: true, confirmedAt: true },
+        select: { fiscalYear: true, jurisdictionCode: true, activityCode: true, rate: true, treatment: true, minimumAmount: true, additionalLabel: true, additionalRate: true, confirmedAt: true },
     });
     const priorRows = yearRows.filter((r) => r.fiscalYear === year - 1);
     const income = await db.clientGrossIncomeYear.findFirst({ where: { clientId, organizationId, incomeYear: year - 1 }, select: { amount: true } });
-    const prior = new Map<string, ReviewPrior>(priorRows.map((p) => [`${p.jurisdictionCode}|${p.activityCode}`, { rate: str(p.rate), treatment: p.treatment, minimum: str(p.minimumAmount) }]));
+    const prior = new Map<string, ReviewPrior>(priorRows.map((p) => [`${p.jurisdictionCode}|${p.activityCode}`, { rate: str(p.rate), treatment: p.treatment, minimum: str(p.minimumAmount), additional: addOf(p) }]));
     const current = new Map<string, ReviewPrior & { confirmedAt: string }>(
         yearRows
             .filter((r) => r.fiscalYear === year)
-            .map((p): [string, ReviewPrior & { confirmedAt: string }] => [`${p.jurisdictionCode}|${p.activityCode}`, { rate: str(p.rate), treatment: p.treatment, minimum: str(p.minimumAmount), confirmedAt: p.confirmedAt.toISOString().slice(0, 10) }]),
+            .map((p): [string, ReviewPrior & { confirmedAt: string }] => [`${p.jurisdictionCode}|${p.activityCode}`, { rate: str(p.rate), treatment: p.treatment, minimum: str(p.minimumAmount), additional: addOf(p), confirmedAt: p.confirmedAt.toISOString().slice(0, 10) }]),
     );
     const rates = activities.flatMap((a) =>
         a.rates.map((r) => ({
@@ -50,6 +51,7 @@ export async function loadAnnualReview(db: Db, args: { organizationId: string; c
             origin: r.rateOrigin,
             ruleRef: r.ruleRef,
             minimum: str(r.minimumAmount),
+            additional: addOf(r),
         })),
     );
     rates.sort((x, y) => x.jurisdictionCode.localeCompare(y.jurisdictionCode) || x.activityCode.localeCompare(y.activityCode));

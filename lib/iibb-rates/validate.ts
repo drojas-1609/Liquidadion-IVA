@@ -7,7 +7,7 @@ import { isJurisdictionCode } from "../iibb/jurisdictions";
 import { isIibbRegistration } from "../iibb/registration";
 import { CATALOG_CODE_RE } from "../activity-catalog/validate";
 import { RULES_REVIEW_LEVELS, validateReview } from "../activity-catalog/review";
-import type { RateRuleSet } from "./types";
+import { ADDITIONAL_LABEL_RE, type RateRuleSet } from "./types";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MONEY = /^\d+(\.\d{1,2})?$/;
@@ -60,6 +60,12 @@ export function validateRuleSet(raw: unknown): string[] {
             p.push(`${at}: pendingInterpretation debe describir la interpretación pendiente`);
         }
         if (r.minimumMonthly !== undefined && (typeof r.minimumMonthly !== "string" || !/^\d{1,12}(\.\d{1,2})?$/.test(r.minimumMonthly))) p.push(`${at}: mínimo mensual inválido`);
+        if (r.additional !== undefined) {
+            const a = r.additional as { label?: unknown; rate?: unknown };
+            if (typeof a !== "object" || a === null || typeof a.label !== "string" || !ADDITIONAL_LABEL_RE.test(a.label)) p.push(`${at}: adicional sin etiqueta válida`);
+            else if (typeof a.rate !== "string" || checkRateString(a.rate) !== null || Number(a.rate) <= 0) p.push(`${at}: alícuota adicional inválida`);
+            if (r.treatment !== "RATE") p.push(`${at}: un adicional sólo acompaña a una alícuota`);
+        }
         if (r.caveat !== undefined && (typeof r.caveat !== "string" || r.caveat.trim() === "")) p.push(`${at}: el aviso debe tener texto`);
         if (r.sourceUrl !== undefined && (typeof r.sourceUrl !== "string" || !/^https:\/\//.test(r.sourceUrl))) p.push(`${at}: sourceUrl debe ser https`);
         if (!Array.isArray(r.conditions)) p.push(`${at}: condiciones inválidas`);

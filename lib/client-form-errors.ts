@@ -43,6 +43,9 @@ export interface DraftRate {
     ruleRef: string | null;
     /** Impuesto mínimo mensual (pesos); vacío = sin mínimo. */
     minimum?: string;
+    /** Adicional (p. ej. FFSS): sigla y alícuota; vacíos = sin adicional. */
+    additionalLabel?: string;
+    additionalRate?: string;
 }
 
 export interface DraftActivity {
@@ -120,6 +123,10 @@ export function ratesPayload(a: Pick<DraftActivity, "rates">, selectedCodes: rea
             const value = r.treatment === "EXEMPT" || r.rate.trim() === "" ? null : r.rate.trim();
             const absent = r.treatment === "RATE" && value === null;
             const minimum = !absent && r.treatment === "RATE" && r.minimum && r.minimum.trim() !== "" ? r.minimum.trim() : null;
+            const addLabel = (r.additionalLabel ?? "").trim();
+            const addRate = (r.additionalRate ?? "").trim();
+            // Se envía si se completó algo, para que el servidor rechace lo incompleto (nunca se descarta en silencio).
+            const additional = !absent && r.treatment === "RATE" && (addLabel !== "" || addRate !== "") ? { label: addLabel, rate: addRate } : null;
             return {
                 jurisdiction,
                 rate: value,
@@ -127,6 +134,7 @@ export function ratesPayload(a: Pick<DraftActivity, "rates">, selectedCodes: rea
                 origin: absent ? null : r.origin,
                 ruleRef: absent || r.origin !== "CONFIRMED_SUGGESTION" ? null : r.ruleRef,
                 ...(minimum !== null ? { minimum } : {}),
+                ...(additional !== null ? { additional } : {}),
             };
         });
 }

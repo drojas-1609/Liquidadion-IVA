@@ -29,7 +29,7 @@ export interface StoredIibbProfile {
         origin: ActivityOrigin;
         catalogId: string | null;
         catalogVersion: string | null;
-        rates: Array<{ jurisdiction: string; rate: string | null; treatment: RateTreatment; origin: RateOrigin | null; ruleRef: string | null; minimum?: string | null }>;
+        rates: Array<{ jurisdiction: string; rate: string | null; treatment: RateTreatment; origin: RateOrigin | null; ruleRef: string | null; minimum?: string | null; additional?: { label: string; rate: string } | null }>;
     }>;
 }
 
@@ -64,6 +64,7 @@ export async function loadIibbProfile(tx: Tx, clientId: string, organizationId: 
                     origin: r.rateOrigin,
                     ruleRef: r.ruleRef,
                     ...(r.minimumAmount != null ? { minimum: r.minimumAmount.toString() } : {}),
+                    ...(r.additionalLabel && r.additionalRate != null ? { additional: { label: r.additionalLabel, rate: rateString(r.additionalRate)! } } : {}),
                 })),
         })),
     };
@@ -92,7 +93,7 @@ function canonical(registration: IibbRegistration | null, p: Pick<StoredIibbProf
                 catalogId: a.catalogId,
                 catalogVersion: a.catalogVersion,
                 rates: [...a.rates]
-                    .map((r) => ({ jurisdiction: r.jurisdiction, rate: canonRate(r.rate), treatment: r.treatment, origin: r.origin, ruleRef: r.ruleRef, minimum: r.minimum == null ? null : String(Number(r.minimum)) }))
+                    .map((r) => ({ jurisdiction: r.jurisdiction, rate: canonRate(r.rate), treatment: r.treatment, origin: r.origin, ruleRef: r.ruleRef, minimum: r.minimum == null ? null : String(Number(r.minimum)), additional: r.additional ? { label: r.additional.label, rate: canonRate(r.additional.rate) } : null }))
                     .sort((x, y) => x.jurisdiction.localeCompare(y.jurisdiction)),
             }))
             .sort((x, y) => activityKey(x).localeCompare(activityKey(y))),
@@ -176,10 +177,18 @@ export async function replaceIibbProfile(
                 rateOrigin: r.origin,
                 ruleRef: r.ruleRef,
                 minimumAmount: r.minimum ?? null,
+                additionalLabel: r.additional?.label ?? null,
+                additionalRate: r.additional ? additionalDecimal(r.additional.rate) : null,
             };
         });
     });
     if (rates.length > 0) await tx.clientActivityRate.createMany({ data: rates });
+}
+
+function additionalDecimal(rate: string): Prisma.Decimal {
+    const p = parseRate(rate);
+    if (!p.ok) throw new Error("alícuota adicional inválida tras la validación");
+    return p.value;
 }
 
 /**
@@ -201,12 +210,12 @@ async function syncCurrentRateYear(
                 if (!parsed.ok) throw new Error("alícuota inválida tras la validación");
                 rate = parsed.value;
             }
-            return { jurisdictionCode: r.jurisdiction, activityCode: a.code, rate, treatment: r.treatment, rateOrigin: r.origin, ruleRef: r.ruleRef, minimumAmount: r.minimum == null ? null : new Prisma.Decimal(r.minimum) };
+            return { jurisdictionCode: r.jurisdiction, activityCode: a.code, rate, treatment: r.treatment, rateOrigin: r.origin, ruleRef: r.ruleRef, minimumAmount: r.minimum == null ? null : new Prisma.Decimal(r.minimum), additionalLabel: r.additional?.label ?? null, additionalRate: r.additional ? additionalDecimal(r.additional.rate) : null };
         }),
     );
     const existing = await tx.clientIibbRateYear.findMany({
         where: { clientId, organizationId, fiscalYear },
-        select: { id: true, jurisdictionCode: true, activityCode: true, rate: true, treatment: true, rateOrigin: true, ruleRef: true, minimumAmount: true },
+        select: { id: true, jurisdictionCode: true, activityCode: true, rate: true, treatment: true, rateOrigin: true, ruleRef: true, minimumAmount: true, additionalLabel: true, additionalRate: true },
     });
     const { remove, create } = diffRateYear(existing, desired);
     if (remove.length > 0) await tx.clientIibbRateYear.deleteMany({ where: { id: { in: remove }, clientId, organizationId } });
