@@ -43,7 +43,7 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
             let profileChanged = false;
             for (const it of parsed.items) {
                 const row = byId.get(it.rateId)!;
-                let data: { rate: Prisma.Decimal | null; treatment: "RATE" | "EXEMPT"; rateOrigin: "STUDIO_MANUAL" | "CONFIRMED_SUGGESTION" | null; ruleRef: string | null; minimumAmount: Prisma.Decimal | null };
+                let data: { rate: Prisma.Decimal | null; treatment: "RATE" | "EXEMPT"; rateOrigin: "STUDIO_MANUAL" | "CONFIRMED_SUGGESTION" | null; ruleRef: string | null; minimumAmount: Prisma.Decimal | null; additionalLabel: string | null; additionalRate: Prisma.Decimal | null };
                 if (it.action === "APPLY_RULE") {
                     const alt = row.suggestion!;
                     let rate: Prisma.Decimal | null = null;
@@ -53,7 +53,13 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
                         rate = p.value;
                     }
                     const minimumAmount = alt.treatment === "RATE" && alt.minimumMonthly ? new Prisma.Decimal(alt.minimumMonthly) : null;
-                    data = { rate, treatment: alt.treatment, rateOrigin: "CONFIRMED_SUGGESTION", ruleRef: alt.ruleRef, minimumAmount };
+                    let additionalRate: Prisma.Decimal | null = null;
+                    if (alt.treatment === "RATE" && alt.additional) {
+                        const p = parseRate(alt.additional.rate);
+                        if (!p.ok) throw new Error("adicional de regla inválido");
+                        additionalRate = p.value;
+                    }
+                    data = { rate, treatment: alt.treatment, rateOrigin: "CONFIRMED_SUGGESTION", ruleRef: alt.ruleRef, minimumAmount, additionalLabel: additionalRate ? alt.additional!.label : null, additionalRate };
                     const upd = await tx.clientActivityRate.updateMany({ where: { id: row.rateId, clientId: id, organizationId }, data });
                     if (upd.count !== 1) throw new NotFoundError();
                     profileChanged = true;
@@ -65,6 +71,8 @@ export const POST = withApiAuthz(async (request: Request, ctx: Ctx) => {
                         rateOrigin: row.origin,
                         ruleRef: row.ruleRef,
                         minimumAmount: row.minimum !== null ? new Prisma.Decimal(row.minimum) : null,
+                        additionalLabel: row.additional?.label ?? null,
+                        additionalRate: row.additional ? new Prisma.Decimal(row.additional.rate) : null,
                     };
                 }
                 await tx.clientIibbRateYear.deleteMany({ where: { clientId: id, organizationId, fiscalYear: review.year, jurisdictionCode: row.jurisdictionCode, activityCode: row.activityCode } });

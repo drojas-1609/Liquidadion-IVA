@@ -19,7 +19,7 @@ import { importMain } from "./import";
 import { importPdfTableMain } from "./pdf-table";
 import { arba2026DecisionsMain, arba2026Main } from "../iibb-rates/arba-2026";
 import { cabaDecisionsMain, cabaMain } from "../iibb-rates/caba-2026";
-import { ctes2026Main, sc2026Main } from "../iibb-rates/table-2026";
+import { ctes2026Main, sc2026Main, tdf2026Main } from "../iibb-rates/table-2026";
 import { addCheckMain, approveMain, reviewMain } from "./review";
 
 const [command, ...rest] = process.argv.slice(2).filter((x, i) => !(i === 0 && x === "--"));
@@ -38,6 +38,7 @@ const commands: Record<string, (argv: string[]) => number> = {
     "arba-2026-decisiones": arba2026DecisionsMain,
     "ctes-2026": ctes2026Main,
     "sc-2026": sc2026Main,
+    "tdf-2026": tdf2026Main,
 };
 
 try {

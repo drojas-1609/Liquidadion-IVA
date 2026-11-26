@@ -179,6 +179,9 @@ export interface LiquidationResult {
     warnings: string[];
     /** Impuesto mínimo mensual (F2): el mayor de las actividades, y si se aplicó. null = sin mínimos. */
     minimum: IibbActivityResult["minimum"];
+    /** Adicionales por sigla (p. ej. FFSS) y su total: suman al saldo a pagar. */
+    additionals: IibbActivityResult["additionals"];
+    additionalsTotal: Prisma.Decimal;
     /** Retenciones + percepciones + aduaneras + recaudaciones bancarias computadas. */
     retentions: Prisma.Decimal;
     withholdings: Prisma.Decimal;
@@ -280,6 +283,7 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
   let iibbByAct: IibbActivityLine[] | null = null;
   let iibbWarnings: string[] = [];
   let iibbMinimum: IibbActivityResult["minimum"] = null;
+  let iibbAdditionals: IibbActivityResult["additionals"] = [];
   if (period.iibbActivities) {
     const r = iibbByActivity(period.iibbActivities.slices, period.iibbActivities.config, fallbackIibbRate);
     // Falla cerrada: el detalle por actividad debe sumar la misma base que las ventas.
@@ -289,6 +293,7 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
     iibbByAct = r.lines;
     iibbWarnings = r.warnings;
     iibbMinimum = r.minimum;
+    iibbAdditionals = r.additionals;
   }
   const iibbJur = period.client.iibbJurisdiction ?? null;
   const iibbAll = period.taxRecords.filter((t) => isIibbRetention(t.type));
@@ -309,7 +314,9 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
   const iibbOtherCredits = pos?.otherCredits ?? D("0");
   const iibbOtherDebits = pos?.otherDebits ?? D("0");
   const iibbDeductions = sum([iibbPrev, iibbRetentions, iibbPayments, iibbOtherCredits]);
-  const iibbPayable = sub(iibbTax.plus(iibbOtherDebits), iibbDeductions);
+  // Adicionales (p. ej. FFSS): débitos que se suman al impuesto, como en la DDJJ DJ2.1 de AREF.
+  const iibbAdditionalsTotal = sum(iibbAdditionals.map((a) => a.amount));
+  const iibbPayable = sub(iibbTax.plus(iibbAdditionalsTotal).plus(iibbOtherDebits), iibbDeductions);
 
   return {
     sales: salesTotals,
@@ -344,6 +351,8 @@ export function computeLiquidation(period: PeriodForCalc): LiquidationResult {
       byActivity: iibbByAct,
       warnings: iibbWarnings,
       minimum: iibbMinimum,
+      additionals: iibbAdditionals,
+      additionalsTotal: iibbAdditionalsTotal,
       retentions: iibbRetentions,
       withholdings: iibbWithholdings,
       perceptions: iibbPerceptions,

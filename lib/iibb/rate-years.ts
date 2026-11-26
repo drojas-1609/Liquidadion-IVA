@@ -18,6 +18,8 @@ export interface RateYearValue {
     rateOrigin: "STUDIO_MANUAL" | "CONFIRMED_SUGGESTION" | null;
     ruleRef: string | null;
     minimumAmount?: Prisma.Decimal | null;
+    additionalLabel?: string | null;
+    additionalRate?: Prisma.Decimal | null;
 }
 
 /** Año fiscal en curso según la fecha de Argentina. */
@@ -36,7 +38,9 @@ const same = (a: RateYearValue, b: RateYearValue) =>
     (a.rate === null ? b.rate === null : b.rate !== null && a.rate.equals(b.rate)) &&
     a.rateOrigin === b.rateOrigin &&
     a.ruleRef === b.ruleRef &&
-    ((a.minimumAmount ?? null) === null ? (b.minimumAmount ?? null) === null : b.minimumAmount != null && a.minimumAmount!.equals(b.minimumAmount));
+    ((a.minimumAmount ?? null) === null ? (b.minimumAmount ?? null) === null : b.minimumAmount != null && a.minimumAmount!.equals(b.minimumAmount)) &&
+    (a.additionalLabel ?? null) === (b.additionalLabel ?? null) &&
+    ((a.additionalRate ?? null) === null ? (b.additionalRate ?? null) === null : b.additionalRate != null && a.additionalRate!.equals(b.additionalRate));
 
 /**
  * Diferencia entre las filas de un año y las alícuotas de la ficha: qué borrar
@@ -57,17 +61,20 @@ export function diffRateYear(existing: readonly (RateYearValue & { id: string })
 }
 
 /** Elige la alícuota del año si está; si no, la de la ficha con la marca `fromProfile`. */
+type PickValue = Pick<RateYearValue, "rate" | "treatment" | "minimumAmount" | "additionalLabel" | "additionalRate">;
+const additionalOf = (v: PickValue) => (v.treatment === "RATE" && v.additionalLabel && v.additionalRate ? { label: v.additionalLabel, rate: v.additionalRate } : null);
+
 export function pickYearRate(
-    year: ReadonlyMap<string, Pick<RateYearValue, "rate" | "treatment" | "minimumAmount">>,
-    profile: Pick<RateYearValue, "rate" | "treatment" | "minimumAmount"> | undefined,
+    year: ReadonlyMap<string, PickValue>,
+    profile: PickValue | undefined,
     jurisdictionCode: string,
     activityCode: string,
-): { rate: Prisma.Decimal | null; exempt: boolean; fromProfile: boolean; minimum: Prisma.Decimal | null } {
+): { rate: Prisma.Decimal | null; exempt: boolean; fromProfile: boolean; minimum: Prisma.Decimal | null; additional: { label: string; rate: Prisma.Decimal } | null } {
     const y = year.get(`${jurisdictionCode}|${activityCode}`);
-    if (y) return { rate: y.treatment === "RATE" ? y.rate : null, exempt: y.treatment === "EXEMPT", fromProfile: false, minimum: y.minimumAmount ?? null };
+    if (y) return { rate: y.treatment === "RATE" ? y.rate : null, exempt: y.treatment === "EXEMPT", fromProfile: false, minimum: y.minimumAmount ?? null, additional: additionalOf(y) };
     if (profile && isInformed(profile))
-        return { rate: profile.treatment === "RATE" ? profile.rate : null, exempt: profile.treatment === "EXEMPT", fromProfile: true, minimum: profile.minimumAmount ?? null };
-    return { rate: null, exempt: false, fromProfile: false, minimum: null };
+        return { rate: profile.treatment === "RATE" ? profile.rate : null, exempt: profile.treatment === "EXEMPT", fromProfile: true, minimum: profile.minimumAmount ?? null, additional: additionalOf(profile) };
+    return { rate: null, exempt: false, fromProfile: false, minimum: null, additional: null };
 }
 
 export const rateYearKey = key;

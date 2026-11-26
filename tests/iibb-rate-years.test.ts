@@ -39,7 +39,7 @@ describe("alícuotas por año (F2)", () => {
         expect(pickYearRate(year, { rate: D("5"), treatment: "RATE" }, "920", "471190")).toMatchObject({ fromProfile: false });
         expect(pickYearRate(year, { rate: D("5"), treatment: "RATE" }, "920", "471190").rate?.toString()).toBe("3");
         expect(pickYearRate(year, { rate: D("1.5"), treatment: "RATE" }, "920", "492110")).toMatchObject({ fromProfile: true });
-        expect(pickYearRate(year, undefined, "920", "999999")).toEqual({ rate: null, exempt: false, fromProfile: false, minimum: null });
+        expect(pickYearRate(year, undefined, "920", "999999")).toEqual({ rate: null, exempt: false, fromProfile: false, minimum: null, additional: null });
     });
 
     it("advierte cuando una alícuota usada no está confirmada para el año", () => {

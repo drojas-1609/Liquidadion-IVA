@@ -40,6 +40,8 @@ export interface RateAlternative {
     caveat?: string;
     /** Impuesto mínimo mensual de la norma, si lo fija. */
     minimumMonthly?: string;
+    /** Alícuota adicional que se liquida aparte (p. ej. FFSS). */
+    additional?: { label: string; rate: string };
     /** `factKey`/`expected` sólo en hechos declarables por el estudio (DECLARED_FACT). */
     conditions: Array<{ description: string; status: "CUMPLE" | "DESCONOCIDO"; factKey?: string; expected?: boolean }>;
 }
@@ -137,6 +139,7 @@ export function suggestRate(sets: readonly RateRuleSet[], q: RateQuery): RateSug
             sourceUrl: r.sourceUrl ?? m.sourceUrl,
             ...(r.caveat ? { caveat: r.caveat } : {}),
             ...(r.minimumMonthly ? { minimumMonthly: r.minimumMonthly } : {}),
+            ...(r.additional ? { additional: { label: r.additional.label, rate: r.additional.rate } } : {}),
             conditions: evals.map((e) => ({
                 description: e.c.description,
                 status: e.status === "CUMPLE" ? "CUMPLE" : "DESCONOCIDO",

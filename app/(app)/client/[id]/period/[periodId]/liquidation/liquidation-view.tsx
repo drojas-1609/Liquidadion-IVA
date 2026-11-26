@@ -227,6 +227,7 @@ export async function LiquidationScreen({ params, view }: { params: Promise<{ id
                                     <th>Base</th>
                                     <th>Alícuota</th>
                                     <th>Impuesto</th>
+                                    {r.iibb.additionals.length > 0 && <th>Adicional</th>}
                                 </tr>
                             </thead>
                             <tbody>
@@ -241,6 +242,7 @@ export async function LiquidationScreen({ params, view }: { params: Promise<{ id
                                         <td>${m(l.base)}</td>
                                         <td>{l.rateSource === "EXEMPT" ? "exenta" : `${l.rate.toFixed(2).replace(".", ",")} %`}{l.rateSource === "FALLBACK" ? " (respaldo)" : ""}</td>
                                         <td>${m(l.tax)}</td>
+                                        {r.iibb.additionals.length > 0 && <td>{l.additional ? `${l.additional.label} ${l.additional.rate.toFixed(2).replace(".", ",")} %: $${m(l.additional.amount)}` : "—"}</td>}
                                     </tr>
                                 ))}
                             </tbody>
@@ -257,6 +259,12 @@ export async function LiquidationScreen({ params, view }: { params: Promise<{ id
                                 <span>${m(r.iibb.minimum.amount)}</span>
                             </div>
                         )}
+                        {r.iibb.additionals.map((a) => (
+                            <div key={a.label} style={{ display: "flex", justifyContent: "space-between", margin: "0 0 var(--spacing-sm)" }}>
+                                <span>Adicionales: {a.label} <span style={{ color: "var(--secondary)", fontSize: "0.8125rem" }}>(suma al impuesto, como en la DDJJ)</span></span>
+                                <span style={{ fontWeight: 500 }}>${m(a.amount)}</span>
+                            </div>
+                        ))}
                         {r.iibb.warnings.length > 0 && (
                             <ul role="alert" className="iibb-warnings">
                                 {r.iibb.warnings.map((w) => <li key={w}>{w}</li>)}

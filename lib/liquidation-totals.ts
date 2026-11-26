@@ -80,7 +80,7 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
                     iibbPrincipalActivityCode: true,
                     jurisdictions: { select: { jurisdictionCode: true } },
                     posActivities: { select: { pointOfSale: true, activityCode: true } },
-                    activities: { select: { code: true, description: true, rates: { select: { jurisdictionCode: true, rate: true, treatment: true, minimumAmount: true } } } },
+                    activities: { select: { code: true, description: true, rates: { select: { jurisdictionCode: true, rate: true, treatment: true, minimumAmount: true, additionalLabel: true, additionalRate: true } } } },
                 },
             },
             iibbPosition: { select: { previousBalance: true, paymentsOnAccount: true, otherCredits: true, otherDebits: true } },
@@ -188,7 +188,7 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
         // F2: alícuota del año del período; si no está confirmada, la de la ficha (con advertencia).
         const yearRows = await db.clientIibbRateYear.findMany({
             where: { clientId: period.clientId, organizationId: scope.organizationId, fiscalYear: period.year, jurisdictionCode: jur },
-            select: { jurisdictionCode: true, activityCode: true, rate: true, treatment: true, minimumAmount: true },
+            select: { jurisdictionCode: true, activityCode: true, rate: true, treatment: true, minimumAmount: true, additionalLabel: true, additionalRate: true },
         });
         const yearMap = new Map(yearRows.map((r) => [rateYearKey(r), r]));
         iibbActivities = {

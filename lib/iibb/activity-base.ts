@@ -31,6 +31,8 @@ export interface IibbActivityRate {
     fromProfile?: boolean;
     /** Impuesto mínimo mensual de la actividad (F2), si lo hay. */
     minimum?: Prisma.Decimal | null;
+    /** Alícuota adicional que se liquida aparte (p. ej. FFSS de Tierra del Fuego). */
+    additional?: { label: string; rate: Prisma.Decimal } | null;
 }
 
 export interface IibbActivityConfig {
@@ -60,6 +62,8 @@ export interface IibbActivityLine {
     rateSource: RateSource;
     /** Cómo se asignaron sus ventas (puede haber varias fuentes). */
     sources: ActivitySource[];
+    /** Adicional de la actividad sobre la misma base (se suma aparte, como «Adicionales» en la DDJJ). */
+    additional?: { label: string; rate: Prisma.Decimal; amount: Prisma.Decimal } | null;
 }
 
 export interface IibbActivityResult {
@@ -75,6 +79,9 @@ export interface IibbActivityResult {
      * `applied` = el impuesto del mes quedó en el mínimo. null = sin mínimos.
      */
     minimum: { amount: Prisma.Decimal; code: string; calculatedTax: Prisma.Decimal; applied: boolean } | null;
+    /** Adicionales por sigla (p. ej. FFSS) y su total; no forman parte de `tax`. */
+    additionals: Array<{ label: string; amount: Prisma.Decimal }>;
+    additionalsTotal: Prisma.Decimal;
 }
 
 export function resolveActivity(slice: Pick<IibbSaleSlice, "pointOfSale" | "manualCode">, cfg: IibbActivityConfig): { code: string | null; source: ActivitySource } {
@@ -132,6 +139,7 @@ export function iibbByActivity(slices: readonly IibbSaleSlice[], cfg: IibbActivi
                 `La alícuota de la actividad ${act.code} no está confirmada para ${cfg.fiscalYear ?? "el año del período"}: se usó la de la ficha del cliente.`,
             );
         }
+        const additional = act?.additional && !act.exempt ? { label: act.additional.label, rate: act.additional.rate, amount: roundMoney(base.times(act.additional.rate).div(100)) } : null;
         lines.push({
             code: g.code,
             description: act?.description ?? "Sin actividad asignada",
@@ -140,6 +148,7 @@ export function iibbByActivity(slices: readonly IibbSaleSlice[], cfg: IibbActivi
             tax: roundMoney(base.times(rate).div(100)),
             rateSource,
             sources: [...g.sources].sort(),
+            ...(additional ? { additional } : {}),
         });
     }
     const base = sum(lines.map((l) => l.base));
@@ -154,6 +163,9 @@ export function iibbByActivity(slices: readonly IibbSaleSlice[], cfg: IibbActivi
         tax = minimum.amount;
         warnings.push(`Se aplicó el impuesto mínimo mensual de la actividad ${minimum.code} ($ ${minimum.amount.toFixed(2)}): el impuesto calculado ($ ${calculatedTax.toFixed(2)}) es menor.`);
     }
-    // La alícuota efectiva sigue siendo la del cálculo por actividad (sin el mínimo).
-    return { lines, base, tax, effectiveRate: base.isZero() ? (lines[0]?.rate ?? fallbackRate) : calculatedTax.div(base).times(100).toDecimalPlaces(6), warnings, minimum };
+    const byLabel = new Map<string, Prisma.Decimal[]>();
+    for (const l of lines) if (l.additional) byLabel.set(l.additional.label, [...(byLabel.get(l.additional.label) ?? []), l.additional.amount]);
+    const additionals = [...byLabel.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([label, xs]) => ({ label, amount: sum(xs) }));
+    // La alícuota efectiva sigue siendo la del cálculo por actividad (sin el mínimo ni los adicionales).
+    return { lines, base, tax, effectiveRate: base.isZero() ? (lines[0]?.rate ?? fallbackRate) : calculatedTax.div(base).times(100).toDecimalPlaces(6), warnings, minimum, additionals, additionalsTotal: sum(additionals.map((a) => a.amount)) };
 }

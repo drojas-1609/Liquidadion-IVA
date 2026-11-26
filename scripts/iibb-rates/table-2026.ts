@@ -332,3 +332,74 @@ export function sc2026Main(argv: string[]): number {
     const codes = new Set(rules.flatMap((r) => r.activityCodes));
     return write(a, set, `${parsed.rows.length} filas; ${codes.size} códigos con regla; ${notInCatalog.length} fuera del catálogo de ARCA, sin regla (${notInCatalog.join(", ")})`, [...parsed.problems, ...problems]);
 }
+
+/* ------------------------- Tierra del Fuego 2026 ------------------------ */
+
+const TDF_ID = "tierra-del-fuego-ley-1498-2026";
+const TDF_URL = "https://www1.tcptdf.gob.ar/tcp-publico/leyes-provinciales/LEY%20PROVINCIAL%20N%C2%BA%201498.pdf";
+
+/**
+ * Anexo I de la Ley provincial 1498 (sustituye el Anexo I - Nomenclador de
+ * Actividades de la Ley 440). El PDF oficial es una copia ESCANEADA: su texto
+ * no se puede extraer con fiabilidad, por eso sólo se transcriben a mano los
+ * códigos que usa el estudio, leídos sobre la imagen (página 166 del PDF,
+ * hoja 134 del anexo). Columnas: Alícuota IIBB · Alícuota FFSS · Alícuota FOFISP.
+ * Decisión del estudio (26/11/2026): sólo estos códigos; vigente 2026 con la
+ * salvedad de no haber hallado modificaciones posteriores en AREF.
+ */
+export const TDF_2026_ROWS: ReadonlyArray<{ code: string; description: string; rate: string; ffss: string; page: number }> = [
+    { code: "791101", description: "Servicios minoristas de agencias de viajes excepto en comisión", rate: "0.5", ffss: "1.5", page: 166 },
+    { code: "791102", description: "Servicios minoristas de agencias de viajes en comisión", rate: "0.5", ffss: "1.5", page: 166 },
+    { code: "791201", description: "Servicios mayoristas de agencias de viajes excepto en comisión", rate: "0.5", ffss: "1.5", page: 166 },
+    { code: "791202", description: "Servicios mayoristas de agencias de viajes en comisión", rate: "0.5", ffss: "1.5", page: 166 },
+];
+
+export function buildTdfRules(rows: typeof TDF_2026_ROWS, catalog: Set<string>): { rules: RateRule[]; problems: string[] } {
+    const problems = rows.filter((r) => !catalog.has(r.code)).map((r) => `${r.code}: no está en el catálogo NAES`);
+    const groups = new Map<string, RateRule>();
+    for (const r of rows) {
+        const id = `anexo-i-${r.rate.replace(".", "_")}-ffss-${r.ffss.replace(".", "_")}`;
+        const g = groups.get(id) ?? {
+            id,
+            activityCodes: [],
+            registrations: ["LOCAL", "CONVENIO_MULTILATERAL"],
+            validFrom: null,
+            validTo: null,
+            treatment: "RATE",
+            rate: r.rate,
+            conditions: [],
+            legalReference: `Ley 1498, Anexo I (Nomenclador de Actividades de la Ley 440), pág. ${r.page} del PDF oficial`,
+            caveat: "No aplica a contribuyentes del Régimen Simplificado de IIBB de Tierra del Fuego (tributan importes fijos; tampoco el FFSS). Verificá que el cliente esté en el régimen general.",
+            additional: { label: "FFSS", rate: r.ffss },
+        } as RateRule;
+        g.activityCodes.push(r.code);
+        groups.set(id, g);
+    }
+    return { rules: [...groups.values()], problems };
+}
+
+export function tdf2026Main(argv: string[]): number {
+    const a = parseArgs(argv);
+    const cat = catalogCodes(required(a, "catalog"));
+    const { rules, problems } = buildTdfRules(TDF_2026_ROWS, cat.codes);
+    const set: RateRuleSet = {
+        manifest: {
+            id: TDF_ID,
+            jurisdiction: "923",
+            nomenclator: "NAES",
+            catalogIds: [cat.id],
+            organism: "Agencia de Recaudación Fueguina (AREF)",
+            norm: "Ley 440 (Ley Impositiva) y modificatorias; Anexo I según Ley 1498 (B.O. 2023); alícuota adicional FFSS (Ley 907, art. 7, texto Ley 1340)",
+            sourceUrl: TDF_URL,
+            publishedAt: "2023-09-30",
+            consultedAt: required(a, "consulted"),
+            version: "Anexo I de la Ley 1498 (vigente desde el 01/01/2024); sin modificaciones posteriores halladas en la normativa «Impositiva» de AREF al 26/11/2026. Transcripción manual de los códigos que usa el estudio.",
+            validFrom: "2026-01-01",
+            validTo: "2026-12-31",
+            sourceSha256: sha256Hex(readFileSync(required(a, "pdf"))),
+            review: pendingReview(RULES_REVIEW_LEVELS),
+        },
+        rules,
+    };
+    return write(a, set, `${TDF_2026_ROWS.length} códigos transcriptos; ${rules.length} regla(s)`, problems);
+}

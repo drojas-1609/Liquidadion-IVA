@@ -1,0 +1,74 @@
+{
+ "manifest": {
+  "id": "tierra-del-fuego-ley-1498-2026",
+  "jurisdiction": "923",
+  "nomenclator": "NAES",
+  "catalogIds": [
+   "naes-rg-ca-19-2025"
+  ],
+  "organism": "Agencia de Recaudación Fueguina (AREF)",
+  "norm": "Ley 440 (Ley Impositiva) y modificatorias; Anexo I según Ley 1498 (B.O. 2023); alícuota adicional FFSS (Ley 907, art. 7, texto Ley 1340)",
+  "sourceUrl": "https://www1.tcptdf.gob.ar/tcp-publico/leyes-provinciales/LEY%20PROVINCIAL%20N%C2%BA%201498.pdf",
+  "publishedAt": "2023-09-30",
+  "consultedAt": "2026-11-26",
+  "version": "Anexo I de la Ley 1498 (vigente desde el 01/01/2024); sin modificaciones posteriores halladas en la normativa «Impositiva» de AREF al 26/11/2026. Transcripción manual de los códigos que usa el estudio.",
+  "validFrom": "2026-01-01",
+  "validTo": "2026-12-31",
+  "sourceSha256": "6272117db2dfd01c7bd3f24af39e767177f23b6464e0e31096e1ab3ce2998847",
+  "review": {
+   "status": "PENDIENTE_REVISION",
+   "reviewedBy": null,
+   "reviewedAt": null,
+   "notes": null,
+   "levels": {
+    "technical": {
+     "status": "PENDIENTE",
+     "reviewedBy": null,
+     "reviewedAt": null,
+     "notes": null,
+     "checks": []
+    },
+    "validity": {
+     "status": "PENDIENTE",
+     "reviewedBy": null,
+     "reviewedAt": null,
+     "notes": null,
+     "checks": []
+    },
+    "interpretation": {
+     "status": "PENDIENTE",
+     "reviewedBy": null,
+     "reviewedAt": null,
+     "notes": null,
+     "checks": []
+    }
+   }
+  }
+ },
+ "rules": [
+  {
+   "id": "anexo-i-0_5-ffss-1_5",
+   "activityCodes": [
+    "791101",
+    "791102",
+    "791201",
+    "791202"
+   ],
+   "registrations": [
+    "LOCAL",
+    "CONVENIO_MULTILATERAL"
+   ],
+   "validFrom": null,
+   "validTo": null,
+   "treatment": "RATE",
+   "rate": "0.5",
+   "conditions": [],
+   "legalReference": "Ley 1498, Anexo I (Nomenclador de Actividades de la Ley 440), pág. 166 del PDF oficial",
+   "caveat": "No aplica a contribuyentes del Régimen Simplificado de IIBB de Tierra del Fuego (tributan importes fijos; tampoco el FFSS). Verificá que el cliente esté en el régimen general.",
+   "additional": {
+    "label": "FFSS",
+    "rate": "1.5"
+   }
+  }
+ ]
+}

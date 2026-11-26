@@ -31,12 +31,14 @@ export interface ReviewRateInput {
     origin: "STUDIO_MANUAL" | "CONFIRMED_SUGGESTION" | null;
     ruleRef: string | null;
     minimum: string | null;
+    additional?: { label: string; rate: string } | null;
 }
 
 export interface ReviewPrior {
     rate: string | null;
     treatment: "RATE" | "EXEMPT";
     minimum: string | null;
+    additional?: { label: string; rate: string } | null;
 }
 
 export interface ReviewRow extends ReviewRateInput {
@@ -52,10 +54,12 @@ export interface ReviewRow extends ReviewRateInput {
 }
 
 const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number(v));
-const sameValue = (a: { rate: string | null; treatment: string; minimum: string | null }, b: { rate: string | null; treatment: string; minimum: string | null }) =>
-    a.treatment === b.treatment && num(a.rate) === num(b.rate) && num(a.minimum) === num(b.minimum);
+type Val = { rate: string | null; treatment: string; minimum: string | null; additional?: { label: string; rate: string } | null };
+const sameValue = (a: Val, b: Val) =>
+    a.treatment === b.treatment && num(a.rate) === num(b.rate) && num(a.minimum) === num(b.minimum) &&
+    (a.additional?.label ?? null) === (b.additional?.label ?? null) && num(a.additional?.rate) === num(b.additional?.rate);
 
-const valueOf = (a: RateAlternative) => ({ rate: a.rate, treatment: a.treatment, minimum: a.minimumMonthly ?? null });
+const valueOf = (a: RateAlternative): Val => ({ rate: a.rate, treatment: a.treatment, minimum: a.minimumMonthly ?? null, additional: a.additional ?? null });
 export const isInformedRate = (r: { rate: string | null; treatment: string }) => r.treatment === "EXEMPT" || r.rate !== null;
 
 function messageOf(s: RateSuggestion): string | null {

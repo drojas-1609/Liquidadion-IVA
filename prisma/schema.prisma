@@ -302,6 +302,10 @@ model ClientIibbRateYear {
   ruleRef          String?
   /// Impuesto mínimo mensual del año (la liquidación aplica el mayor contra el impuesto total).
   minimumAmount    Decimal?      @db.Decimal(18, 2)
+  /// Alícuota ADICIONAL que se liquida aparte (p. ej. Tierra del Fuego: FFSS).
+  /// Ambas NULL o ambas informadas; sólo con treatment RATE (CHECK en la migración).
+  additionalLabel  String?       @db.VarChar(10)
+  additionalRate   Decimal?      @db.Decimal(9, 6)
   /// Perfil que la confirmó (sin relación: el detalle queda en la auditoría).
   confirmedById    String?       @db.Uuid
   confirmedAt      DateTime      @default(now())
@@ -1249,6 +1253,10 @@ model ClientActivityRate {
   ruleRef          String?
   /// Impuesto mínimo mensual de la actividad en la jurisdicción (fase IIBB F2).
   minimumAmount    Decimal?      @db.Decimal(18, 2)
+  /// Alícuota ADICIONAL que se liquida aparte (p. ej. Tierra del Fuego: FFSS).
+  /// Ambas NULL o ambas informadas; sólo con treatment RATE (CHECK en la migración).
+  additionalLabel  String?       @db.VarChar(10)
+  additionalRate   Decimal?      @db.Decimal(9, 6)
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
