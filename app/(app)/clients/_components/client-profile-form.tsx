@@ -7,6 +7,7 @@ import { submitNewClient } from "@/lib/new-client-submit";
 import { submitClientUpdate } from "@/lib/client-mutations";
 import { CLIENT_CONDITIONS } from "@/lib/client-condition";
 import { JURISDICTIONS, jurisdictionLabel } from "@/lib/iibb/jurisdictions";
+import { ARBA_ART163_NOTICE, arbaArt163Codes } from "@/lib/iibb/special-regimes";
 import {
     IIBB_INFORMATIVE_NOTICE,
     IIBB_JURISDICTION_KIND_LABEL,
@@ -1106,6 +1107,9 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                                                                       ? `${RATE_ORIGIN_LABEL[r.origin]}${r.ruleRef ? ` (${r.ruleRef})` : ""}${r.minimum && r.minimum.trim() !== "" ? ` · mínimo $ ${r.minimum}/mes` : ""}`
                                                                       : "Sin origen registrado (carga anterior)"}
                                                             </span>
+                                                        )}
+                                                        {r.associated && arbaArt163Codes(code, [a.code]).length > 0 && (
+                                                            <span style={{ ...NOTICE, display: "block", marginTop: "var(--spacing-xs)" }}>{ARBA_ART163_NOTICE}</span>
                                                         )}
                                                         <FieldError baseId={baseId} fieldKey={rk} errors={errorMap} />
                                                         {suggestFor?.uid === a.uid && suggestFor.code === code && (

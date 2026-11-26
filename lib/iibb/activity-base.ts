@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { ARBA_ART163_NOTICE, arbaArt163Codes } from "./special-regimes";
 import { D, roundMoney, sum } from "../decimal";
 
 /**
@@ -101,6 +102,8 @@ export function iibbByActivity(slices: readonly IibbSaleSlice[], cfg: IibbActivi
     if (!cfg.principalCode || !cfg.activities.some((a) => a.code === cfg.principalCode)) {
         warnings.push("El cliente no tiene actividad principal de IIBB definida.");
     }
+    const art163 = arbaArt163Codes(cfg.jurisdictionCode, cfg.activities.map((a) => a.code));
+    if (art163.length > 0) warnings.push(`${ARBA_ART163_NOTICE} Actividades: ${art163.join(", ")}.`);
     const lines: IibbActivityLine[] = [];
     for (const g of [...groups.values()].sort((a, b) => (a.code ?? "~").localeCompare(b.code ?? "~"))) {
         const base = sum(g.base);

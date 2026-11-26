@@ -16,30 +16,30 @@
   "validTo": "2026-12-31",
   "sourceSha256": "ca8b99323b1605fd6c0f800aaed64bc4c996b1632c6628f85677be025578a49a",
   "review": {
-   "status": "PENDIENTE_REVISION",
-   "reviewedBy": null,
-   "reviewedAt": null,
-   "notes": null,
+   "status": "REVISADO",
+   "reviewedBy": "Diego Rojas",
+   "reviewedAt": "2026-11-26",
+   "notes": "Aprobación final del estudio.",
    "levels": {
     "technical": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-26",
+     "notes": "Aprobado por el estudio en el chat (26/11/2026).",
      "checks": []
     },
     "validity": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-26",
+     "notes": "RG DGR 293/2025 Anexo I y Ley Tarifaria 6249 art. 10, vigentes 2026.",
      "checks": []
     },
     "interpretation": {
-     "status": "PENDIENTE",
-     "reviewedBy": null,
-     "reviewedAt": null,
-     "notes": null,
+     "status": "CONFORME",
+     "reviewedBy": "Diego Rojas",
+     "reviewedAt": "2026-11-26",
+     "notes": "Por menor, por mayor y comisión como alternativas por hecho declarado; 16 códigos con fuente contradictoria o mínimo distinto del art. 10 quedan retenidos.",
      "checks": []
     }
    }

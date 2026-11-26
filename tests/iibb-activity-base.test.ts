@@ -175,3 +175,17 @@ describe("mínimo mensual (F2): mayor mínimo contra el impuesto total", () => {
         expect(r.tax.toString()).toBe("30");
     });
 });
+
+describe("ARBA art. 163 Ley 15558: sólo advertencia", () => {
+    it("avisa si el cliente tiene en ARBA un código de terminales portuarias, sin cambiar el impuesto", () => {
+        const arba: IibbActivityConfig = { jurisdictionCode: "902", principalCode: "523011", posMap: {}, activities: [{ code: "523011", description: "Servicios portuarios (ficticio)", rate: D("3"), exempt: false }] };
+        const r = iibbByActivity([{ pointOfSale: 1, manualCode: null, base: D("1000") }], arba, D("3.5"));
+        expect(r.tax.toString()).toBe("30");
+        expect(r.warnings.some((w) => w.includes("art. 163") && w.includes("523011"))).toBe(true);
+    });
+    it("no avisa en otra jurisdicción ni con otros códigos", () => {
+        const otra: IibbActivityConfig = { jurisdictionCode: "901", principalCode: "523011", posMap: {}, activities: [{ code: "523011", description: "x", rate: D("3"), exempt: false }] };
+        expect(iibbByActivity([{ pointOfSale: 1, manualCode: null, base: D("1000") }], otra, D("3.5")).warnings.some((w) => w.includes("art. 163"))).toBe(false);
+        expect(iibbByActivity([{ pointOfSale: 1, manualCode: null, base: D("1000") }], cfg, D("3.5")).warnings.some((w) => w.includes("art. 163"))).toBe(false);
+    });
+});
