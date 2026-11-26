@@ -76,7 +76,12 @@ export const generateLiquidationExcel = (data: LiquidationData) => {
         ...(data.iibb.byActivity ?? []).map((l) => [
             `   Actividad ${l.code ?? "sin asignar"} · ${l.description} (base ${l.base} × ${l.rate}%)`,
             n(l.tax),
-            l.rateSource === "FALLBACK" ? "Sin alícuota informada: se usó la alícuota de respaldo" : l.rateSource === "EXEMPT" ? "Exenta" : "",
+            [
+                l.rateSource === "FALLBACK" ? "Sin alícuota informada: se usó la alícuota de respaldo" : l.rateSource === "EXEMPT" ? "Exenta" : "",
+                l.difference
+                    ? `Base por diferencia (criterio del estudio): ventas ${l.difference.sales} − prestadores ${l.difference.providers}${Number(l.difference.adjustment) !== 0 ? ` − ajuste ${l.difference.adjustment}` : ""}${l.difference.clamped ? " (negativa: se tomó 0)" : ""}`
+                    : "",
+            ].filter((x) => x !== "").join(" · "),
         ]),
         ...(data.iibb.additionals ?? []).map((a) => [`Adicionales: ${a.label}`, n(a.amount), "Alícuota adicional por actividad sobre la misma base; suma al saldo (débitos «Adicionales» de la DDJJ)"]),
         ...(data.iibb.minimum

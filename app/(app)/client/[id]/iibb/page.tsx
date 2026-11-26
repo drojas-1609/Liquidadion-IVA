@@ -30,6 +30,7 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
                 jurisdictions: { select: { jurisdictionCode: true } },
                 activities: { select: { code: true, description: true, rates: { select: { jurisdictionCode: true, rate: true, treatment: true, minimumAmount: true, additionalLabel: true, additionalRate: true } } }, orderBy: { code: "asc" } },
                 posActivities: { select: { pointOfSale: true, activityCode: true }, orderBy: { pointOfSale: "asc" } },
+                iibbProviders: { select: { cuit: true, name: true, activityCode: true }, orderBy: { name: "asc" } },
             },
         });
         if (!client) throw new NotFoundError();
@@ -46,10 +47,19 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
         ]);
         const review = await loadAnnualReview(prisma, { organizationId, clientId: id });
         const seen = await prisma.invoice.groupBy({ by: ["pointOfSale"], where: { organizationId, category: "SALES", period: { clientId: id } }, _count: { _all: true } });
-        return { client, seenPos: seen.map((s) => s.pointOfSale).sort((a, b) => a - b), canEdit: roleAllows(ROLES_UPDATE, role), canReview: roleAllows(ROLES_CLIENT_MANAGE, role), review, thisYear, incomeYears, incomes, rateYears, references };
+        // Proveedores con compras del año en curso (para marcar prestadores con un clic).
+        const supplierRows = await prisma.invoice.groupBy({
+            by: ["counterpartyDocNumber", "counterpartyName"],
+            where: { organizationId, category: "PURCHASES", period: { clientId: id, year: thisYear }, counterpartyDocNumber: { not: null } },
+            _count: { _all: true },
+            orderBy: { _count: { counterpartyDocNumber: "desc" } },
+            take: 60,
+        });
+        const suppliers = [...new Map(supplierRows.filter((r) => r.counterpartyDocNumber && /^\d{11}$/.test(r.counterpartyDocNumber)).map((r) => [r.counterpartyDocNumber as string, { cuit: r.counterpartyDocNumber as string, name: r.counterpartyName ?? "" }])).values()];
+        return { client, suppliers, seenPos: seen.map((s) => s.pointOfSale).sort((a, b) => a - b), canEdit: roleAllows(ROLES_UPDATE, role), canReview: roleAllows(ROLES_CLIENT_MANAGE, role), review, thisYear, incomeYears, incomes, rateYears, references };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { client, seenPos, canEdit, canReview, review, thisYear, incomeYears, incomes, rateYears, references } = guard.data;
+    const { client, suppliers, seenPos, canEdit, canReview, review, thisYear, incomeYears, incomes, rateYears, references } = guard.data;
     const years = [...new Set(rateYears.map((r) => r.fiscalYear))];
     const descByCode = new Map(client.activities.map((a) => [a.code, a.description]));
     const pctLabel = (r: { rate: { toFixed: (n: number) => string } | null; treatment: string }) =>
@@ -119,9 +129,11 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
                         principalCode={client.iibbPrincipalActivityCode}
                         pos={client.posActivities}
                         seenPos={seenPos}
+                        providers={client.iibbProviders}
+                        suppliers={suppliers}
                     />
                 ) : (
-                    <p>Actividad principal: <strong>{client.iibbPrincipalActivityCode ?? "sin definir"}</strong>. Puntos de venta asignados: {client.posActivities.length === 0 ? "ninguno" : client.posActivities.map((p) => `${p.pointOfSale} → ${p.activityCode}`).join(", ")}.</p>
+                    <p>Actividad principal: <strong>{client.iibbPrincipalActivityCode ?? "sin definir"}</strong>. Puntos de venta asignados: {client.posActivities.length === 0 ? "ninguno" : client.posActivities.map((p) => `${p.pointOfSale} → ${p.activityCode}`).join(", ")}. Prestadores (base por diferencia): {client.iibbProviders.length === 0 ? "ninguno" : client.iibbProviders.map((p) => `${p.name} → ${p.activityCode}`).join(", ")}.</p>
                 )
             )}
             <section className="card" aria-labelledby="income-title">

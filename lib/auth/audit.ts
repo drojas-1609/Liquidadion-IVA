@@ -73,6 +73,7 @@ export const AUDIT_ACTIONS = [
   "client.gross_income_year",
   "client.iibb_annual_review",
   "invoice.iibb_activity",
+  "period.iibb_cost_adjustment",
   "chart.model_apply",
   "client.accounting_profile",
   "journal.entry_generate",
@@ -173,13 +174,15 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   // Constancia de inscripción cargada: fecha de emisión, verificador y si se encoló para Drive.
   "client.arca_constancia": ["issuedOn", "verifier", "queued"],
   // IIBB por actividad: actividad principal y cantidad de puntos de venta asignados.
-  "client.iibb_activity_config": ["principalCode", "posCount"],
+  "client.iibb_activity_config": ["principalCode", "posCount", "providersCount"],
   // Ingresos brutos anuales (tramos de alícuota): año y si se cargó o se borró; nunca el monto.
   "client.gross_income_year": ["incomeYear", "cleared"],
   // Revisión anual de alícuotas: año y cantidad de alícuotas confirmadas; nunca las tasas.
   "client.iibb_annual_review": ["fiscalYear", "count"],
   // Corrección manual de actividad de IIBB: cantidad de comprobantes y período.
   "invoice.iibb_activity": ["count", "periodId", "code"],
+  // Ajustes del costo de prestadores (base por diferencia): cantidad; nunca importes ni notas.
+  "period.iibb_cost_adjustment": ["count"],
   "chart.model_apply": ["model", "accounts"],
   "client.accounting_profile": ["mipymeCategory", "chartModel", "accountsCreated"],
   "journal.entry_generate": ["kind", "number", "replaced"],

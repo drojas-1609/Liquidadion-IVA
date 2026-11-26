@@ -236,6 +236,7 @@ model Client {
   /// por defecto de las ventas sin punto de venta asignado ni corrección manual.
   iibbPrincipalActivityCode String? @db.VarChar(12)
   posActivities    ClientPosActivity[]
+  iibbProviders    ClientIibbProvider[]
   iibbRateYears    ClientIibbRateYear[]
   grossIncomeYears ClientGrossIncomeYear[]
   chartAccounts    ChartAccount[]
@@ -281,6 +282,27 @@ model ClientPosActivity {
   client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([clientId, pointOfSale])
+  @@index([organizationId])
+}
+
+/// Proveedor marcado como PRESTADOR para la base de IIBB por diferencia
+/// (criterio del estudio, p. ej. agencias de viajes: cobrado − pagado al
+/// prestador). Sus compras del período, netas de IVA (facturas C por el total),
+/// se restan de la base de la actividad indicada.
+model ClientIibbProvider {
+  id             String   @id @default(cuid())
+  organizationId String
+  clientId       String
+  /// CUIT del prestador, 11 dígitos.
+  cuit           String   @db.VarChar(11)
+  name           String   @db.VarChar(200)
+  activityCode   String   @db.VarChar(12)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  client Client @relation(fields: [clientId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([clientId, cuit])
   @@index([organizationId])
 }
 
@@ -365,6 +387,7 @@ model Period {
   vatCreditAdjustments PeriodVatCreditAdjustment[]
   /// Posición de IIBB del período (saldo anterior, pagos a cuenta, DDJJ presentada).
   iibbPosition         PeriodIibbPosition?
+  iibbCostAdjustments  PeriodIibbCostAdjustment[]
   f931                 PayrollF931?
   unionSlips           PayrollUnionSlip[]
   taxRecords           TaxRecord[]
@@ -762,6 +785,24 @@ model PeriodVatCreditAdjustment {
 /// equivalentes): saldo a favor del período anterior, pagos a cuenta, otros
 /// créditos y débitos, y lo efectivamente presentado para controlarlo contra
 /// el cálculo. Importes >= 0 (CHECK en la base). 1:1 con el período.
+/// Ajuste manual del costo de prestadores de una actividad en un período
+/// (suma al costo calculado de las compras; puede ser negativo). Con nota.
+model PeriodIibbCostAdjustment {
+  id             String   @id @default(cuid())
+  organizationId String
+  periodId       String
+  activityCode   String   @db.VarChar(12)
+  amount         Decimal  @db.Decimal(18, 2)
+  note           String   @db.VarChar(300)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
+
+  @@unique([periodId, activityCode])
+  @@index([organizationId])
+}
+
 model PeriodIibbPosition {
   id                   String    @id @default(cuid())
   organizationId       String

@@ -239,7 +239,16 @@ export async function LiquidationScreen({ params, view }: { params: Promise<{ id
                                                 {l.sources.map((x) => ({ MANUAL: "corrección manual", POS: "punto de venta", PRINCIPAL: "actividad principal", NONE: "sin actividad" })[x]).join(" · ")}
                                             </small>
                                         </td>
-                                        <td>${m(l.base)}</td>
+                                        <td>
+                                            ${m(l.base)}
+                                            {l.difference && (
+                                                <small style={{ display: "block" }}>
+                                                    ventas ${m(l.difference.sales)} − prestadores ${m(l.difference.providers)}
+                                                    {!l.difference.adjustment.isZero() && <> − ajuste ${m(l.difference.adjustment)}</>}
+                                                    {l.difference.clamped && " (negativa: 0)"}
+                                                </small>
+                                            )}
+                                        </td>
                                         <td>{l.rateSource === "EXEMPT" ? "exenta" : `${l.rate.toFixed(2).replace(".", ",")} %`}{l.rateSource === "FALLBACK" ? " (respaldo)" : ""}</td>
                                         <td>${m(l.tax)}</td>
                                         {r.iibb.additionals.length > 0 && <td>{l.additional ? `${l.additional.label} ${l.additional.rate.toFixed(2).replace(".", ",")} %: $${m(l.additional.amount)}` : "—"}</td>}
