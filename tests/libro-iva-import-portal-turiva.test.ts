@@ -62,3 +62,14 @@ describe("descarga TurIVA: redondeo aceptado", () => {
         expect(pv.rows[0].notes.join(" ")).toMatch(/diferencia de redondeo aceptada/);
     });
 });
+
+describe("descarga de Portal IVA en otra moneda", () => {
+    it("DOL con tipo de cambio: se importa con nota (los importes ya están en pesos); sin tipo de cambio sigue para revisar", () => {
+        const dol = row({ "Moneda Original": "DOL", "Tipo de Cambio": "1534,00" });
+        const ok = preview(csv([dol])).preview.rows[0];
+        expect(ok.status).toBe("OK");
+        expect(ok.notes.join(" ")).toMatch(/moneda original DOL con tipo de cambio 1534/);
+        expect(ok.model!.currencyCode).toBe("PES");
+        expect(preview(csv([row({ "Moneda Original": "DOL", "Tipo de Cambio": "0,00" })])).preview.rows[0].status).toBe("REVIEW");
+    });
+});
