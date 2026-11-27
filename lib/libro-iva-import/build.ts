@@ -492,7 +492,10 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
         }
     }
 
-    const allocation = category === "PURCHASES" ? "DIRECT_COMPUTABLE" : "NOT_APPLICABLE";
+    // Prorrateo global (sin asignación directa): todo el IVA de compras va al prorrateo y el
+    // computable sale en la liquidación (IVA × coeficiente del período). Criterio del estudio, 27/11/2026.
+    const globalOnly = category === "PURCHASES" && ctx.settings.creditProrationMode === "GLOBAL";
+    const allocation = category === "PURCHASES" ? (globalOnly ? "GLOBAL_PRORATION" : "DIRECT_COMPUTABLE") : "NOT_APPLICABLE";
     const rateCodes = aliquots.map((a) => Number(str(a.values.rateCode)));
     if (new Set(rateCodes).size !== rateCodes.length) d.raise("REVIEW", "la misma alícuota aparece más de una vez en el comprobante: unificar antes de importar");
     const lines: VatLineData[] = [];
@@ -521,7 +524,7 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
             netAmount: net.abs(),
             vatAmount: vat.abs(),
             creditAllocation: allocation,
-            computableVatAmount: category === "PURCHASES" ? vat.abs() : null,
+            computableVatAmount: category === "PURCHASES" && !globalOnly ? vat.abs() : null,
             computableOverridden: false,
         });
     }
@@ -541,11 +544,15 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     if (category === "PURCHASES") {
         reportedCredit = header.computableCredit.abs();
         const mode = ctx.settings.creditProrationMode;
-        if (ctx.source === "MIS_COMPROBANTES" && mode !== "NONE") {
+        if (mode === "GLOBAL") {
+            if (lines.length > 0) {
+                d.row.notes.push(`IVA sujeto a prorrateo global (coeficiente del período)${ctx.source === "MIS_COMPROBANTES" ? "" : `; crédito computable informado en el archivo ${reportedCredit.toFixed(2)}, sólo como referencia`}`);
+            }
+        } else if (ctx.source === "MIS_COMPROBANTES" && mode !== "NONE") {
             // La consulta no informa el crédito computable: sólo sin prorrateo es igual al IVA (Especificaciones, campo 21).
             d.raise("REVIEW", "la consulta de Mis Comprobantes no informa el crédito fiscal computable y el período tiene prorrateo: cargarlo por otra vía");
-        } else if (mode === "GLOBAL" || mode === "DIRECT_AND_GLOBAL") {
-            d.raise("REVIEW", "período con prorrateo global: la asignación del crédito por línea no se puede determinar desde el archivo");
+        } else if (mode === "DIRECT_AND_GLOBAL") {
+            d.raise("REVIEW", "período con prorrateo por asignación directa y global: la asignación del crédito por línea no se puede determinar desde el archivo");
         } else if (reportedCredit.greaterThan(totalVat)) {
             d.raise("ERROR", "el crédito fiscal computable informado supera al IVA liquidado");
         } else if (!reportedCredit.equals(totalVat)) {

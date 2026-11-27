@@ -183,7 +183,11 @@ describe("vista previa: vínculo comprobante–alícuotas, errores por fila y co
         const two = purchasesPreview([purchase({ total: "2315.00", aliquotCount: 2, computableCredit: "100.00" })], [pAli(), pAli({ rate: 4, vat: "105.00" })], direct);
         expect(two.rows[0].status).toBe("REVIEW");
         const global = purchasesPreview([purchase()], [pAli()], ctx({ category: "PURCHASES", settings: { creditProrationMode: "GLOBAL", globalCoefficient: new Prisma.Decimal("0.5") } }));
-        expect(global.rows[0].status).toBe("REVIEW");
+        // Prorrateo global (criterio del estudio, 27/11/2026): todo el IVA va al prorrateo, sin computable propio.
+        expect(global.rows[0].status).toBe("OK");
+        expect(global.rows[0].model!.vatLines[0].creditAllocation).toBe("GLOBAL_PRORATION");
+        const mixed = purchasesPreview([purchase()], [pAli()], ctx({ category: "PURCHASES", settings: { creditProrationMode: "DIRECT_AND_GLOBAL", globalCoefficient: new Prisma.Decimal("0.5") } }));
+        expect(mixed.rows[0].status).toBe("REVIEW");
         const over = purchasesPreview([purchase({ computableCredit: "300.00" })], [pAli()]);
         expect(over.rows[0].status).toBe("ERROR");
     });
