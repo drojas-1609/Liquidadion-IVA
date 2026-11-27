@@ -73,3 +73,13 @@ describe("descarga de Portal IVA en otra moneda", () => {
         expect(preview(csv([row({ "Moneda Original": "DOL", "Tipo de Cambio": "0,00" })])).preview.rows[0].status).toBe("REVIEW");
     });
 });
+
+describe("detección de la diferencia de redondeo en la vista previa", () => {
+    it("reconoce el mensaje real de build.ts (con el importe calculado entre medio)", async () => {
+        const { hasRoundingDifference } = await import("@/lib/libro-iva-import/rounding");
+        const p = parsePortalDownload(csv([row({ "Importe Total": "4664649,30", "Importe Reintegro Decreto 1043/2016 (TurIVA)": "979576,35", "Neto Gravado IVA 21%": "4664649,29", "Importe IVA 21%": "979576,35", "Total Neto Gravado": "4664649,29", "Total IVA": "979576,35" })]), "SALES");
+        const pv = buildImportPreview(ctx(true), p.vouchers, p.aliquots, { fileErrors: p.fileErrors, rowNotes: p.totalColumnNotes });
+        expect(hasRoundingDifference(pv.rows[0].messages)).toBe(true);
+        expect(hasRoundingDifference(["el total informado 100.00 no coincide con la suma de sus componentes 99.00 (diferencia 1.00)"])).toBe(false);
+    });
+});

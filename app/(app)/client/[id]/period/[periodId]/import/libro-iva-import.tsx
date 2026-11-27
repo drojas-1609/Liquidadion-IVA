@@ -1,5 +1,6 @@
 "use client";
 
+import { hasRoundingDifference } from "@/lib/libro-iva-import/rounding";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { readApiError } from "@/lib/new-client-submit";
@@ -564,7 +565,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                             Volver a importar los comprobantes eliminados de la app ({preview.deletedCount}). Sin esta marca quedan para revisar y no se importan.
                         </label>
                     )}
-                    {(acceptRounding || preview.rows.some((r) => r.messages.some((m) => /no coincide con la suma de sus componentes \(diferencia -?0\.0[12]\)/.test(m)))) && (
+                    {(acceptRounding || preview.rows.some((r) => hasRoundingDifference(r.messages))) && (
                         <label className="check" style={{ marginBottom: "var(--spacing-sm)" }}>
                             <input
                                 type="checkbox"
