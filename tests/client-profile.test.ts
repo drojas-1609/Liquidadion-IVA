@@ -269,3 +269,14 @@ describe("unconfirmedRemovals — nada se borra en silencio", () => {
         if (!r.ok) expect(r.field).toBe(field);
     });
 });
+
+describe("actividad principal en la ficha IIBB", () => {
+    it("ausente no se informa; null/vacío la limpia; debe ser una actividad de la ficha", () => {
+        const ok = validateIibbProfile({ activities: [act()] });
+        expect(ok.ok && "principalCode" in ok.value).toBe(false);
+        expect(validateIibbProfile({ activities: [act()], principalCode: "620100" })).toMatchObject({ ok: true, value: { principalCode: "620100" } });
+        expect(validateIibbProfile({ activities: [act()], principalCode: "" })).toMatchObject({ ok: true, value: { principalCode: null } });
+        expect(validateIibbProfile({ activities: [act()], principalCode: "999999" })).toMatchObject({ ok: false, field: "iibb.principalCode" });
+        expect(validateIibbProfile({ activities: [act()], principalCode: 5 })).toMatchObject({ ok: false, field: "iibb.principalCode" });
+    });
+});

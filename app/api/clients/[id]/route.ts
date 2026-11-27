@@ -136,6 +136,17 @@ export const PATCH = withApiAuthz(async (request: Request, ctx: Ctx) => {
                 }
             }
 
+            // Actividad principal: la que se marcó en la ficha; si se quitó esa actividad, queda sin definir.
+            if (iibb !== undefined) {
+                const stored = current.iibbPrincipalActivityCode ?? null;
+                const requested = iibb.principalCode !== undefined ? iibb.principalCode : stored;
+                const next = requested && iibb.activities.some((a) => a.code === requested) ? requested : null;
+                if (next !== stored) {
+                    changed.push("iibbPrincipalActivityCode");
+                    data.iibbPrincipalActivityCode = next;
+                }
+            }
+
             if (credential) changed.push("arcaCredential");
             if (changed.length === 0) return current; // sin cambios: ni escritura ni AuditLog
 
