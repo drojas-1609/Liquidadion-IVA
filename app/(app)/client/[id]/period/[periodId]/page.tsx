@@ -13,6 +13,8 @@ import { isPeriodClosed, periodStatusLabel, PERIOD_CLOSE_IIBB_NOTICE, PERIOD_CLO
 import { PeriodActions } from "./period-actions";
 import { PeriodStatusActions } from "./period-status-actions";
 import { TurivaSetting } from "./turiva-setting";
+import { CreditProrationSetting } from "./credit-proration-setting";
+import type { CoefficientStatus, ProrationMode } from "@/lib/credit-proration-input";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +31,7 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
         // comprobante (con 18.002 la carga completa respondía 500 en la Preview).
         const found = await prisma.period.findFirst({
             where: { id: periodId, organizationId },
-            select: { id: true, month: true, year: true, status: true, updatedAt: true, vatSettings: { select: { turivaIncluded: true } } },
+            select: { id: true, month: true, year: true, status: true, updatedAt: true, vatSettings: { select: { turivaIncluded: true, creditProrationMode: true, globalCoefficient: true, globalCoefficientStatus: true } } },
         });
         if (!found) throw new NotFoundError();
         const liquidation = await loadPeriodLiquidationInput(prisma, { organizationId, periodId: found.id });
@@ -48,13 +50,26 @@ export default async function PeriodDashboard({ params }: { params: Promise<{ id
     // sólo llegan dos booleanos (nada de organización, rol ni configuración).
     // key: tras router.refresh() con otro valor del servidor, se reinicia el estado.
     const turivaIncluded = period.vatSettings?.turivaIncluded === true;
+    const vs = period.vatSettings;
+    const prorationMode = (vs?.creditProrationMode ?? "NONE") as ProrationMode;
+    const coefficient = vs?.globalCoefficient ? vs.globalCoefficient.toString() : null;
     const turivaCard = (
-        <TurivaSetting
-            key={String(turivaIncluded)}
-            periodId={period.id}
-            turivaIncluded={turivaIncluded}
-            canEdit={roleAllows(ROLES_UPDATE, role) && !closed}
-        />
+        <>
+            <TurivaSetting
+                key={String(turivaIncluded)}
+                periodId={period.id}
+                turivaIncluded={turivaIncluded}
+                canEdit={roleAllows(ROLES_UPDATE, role) && !closed}
+            />
+            <CreditProrationSetting
+                key={`${prorationMode}|${coefficient}|${vs?.globalCoefficientStatus ?? ""}`}
+                periodId={period.id}
+                mode={prorationMode}
+                coefficient={coefficient}
+                status={(vs?.globalCoefficientStatus ?? null) as CoefficientStatus | null}
+                canEdit={roleAllows(ROLES_UPDATE, role) && !closed}
+            />
+        </>
     );
 
     // Estado del período: etiqueta, cerrar / reabrir según rol y aviso de alcance.

@@ -303,6 +303,7 @@ const WRITERS: Record<string, readonly string[]> = {
   "app/api/taxes/route.ts": ["POST"],
   "app/api/taxes/[id]/route.ts": ["PATCH", "DELETE"],
   "app/api/periods/[id]/vat-settings/route.ts": ["PATCH"],
+  "app/api/periods/[id]/credit-proration/route.ts": ["PUT"],
   // Posición de IVA (saldo técnico anterior y ajustes por contribuciones).
   "app/api/periods/[id]/vat-position/route.ts": ["PUT"],
   // Posición de IIBB (saldo anterior, pagos a cuenta, DDJJ presentada).
@@ -357,8 +358,8 @@ const details = (file: string, src: string, methods?: readonly string[]) => anal
 
 describe("cobertura estructural — producción", () => {
   it("el inventario es exacto: 24 handlers en 22 archivos (22 writers del contenido + 2 transiciones de estado)", () => {
-    expect(Object.keys(WRITERS)).toHaveLength(23);
-    expect(Object.values(WRITERS).flat()).toHaveLength(25);
+    expect(Object.keys(WRITERS)).toHaveLength(24);
+    expect(Object.values(WRITERS).flat()).toHaveLength(26);
     expect(Object.values(TRANSITIONS).flat()).toHaveLength(2);
     for (const [f, ms] of Object.entries(TRANSITIONS)) for (const m of ms) expect(WRITERS[f], f).toContain(m);
     expect(productionFiles.length).toBeGreaterThan(20);
