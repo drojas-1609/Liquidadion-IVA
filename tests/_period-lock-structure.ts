@@ -103,7 +103,7 @@ export interface Violation {
 }
 
 /** Modelos del contenido del período: toda operación de escritura cuenta. */
-const CONTENT_MODELS = new Set(["invoice", "invoiceVatLine", "taxRecord", "periodVatSettings", "periodVatCreditAdjustment", "periodIibbPosition", "periodIibbCostAdjustment", "payrollF931"]);
+const CONTENT_MODELS = new Set(["invoice", "invoiceVatLine", "taxRecord", "periodVatSettings", "periodVatCreditAdjustment", "periodIibbPosition", "periodIibbCostAdjustment", "invoiceIibbCostSplit", "payrollF931"]);
 const WRITE_OPS = new Set([
   "create",
   "createMany",

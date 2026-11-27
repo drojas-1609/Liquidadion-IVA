@@ -296,7 +296,13 @@ model ClientIibbProvider {
   /// CUIT del prestador, 11 dígitos.
   cuit           String   @db.VarChar(11)
   name           String   @db.VarChar(200)
+  /// Actividad por defecto ("" = no resta de ninguna base).
   activityCode   String   @db.VarChar(12)
+  /// SINGLE: todo a activityCode · BY_VAT_RATE: según rateMap (lo no mapeado,
+  /// a activityCode) · MANUAL: cada factura se reparte a mano (sin repartir no resta).
+  mode           String   @default("SINGLE") @db.VarChar(12)
+  /// BY_VAT_RATE: { "<código de alícuota ARCA>" | "EXENTO" | "SIN_IVA": "<actividad>" | "" }.
+  rateMap        Json?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -581,6 +587,8 @@ model Invoice {
   periodClient Period? @relation("InvoicePeriodClient", fields: [periodId, clientId, organizationId], references: [id, clientId, organizationId], onUpdate: Cascade, onDelete: Restrict)
 
   vatLines         InvoiceVatLine[]
+  /// Reparto manual del costo de un prestador por actividad (base de IIBB por diferencia).
+  iibbCostSplits   InvoiceIibbCostSplit[]
   /// Percepción registrada como TaxRecord a partir de este comprobante (a lo
   /// sumo una: índice único parcial). Evita contarla dos veces.
   linkedTaxRecords TaxRecord[]
@@ -800,6 +808,24 @@ model PeriodIibbCostAdjustment {
   period Period @relation(fields: [periodId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
 
   @@unique([periodId, activityCode])
+  @@index([organizationId])
+}
+
+/// Reparto manual de una compra a un prestador entre actividades (base de IIBB
+/// por diferencia). Importes positivos en pesos netos de IVA (el signo de la nota
+/// de crédito lo aplica el cálculo); activityCode "" = la parte que no resta.
+model InvoiceIibbCostSplit {
+  id             String   @id @default(cuid())
+  organizationId String
+  invoiceId      String
+  activityCode   String   @db.VarChar(12)
+  amount         Decimal  @db.Decimal(18, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId, organizationId], references: [id, organizationId], onUpdate: Cascade, onDelete: Cascade)
+
+  @@unique([invoiceId, activityCode])
   @@index([organizationId])
 }
 

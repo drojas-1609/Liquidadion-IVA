@@ -1,10 +1,13 @@
 "use client";
 
+import { PROVIDER_MODES, RATE_MAP_KEYS, RATE_MAP_LABELS, type ProviderMode, type RateMap } from "@/lib/iibb/provider-modes";
+
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Row = { pointOfSale: string; activityCode: string };
-type Provider = { cuit: string; name: string; activityCode: string };
+type Provider = { cuit: string; name: string; activityCode: string; mode: ProviderMode; rateMap: RateMap | null };
+const MODE_LABEL: Record<ProviderMode, string> = { SINGLE: "Una sola actividad", BY_VAT_RATE: "Por alícuota de IVA", MANUAL: "Reparto manual por factura" };
 
 export function IibbActivityForm({ clientId, activities, principalCode, pos, seenPos, providers, suppliers }: {
     clientId: string;
@@ -25,7 +28,7 @@ export function IibbActivityForm({ clientId, activities, principalCode, pos, see
     const [msg, setMsg] = useState<{ tone: "status" | "alert"; text: string } | null>(null);
     const [provs, setProvs] = useState<Provider[]>(providers);
     const setProv = (i: number, patch: Partial<Provider>) => setProvs((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
-    const addProv = (p: { cuit?: string; name?: string } = {}) => setProvs((ps) => [...ps, { cuit: p.cuit ?? "", name: p.name ?? "", activityCode: principal || activities[0]?.code || "" }]);
+    const addProv = (p: { cuit?: string; name?: string } = {}) => setProvs((ps) => [...ps, { cuit: p.cuit ?? "", name: p.name ?? "", activityCode: principal || activities[0]?.code || "", mode: "SINGLE", rateMap: null }]);
     const notMarked = suppliers.filter((s) => !provs.some((p) => p.cuit.replace(/\D/g, "") === s.cuit));
     const unassigned = seenPos.filter((p) => !rows.some((r) => r.pointOfSale === String(p)));
 
@@ -40,7 +43,9 @@ export function IibbActivityForm({ clientId, activities, principalCode, pos, see
             const body = {
                 principalCode: principal || null,
                 pos: rows.filter((r) => r.pointOfSale.trim() !== "").map((r) => ({ pointOfSale: Number(r.pointOfSale), activityCode: r.activityCode })),
-                providers: provs.filter((p) => p.cuit.trim() !== "" || p.name.trim() !== "").map((p) => ({ cuit: p.cuit.trim(), name: p.name.trim(), activityCode: p.activityCode })),
+                providers: provs
+                    .filter((p) => p.cuit.trim() !== "" || p.name.trim() !== "")
+                    .map((p) => ({ cuit: p.cuit.trim(), name: p.name.trim(), activityCode: p.activityCode, mode: p.mode, ...(p.mode === "BY_VAT_RATE" ? { rateMap: p.rateMap ?? {} } : {}) })),
             };
             const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}/iibb-activities`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
             const json = await res.json().catch(() => null);
@@ -86,7 +91,7 @@ export function IibbActivityForm({ clientId, activities, principalCode, pos, see
             <fieldset className="stack">
                 <legend>Prestadores: base por diferencia (opcional)</legend>
                 <p style={{ color: "var(--secondary)", fontSize: "0.875rem" }}>
-                    Criterio del estudio (p. ej. agencias de viajes): la base de la actividad es lo cobrado menos lo pagado a estos prestadores. Se restan sus compras del período netas de IVA (facturas C por el total); las notas de crédito restan. En cada período podés ajustar el costo a mano.
+                    Criterio del estudio, sólo para la intermediación turística (p. ej. 791100, 791200, 960999): la base es lo cobrado menos lo pagado a estos prestadores. Se restan sus compras del período netas de IVA (facturas C por el total); las notas de crédito restan. Si un prestador factura varias cosas en la misma factura, repartilo por alícuota de IVA (p. ej. 10,5 % → no resta, transporte propio) o a mano por factura. En cada período podés ajustar el costo.
                 </p>
                 {provs.length === 0 && <p style={{ color: "var(--secondary)" }}>Sin prestadores: la base es el total de las ventas de cada actividad.</p>}
                 {provs.map((p, i) => (
@@ -99,13 +104,53 @@ export function IibbActivityForm({ clientId, activities, principalCode, pos, see
                             <span>Nombre</span>
                             <input value={p.name} maxLength={200} onChange={(e) => setProv(i, { name: e.target.value })} aria-label={`Nombre del prestador, fila ${i + 1}`} />
                         </label>
+                        <label className="field" style={{ width: "13rem" }}>
+                            <span>Cómo se reparte</span>
+                            <select
+                                value={p.mode}
+                                onChange={(e) => {
+                                    const mode = e.target.value as ProviderMode;
+                                    setProv(i, { mode, rateMap: mode === "BY_VAT_RATE" ? (p.rateMap ?? {}) : null, activityCode: mode === "SINGLE" && p.activityCode === "" ? principal || activities[0]?.code || "" : p.activityCode });
+                                }}
+                                aria-label={`Modo de reparto del prestador, fila ${i + 1}`}
+                            >
+                                {PROVIDER_MODES.map((m) => <option key={m} value={m}>{MODE_LABEL[m]}</option>)}
+                            </select>
+                        </label>
                         <label className="field" style={{ flex: 1, minWidth: "14rem" }}>
-                            <span>Actividad a la que resta</span>
+                            <span>{p.mode === "SINGLE" ? "Actividad a la que resta" : p.mode === "BY_VAT_RATE" ? "Actividad por defecto (lo no mapeado)" : "Actividad sugerida"}</span>
                             <select value={p.activityCode} onChange={(e) => setProv(i, { activityCode: e.target.value })} aria-label={`Actividad del prestador, fila ${i + 1}`}>
+                                {p.mode !== "SINGLE" && <option value="">— no resta —</option>}
                                 {activities.map((a) => <option key={a.code} value={a.code}>{a.label}</option>)}
                             </select>
                         </label>
                         <button type="button" className="btn btn-secondary btn-sm" onClick={() => setProvs((ps) => ps.filter((_, j) => j !== i))}>Quitar</button>
+                        {p.mode === "BY_VAT_RATE" && (
+                            <div style={{ flexBasis: "100%", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(15rem, 1fr))", gap: "0.5rem" }}>
+                                {RATE_MAP_KEYS.map((k) => (
+                                    <label key={k} className="field">
+                                        <span>{RATE_MAP_LABELS[k]}</span>
+                                        <select
+                                            value={p.rateMap?.[k] ?? "__default"}
+                                            onChange={(e) => {
+                                                const next: RateMap = { ...(p.rateMap ?? {}) };
+                                                if (e.target.value === "__default") delete next[k];
+                                                else next[k] = e.target.value;
+                                                setProv(i, { rateMap: next });
+                                            }}
+                                            aria-label={`${RATE_MAP_LABELS[k]} del prestador, fila ${i + 1}`}
+                                        >
+                                            <option value="__default">Por defecto</option>
+                                            <option value="">— no resta —</option>
+                                            {activities.map((a) => <option key={a.code} value={a.code}>{a.label}</option>)}
+                                        </select>
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+                        {p.mode === "MANUAL" && (
+                            <small style={{ flexBasis: "100%", color: "var(--secondary)" }}>Cada factura se reparte en «Ventas por actividad de IIBB» del período; mientras no se reparta, no resta.</small>
+                        )}
                     </div>
                 ))}
                 <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>

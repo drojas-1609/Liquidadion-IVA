@@ -9,6 +9,7 @@ import { localIibbJurisdiction, salesIibbBaseForYear } from "@/lib/liquidation-t
 import { currentFiscalYear } from "@/lib/iibb/rate-years";
 import { formatMoney } from "@/lib/format";
 import { IibbActivityForm } from "./iibb-activity-form";
+import { PROVIDER_MODES, type ProviderMode, type RateMap } from "@/lib/iibb/provider-costs";
 import { GrossIncomeForm } from "./gross-income-form";
 import { AnnualReview, type ReviewRowView } from "./annual-review";
 import { loadAnnualReview } from "@/lib/iibb/annual-review-store";
@@ -30,7 +31,7 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
                 jurisdictions: { select: { jurisdictionCode: true } },
                 activities: { select: { code: true, description: true, rates: { select: { jurisdictionCode: true, rate: true, treatment: true, minimumAmount: true, additionalLabel: true, additionalRate: true } } }, orderBy: { code: "asc" } },
                 posActivities: { select: { pointOfSale: true, activityCode: true }, orderBy: { pointOfSale: "asc" } },
-                iibbProviders: { select: { cuit: true, name: true, activityCode: true }, orderBy: { name: "asc" } },
+                iibbProviders: { select: { cuit: true, name: true, activityCode: true, mode: true, rateMap: true }, orderBy: { name: "asc" } },
             },
         });
         if (!client) throw new NotFoundError();
@@ -129,11 +130,17 @@ export default async function IibbActivitiesPage({ params }: { params: Promise<{
                         principalCode={client.iibbPrincipalActivityCode}
                         pos={client.posActivities}
                         seenPos={seenPos}
-                        providers={client.iibbProviders}
+                        providers={client.iibbProviders.map((p) => ({
+                            cuit: p.cuit,
+                            name: p.name,
+                            activityCode: p.activityCode,
+                            mode: (PROVIDER_MODES as readonly string[]).includes(p.mode) ? (p.mode as ProviderMode) : "SINGLE",
+                            rateMap: p.rateMap && typeof p.rateMap === "object" && !Array.isArray(p.rateMap) ? (p.rateMap as RateMap) : null,
+                        }))}
                         suppliers={suppliers}
                     />
                 ) : (
-                    <p>Actividad principal: <strong>{client.iibbPrincipalActivityCode ?? "sin definir"}</strong>. Puntos de venta asignados: {client.posActivities.length === 0 ? "ninguno" : client.posActivities.map((p) => `${p.pointOfSale} → ${p.activityCode}`).join(", ")}. Prestadores (base por diferencia): {client.iibbProviders.length === 0 ? "ninguno" : client.iibbProviders.map((p) => `${p.name} → ${p.activityCode}`).join(", ")}.</p>
+                    <p>Actividad principal: <strong>{client.iibbPrincipalActivityCode ?? "sin definir"}</strong>. Puntos de venta asignados: {client.posActivities.length === 0 ? "ninguno" : client.posActivities.map((p) => `${p.pointOfSale} → ${p.activityCode}`).join(", ")}. Prestadores (base por diferencia): {client.iibbProviders.length === 0 ? "ninguno" : client.iibbProviders.map((p) => `${p.name} → ${p.mode === "SINGLE" ? p.activityCode : p.mode === "BY_VAT_RATE" ? "por alícuota" : "reparto manual"}`).join(", ")}.</p>
                 )
             )}
             <section className="card" aria-labelledby="income-title">

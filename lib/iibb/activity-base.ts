@@ -49,6 +49,8 @@ export interface IibbActivityConfig {
      * facturas C por el total) + ajuste manual del período.
      */
     costs?: Readonly<Record<string, { providers: Prisma.Decimal; adjustment: Prisma.Decimal }>>;
+    /** Compras de prestadores «reparto manual» sin repartir: no restaron (se advierte). */
+    pendingCostInvoices?: number;
 }
 
 /** Ventas agrupadas: base IIBB con signo por punto de venta y corrección manual. */
@@ -178,6 +180,9 @@ export function iibbByActivity(slices: readonly IibbSaleSlice[], cfg: IibbActivi
             ...(additional ? { additional } : {}),
             ...(difference ? { difference } : {}),
         });
+    }
+    if (cfg.pendingCostInvoices) {
+        warnings.push(`Hay ${cfg.pendingCostInvoices} compra(s) de prestadores con reparto manual sin repartir: no se restaron de ninguna base. Repartilas en «Ventas por actividad de IIBB».`);
     }
     if (lines.some((l) => l.difference)) {
         warnings.push("Base por diferencia (criterio del estudio): ventas − pagado a prestadores, compras netas de IVA (facturas C por el total). No surge de una base especial del Código Fiscal: revisala antes de presentar.");

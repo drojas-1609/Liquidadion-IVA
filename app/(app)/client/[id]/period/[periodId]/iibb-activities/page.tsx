@@ -10,6 +10,7 @@ import { localIibbJurisdiction } from "@/lib/liquidation-totals";
 import { resolveActivity, type IibbActivityConfig } from "@/lib/iibb/activity-base";
 import { ActivityAssignmentTable } from "./assignment-table";
 import { CostAdjustments } from "./cost-adjustments";
+import { CostSplits, type SplitInvoiceView } from "./cost-splits";
 import { iibbProviderCosts } from "@/lib/liquidation-totals";
 
 export const dynamic = "force-dynamic";
@@ -57,14 +58,29 @@ export default async function IibbActivitiesPeriodPage({ params, searchParams }:
                 take: PAGE,
             }),
         ]);
-        const [{ byProvider }, adjustments] = await Promise.all([
+        const [{ byProvider, invoices: costInvoices, pendingCount }, adjustments] = await Promise.all([
             iibbProviderCosts(prisma, { organizationId, periodId, clientId: id }),
             prisma.periodIibbCostAdjustment.findMany({ where: { organizationId, periodId }, select: { activityCode: true, amount: true, note: true }, orderBy: { activityCode: "asc" } }),
         ]);
-        return { client, total, byPos, invoices, byProvider, adjustments, canEdit: ROLES_UPDATE.includes(role) && !isPeriodClosed(period.status), label: `${String(pm.month).padStart(2, "0")}/${pm.year}` };
+        const splitRows = await prisma.invoiceIibbCostSplit.findMany({ where: { organizationId, invoiceId: { in: costInvoices.filter((i) => i.manual).map((i) => i.id) } }, select: { invoiceId: true, activityCode: true, amount: true } });
+        return { client, total, byPos, invoices, byProvider, adjustments, costInvoices, pendingCount, splitRows, canEdit: ROLES_UPDATE.includes(role) && !isPeriodClosed(period.status), label: `${String(pm.month).padStart(2, "0")}/${pm.year}` };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { client, total, byPos, invoices, byProvider, adjustments, canEdit, label } = guard.data;
+    const { client, total, byPos, invoices, byProvider, adjustments, costInvoices, pendingCount, splitRows, canEdit, label } = guard.data;
+    const actLabel = (c: string) => (c === "" ? "no resta" : c);
+    const splitViews: SplitInvoiceView[] = costInvoices.map((i) => ({
+        id: i.id,
+        providerName: i.providerName,
+        label: i.label,
+        date: i.date,
+        net: formatMoney(i.net.toFixed(2)),
+        netAbs: i.net.abs().toFixed(2).replace(".", ","),
+        allocation: i.byActivity.length === 0 ? "—" : i.byActivity.map((b) => `${actLabel(b.activityCode)}: $ ${formatMoney(b.amount.toFixed(2))}`).join(" · "),
+        pending: i.pending,
+        manual: i.manual,
+        manualMode: i.mode === "MANUAL",
+        splits: splitRows.filter((r) => r.invoiceId === i.id).map((r) => ({ activityCode: r.activityCode, amount: r.amount.toFixed(2).replace(".", ",") })),
+    }));
     const jur = localIibbJurisdiction(client);
     const cfg: IibbActivityConfig = {
         jurisdictionCode: jur ?? "",
@@ -138,19 +154,31 @@ export default async function IibbActivitiesPeriodPage({ params, searchParams }:
                     </p>
                     {byProvider.length > 0 && (
                         <table className="table" style={{ width: "100%", marginBottom: "var(--spacing-md)" }}>
-                            <thead><tr><th>Prestador</th><th>CUIT</th><th>Actividad</th><th style={{ textAlign: "right" }}>Comprobantes</th><th style={{ textAlign: "right" }}>Costo</th></tr></thead>
+                            <thead><tr><th>Prestador</th><th>CUIT</th><th>Reparto</th><th style={{ textAlign: "right" }}>Comprobantes</th><th style={{ textAlign: "right" }}>Costo que resta</th></tr></thead>
                             <tbody>
                                 {byProvider.map((p) => (
                                     <tr key={p.cuit}>
                                         <td>{p.name}</td>
                                         <td>{`${p.cuit.slice(0, 2)}-${p.cuit.slice(2, 10)}-${p.cuit[10]}`}</td>
-                                        <td>{p.activityCode}</td>
+                                        <td>{p.mode === "SINGLE" ? p.activityCode : p.mode === "BY_VAT_RATE" ? "por alícuota de IVA" : `manual${p.pending > 0 ? ` (${p.pending} pendiente/s)` : ""}`}</td>
                                         <td style={{ textAlign: "right" }}>{p.count}</td>
                                         <td style={{ textAlign: "right" }}>$ {formatMoney(p.amount.toFixed(2))}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
+                    )}
+                    {splitViews.length > 0 && (
+                        <>
+                            <h3 style={{ fontSize: "1rem", fontWeight: 600 }}>Compras de prestadores del período</h3>
+                            {pendingCount > 0 && <p role="alert">Hay {pendingCount} compra(s) de prestadores con reparto manual sin repartir: no restan hasta que las repartas.</p>}
+                            <CostSplits
+                                periodId={periodId}
+                                activities={client.activities.map((a) => ({ code: a.code, label: `${a.code} · ${a.description}` }))}
+                                invoices={splitViews}
+                                canEdit={canEdit && client.activities.length > 0}
+                            />
+                        </>
                     )}
                     <h3 style={{ fontSize: "1rem", fontWeight: 600 }}>Ajustes manuales del período</h3>
                     <CostAdjustments
