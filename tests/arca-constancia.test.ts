@@ -90,6 +90,8 @@ describe("constancia de inscripción ARCA", () => {
       registration: "CONVENIO_MULTILATERAL",
       jurisdictions: [{ code: "901", headquarters: true }, { code: "902", headquarters: false }, { code: "920", headquarters: false }],
       activities: [{ nomenclator: "NAES", code: "551021" }, { nomenclator: "NAES", code: "561011" }],
+      address: "CALLE FALSA 123 Piso:2 Dpto:B, 1043-CIUDAD AUTONOMA BUENOS AIRES",
+      principalCode: "551021",
     });
     expect(isEmptyProposal(same)).toBe(true);
   });
@@ -137,5 +139,22 @@ Vigencia de la presente constancia: 20-11-2026 a 20-12-2026 Hora 10:15:00 Verifi
     expect(long.description.length).toBeLessThanOrEqual(300);
     expect(long.description.endsWith("…")).toBe(true);
     expect(long.description.startsWith("Actividades y/o servicios de intermediación")).toBe(true);
+  });
+});
+
+describe("constancia: dirección y actividad principal (datos ficticios)", () => {
+  const empty = { registration: "", jurisdictions: [], activities: [] };
+  it("propone el domicilio jurisdiccional y la actividad principal provincial", () => {
+    const p = proposeFromConstancia(parseConstancia(CM), { ...empty, address: "" });
+    expect(p.address).toEqual({ proposed: "CALLE FALSA 123 Piso:2 Dpto:B, 1043-CIUDAD AUTONOMA BUENOS AIRES", current: "" });
+    expect(p.principalCode).toBe("551021");
+  });
+  it("no repite lo que ya coincide; sin jurisdiccional usa el fiscal", () => {
+    const c = parseConstancia(CM);
+    const same = proposeFromConstancia(c, { ...empty, activities: [{ nomenclator: "NAES", code: "551021" }, { nomenclator: "NAES", code: "561011" }], address: "calle falsa 123 piso:2 dpto:b, 1043-ciudad autonoma buenos aires", principalCode: "551021", registration: "CONVENIO_MULTILATERAL", jurisdictions: [{ code: "901", headquarters: true }, { code: "902", headquarters: false }, { code: "920", headquarters: false }] });
+    expect(same.address).toBeNull();
+    expect(same.principalCode).toBeNull();
+    expect(isEmptyProposal(same)).toBe(true);
+    expect(proposeFromConstancia({ ...c, jurisdictionalAddress: null }, empty).address?.proposed).toBe("AV. SIEMPRE VIVA 742, 9405-EL CALAFATE - SANTA CRUZ");
   });
 });

@@ -107,7 +107,7 @@ export function ConstanciaPanel({
                     state={state}
                     onApply={() => {
                         onApply(state.constancia, state.proposal);
-                        setState({ ...state, proposal: { ...state.proposal, registration: null, headquarters: null, addJurisdictions: [], addActivities: [] } });
+                        setState({ ...state, proposal: { ...state.proposal, registration: null, headquarters: null, addJurisdictions: [], addActivities: [], address: null, principalCode: null } });
                     }}
                     onClose={() => setState({ phase: "idle" })}
                 />
@@ -136,6 +136,7 @@ function ConstanciaSummary({ state, onApply, onClose }: { state: Extract<State, 
                 <>
                     <p>Cambios propuestos en la ficha (revisalos y después guardá el cliente):</p>
                     <ul>
+                        {p.address && <li>Dirección: {p.address.current ? `${p.address.current} → ` : ""}{p.address.proposed}</li>}
                         {p.registration && <li>Régimen: {p.registration === "CONVENIO_MULTILATERAL" ? "Convenio Multilateral" : "Local"}</li>}
                         {p.addJurisdictions.map((j) => (
                             <li key={j.code}>Agregar jurisdicción {jurisdictionLabel(j.code)}{j.since ? ` (desde ${fmtMonth(j.since)})` : ""}</li>
@@ -148,6 +149,7 @@ function ConstanciaSummary({ state, onApply, onClose }: { state: Extract<State, 
                                 {a.principal ? " · principal" : ""}
                             </li>
                         ))}
+                        {p.principalCode && <li>Actividad principal: {p.principalCode}</li>}
                     </ul>
                 </>
             )}
