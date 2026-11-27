@@ -303,6 +303,7 @@ const WRITERS: Record<string, readonly string[]> = {
   "app/api/taxes/route.ts": ["POST"],
   "app/api/taxes/[id]/route.ts": ["PATCH", "DELETE"],
   "app/api/periods/[id]/vat-settings/route.ts": ["PATCH"],
+  "app/api/periods/[id]/credit-proration/route.ts": ["PUT"],
   // Posición de IVA (saldo técnico anterior y ajustes por contribuciones).
   "app/api/periods/[id]/vat-position/route.ts": ["PUT"],
   // Posición de IIBB (saldo anterior, pagos a cuenta, DDJJ presentada).
