@@ -406,7 +406,11 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     // Moneda: los importes del modelo están en pesos.
     const currency = str(v.currency).trim();
     const rate = dec(v.exchangeRate);
-    if (currency !== CURRENCY_PESOS) d.raise("REVIEW", `moneda ${currency || "vacía"}: confirmar que los importes estén en pesos`);
+    if (currency !== CURRENCY_PESOS && portal && currency !== "" && rate.greaterThan(0)) {
+        // La descarga de Portal IVA expresa todos los importes en pesos (lo dice su nombre de archivo):
+        // la moneda original y el tipo de cambio sólo se informan (decisión del estudio, 27/11/2026).
+        d.row.notes.push(`moneda original ${currency} con tipo de cambio ${rate.toFixed(6).replace(/\.?0+$/, "")}: la descarga de Portal IVA ya expresa los importes en pesos`);
+    } else if (currency !== CURRENCY_PESOS) d.raise("REVIEW", `moneda ${currency || "vacía"}: confirmar que los importes estén en pesos`);
     else if (!rate.equals(1)) d.raise("REVIEW", "moneda PES con tipo de cambio distinto de 1");
 
     // Código de operación.
