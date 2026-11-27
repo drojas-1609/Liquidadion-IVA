@@ -179,6 +179,8 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
     const [acceptPartial, setAcceptPartial] = useState(false);
     // Volver a importar los importados eliminados de la app: confirmación expresa (por defecto quedan para revisar).
     const [reimportDeleted, setReimportDeleted] = useState(false);
+    // Diferencias de redondeo de ARCA (hasta $0,02) entre el total y la suma de componentes.
+    const [acceptRounding, setAcceptRounding] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const [done, setDone] = useState<string>("");
@@ -294,8 +296,9 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
         setTracking(op);
     }
 
-    async function send(kind: "preview" | "confirm", overrides: { reimportDeleted?: boolean } = {}) {
+    async function send(kind: "preview" | "confirm", overrides: { reimportDeleted?: boolean; acceptRounding?: boolean } = {}) {
         const reimport = overrides.reimportDeleted ?? reimportDeleted;
+        const rounding = overrides.acceptRounding ?? acceptRounding;
         if (inFlight.current || !vouchers || (format === "LID_TXT" && !aliquots)) return;
         inFlight.current = true;
         setBusy(true);
@@ -307,6 +310,7 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
         let op: PendingOp | null = null;
         try {
             const body: Record<string, unknown> = { clientId, category, format, vouchersFile: await toBase64(vouchers), reimportDeleted: reimport };
+            if (rounding) body.corrections = { acceptRounding: true };
             if (format === "LID_TXT" && aliquots) body.aliquotsFile = await toBase64(aliquots);
             if (kind === "confirm" && preview) {
                 // Mismo operationId si se reintenta lo mismo después de un corte: si ya se aplicó, la API devuelve ese resultado.
@@ -399,14 +403,14 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                 </p>
                 <div className="manual-form">
                     <label className="field">Formato
-                        <select value={format} onChange={(e) => { setFormat(e.target.value as Format); setPreview(null); setReimportDeleted(false); setVouchers(null); setAliquots(null); }} disabled={busy}>
+                        <select value={format} onChange={(e) => { setFormat(e.target.value as Format); setPreview(null); setReimportDeleted(false); setAcceptRounding(false); setVouchers(null); setAliquots(null); }} disabled={busy}>
                             <option value="LID_TXT">Libro IVA Digital (par de TXT)</option>
                             <option value="PORTAL_CSV">Descarga de Portal IVA (ZIP o CSV)</option>
                             <option value="MIS_COMPROBANTES">Mis Comprobantes (ZIP o CSV)</option>
                         </select>
                     </label>
                     <label className="field">Libro
-                        <select value={category} onChange={(e) => { setCategory(e.target.value as Category); setPreview(null); setReimportDeleted(false); }} disabled={busy}>
+                        <select value={category} onChange={(e) => { setCategory(e.target.value as Category); setPreview(null); setReimportDeleted(false); setAcceptRounding(false); }} disabled={busy}>
                             <option value="SALES">Ventas</option>
                             <option value="PURCHASES">Compras</option>
                         </select>
@@ -414,15 +418,15 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                     {format === "LID_TXT" ? (
                         <>
                             <label className="field">Comprobantes (CBTE)
-                                <input key="cbte" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
+                                <input key="cbte" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); setAcceptRounding(false); }} />
                             </label>
                             <label className="field">Alícuotas
-                                <input key="ali" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setAliquots(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
+                                <input key="ali" type="file" accept=".txt,text/plain" disabled={busy} onChange={(e) => { setAliquots(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); setAcceptRounding(false); }} />
                             </label>
                         </>
                     ) : (
                         <label className="field">{format === "PORTAL_CSV" ? "Descarga de Portal IVA" : "Consulta de Mis Comprobantes"}
-                            <input key="portal" type="file" accept=".zip,.csv,application/zip,text/csv" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); }} />
+                            <input key="portal" type="file" accept=".zip,.csv,application/zip,text/csv" disabled={busy} onChange={(e) => { setVouchers(e.target.files?.[0] ?? null); setPreview(null); setReimportDeleted(false); setAcceptRounding(false); }} />
                         </label>
                     )}
                     <button type="button" className="btn btn-primary" disabled={busy || !vouchers || (format === "LID_TXT" && !aliquots)} onClick={() => send("preview")}>
@@ -558,6 +562,21 @@ export function LibroIvaImport({ clientId, periodId, turivaIncluded, prorationMo
                                 }}
                             />{" "}
                             Volver a importar los comprobantes eliminados de la app ({preview.deletedCount}). Sin esta marca quedan para revisar y no se importan.
+                        </label>
+                    )}
+                    {(acceptRounding || preview.rows.some((r) => r.messages.some((m) => /no coincide con la suma de sus componentes \(diferencia -?0\.0[12]\)/.test(m)))) && (
+                        <label className="check" style={{ marginBottom: "var(--spacing-sm)" }}>
+                            <input
+                                type="checkbox"
+                                checked={acceptRounding}
+                                disabled={busy}
+                                onChange={(e) => {
+                                    const next = e.target.checked;
+                                    setAcceptRounding(next);
+                                    void send("preview", { acceptRounding: next });
+                                }}
+                            />{" "}
+                            Aceptar diferencias de redondeo de hasta $0,02 entre el total informado y la suma de sus componentes (se guarda el total calculado y queda la nota en el comprobante).
                         </label>
                     )}
                     {partial && (
