@@ -102,3 +102,40 @@ describe("constancia de inscripción ARCA", () => {
     expect(MANUAL_BACKUP_CATEGORIES).not.toContain("CONSTANCIAS");
   });
 });
+
+describe("constancia de un inscripto local con formulario provincial (datos ficticios)", () => {
+  const LONG = "Actividades y/o servicios de intermediación que se ejerzan percibiendo comisiones, bonificaciones, porcentajes u otras retribuciones análogas N.C.P. (Incluye venta de combustibles al por menor por comisión, venta de mercaderías de propiedad de terceros, servicios de agencias de viajes, comisión por venta de automotores, etc.) y otras actividades de prueba para superar el máximo";
+  const LOCAL = `PERSONA DE PRUEBA CUIT: 20-00000000-1
+CALLE 1 123
+9400-RIO GALLEGOS - SANTA CRUZ
+CALLE 1 123
+9400-RIO GALLEGOS - SANTA CRUZ
+CONSTANCIA DE INSCRIPCION
+IMPUESTOS/REGIMENES NACIONALES REGISTRADOS Y FECHA DE ALTA
+IVA 01-2024
+ACTIVIDADES NACIONALES REGISTRADAS Y FECHA DE ALTA
+Actividad principal: 492120 (F-883) SERVICIOS DE TRANSPORTE DE PRUEBA Mes de inicio: 01/2024
+DOMICILIO FISCAL - ARCA
+IMPUESTOS PROVINCIALES - FECHA DE ALTA
+IIBB LOCAL SANTA CRUZ - ACTIVO 08/2023
+JURISDICCIONES ADHERIDAS - FECHA DE ALTA
+920 SANTA CRUZ desde: 08/2023
+ACTIVIDADES PROVINCIALES REGISTRADAS Y FECHA DE ALTA
+Actividad principal: 492120 (F-920) Servicios de transporte de prueba desde: 08/2023
+Secundaria(s): 960999 (F-920) ${LONG} desde: 08/2023
+Secundaria(s): 562010 (F-920) Servicios de preparación de comidas para empresas desde: 08/2023
+DOMICILIO FISCAL - JURISDICCIONAL
+CALLE 1 123
+Vigencia de la presente constancia: 20-11-2026 a 20-12-2026 Hora 10:15:00 Verificador 100000000002`;
+  it("quita «(F-920)», no pega el encabezado siguiente y recorta descripciones largas al proponer", () => {
+    const c = parseConstancia(LOCAL);
+    expect(c.provincialActivities.map((a) => a.code)).toEqual(["492120", "960999", "562010"]);
+    expect(c.provincialActivities[0].description).toBe("Servicios de transporte de prueba");
+    expect(c.provincialActivities[2].description).toBe("Servicios de preparación de comidas para empresas");
+    const p = proposeFromConstancia(c, { registration: null, jurisdictions: [], activities: [] } as never);
+    const long = p.addActivities.find((a) => a.code === "960999")!;
+    expect(long.description.length).toBeLessThanOrEqual(300);
+    expect(long.description.endsWith("…")).toBe(true);
+    expect(long.description.startsWith("Actividades y/o servicios de intermediación")).toBe(true);
+  });
+});

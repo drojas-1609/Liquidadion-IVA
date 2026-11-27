@@ -1,4 +1,5 @@
 import type { Constancia } from "./parse";
+import { ACTIVITY_DESCRIPTION_MAX } from "../client-profile";
 
 /**
  * Cambios que la constancia propone sobre la ficha IIBB del cliente (lógica
@@ -38,7 +39,7 @@ export function proposeFromConstancia(c: Constancia, form: FormIibbState): Const
         registration,
         addJurisdictions: c.jurisdictions.filter((j) => !inForm.has(j.code)),
         headquarters: finalRegime === "CONVENIO_MULTILATERAL" && c.headquartersCode && c.headquartersCode !== currentHq ? c.headquartersCode : null,
-        addActivities: c.provincialActivities.filter((a) => !naes.has(a.code)),
+        addActivities: c.provincialActivities.filter((a) => !naes.has(a.code)).map((a) => ({ ...a, description: fitDescription(a.description) })),
         onlyInFormJurisdictions: c.jurisdictions.length ? form.jurisdictions.filter((j) => !inPdf.has(j.code)).map((j) => j.code) : [],
         onlyInFormActivities: c.provincialActivities.length ? [...naes].filter((code) => !pdfActs.has(code)) : [],
     };
@@ -46,4 +47,16 @@ export function proposeFromConstancia(c: Constancia, form: FormIibbState): Const
 
 export function isEmptyProposal(p: ConstanciaProposal): boolean {
     return !p.registration && !p.headquarters && p.addJurisdictions.length === 0 && p.addActivities.length === 0;
+}
+
+/**
+ * Algunas descripciones oficiales superan el máximo de la ficha
+ * (ACTIVITY_DESCRIPTION_MAX, p. ej. 960999 de Santa Cruz): se recortan en un
+ * límite de palabra con «…». El código es lo que identifica la actividad.
+ */
+export function fitDescription(d: string, max = ACTIVITY_DESCRIPTION_MAX): string {
+    if (d.length <= max) return d;
+    const cut = d.slice(0, max - 1);
+    const sp = cut.lastIndexOf(" ");
+    return `${(sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,;.(]+$/, "")}…`;
 }
