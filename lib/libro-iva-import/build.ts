@@ -392,7 +392,8 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     // portal: importes CON signo (notas de crédito en negativo). download: descargas sin código de operación ni TurIVA.
     const portal = ctx.source === "PORTAL_CSV";
     const download = downloadLabel(ctx.source);
-    if (vt && download) {
+    // La descarga de la pestaña TurIVA de Portal IVA sí informa el reintegro: se valida como el archivo TurIVA.
+    if (vt && download && !(portal && turivaFile)) {
         if (vt.letter === "T") d.raise("REVIEW", `${download} no informa el reintegro TurIVA: importar este comprobante con el TXT de TurIVA`);
     } else if (vt) {
         if (vt.letter === "T" && !turivaFile) d.raise("ERROR", "los comprobantes clase T (195–197) van en el archivo de TurIVA");
