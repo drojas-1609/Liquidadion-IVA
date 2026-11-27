@@ -107,7 +107,7 @@ export function ConstanciaPanel({
                     state={state}
                     onApply={() => {
                         onApply(state.constancia, state.proposal);
-                        setState({ ...state, proposal: { ...state.proposal, registration: null, headquarters: null, addJurisdictions: [], addActivities: [], address: null, principalCode: null } });
+                        setState({ ...state, proposal: { ...state.proposal, registration: null, headquarters: null, addJurisdictions: [], addActivities: [], name: null, cuit: null, address: null, principalCode: null } });
                     }}
                     onClose={() => setState({ phase: "idle" })}
                 />
@@ -136,6 +136,8 @@ function ConstanciaSummary({ state, onApply, onClose }: { state: Extract<State, 
                 <>
                     <p>Cambios propuestos en la ficha (revisalos y después guardá el cliente):</p>
                     <ul>
+                        {p.name && <li>Nombre / Razón Social: {p.name.current ? `${p.name.current} → ` : ""}{p.name.proposed}</li>}
+                        {p.cuit && <li>CUIT: {p.cuit}</li>}
                         {p.address && <li>Dirección: {p.address.current ? `${p.address.current} → ` : ""}{p.address.proposed}</li>}
                         {p.registration && <li>Régimen: {p.registration === "CONVENIO_MULTILATERAL" ? "Convenio Multilateral" : "Local"}</li>}
                         {p.addJurisdictions.map((j) => (
