@@ -53,3 +53,12 @@ describe("descarga TurIVA de ventas de Portal IVA", () => {
         expect(p.rows[0].messages.join(" ")).toMatch(/sólo admite comprobantes clase T/);
     });
 });
+
+describe("descarga TurIVA: redondeo aceptado", () => {
+    it("con la corrección de redondeo, la diferencia de un centavo se importa con nota", () => {
+        const p = parsePortalDownload(csv([row({ "Importe Total": "4664649,30", "Importe Reintegro Decreto 1043/2016 (TurIVA)": "979576,35", "Neto Gravado IVA 21%": "4664649,29", "Importe IVA 21%": "979576,35", "Total Neto Gravado": "4664649,29", "Total IVA": "979576,35" })]), "SALES");
+        const pv = buildImportPreview({ ...ctx(true), corrections: { acceptRounding: true } }, p.vouchers, p.aliquots, { fileErrors: p.fileErrors, rowNotes: p.totalColumnNotes });
+        expect(pv.rows[0].status).toBe("OK");
+        expect(pv.rows[0].notes.join(" ")).toMatch(/diferencia de redondeo aceptada/);
+    });
+});
