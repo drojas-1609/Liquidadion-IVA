@@ -340,9 +340,16 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
 
     // ── Constancia de inscripción ──────────────────────────────────────────
     function applyConstancia(c: Constancia, p: ConstanciaProposal) {
-        if (p.address) {
-            setFields((f) => ({ ...f, address: p.address!.proposed }));
-            clearError("address");
+        if (p.name || p.cuit || p.address) {
+            setFields((f) => ({
+                ...f,
+                ...(p.name ? { name: p.name.proposed } : {}),
+                ...(p.cuit ? { cuit: p.cuit } : {}),
+                ...(p.address ? { address: p.address.proposed } : {}),
+            }));
+            if (p.name) clearError("name");
+            if (p.cuit) clearError("cuit");
+            if (p.address) clearError("address");
         }
         if (p.principalCode) setPrincipalCode(p.principalCode);
         if (p.registration) changeRegistration(p.registration);
@@ -694,7 +701,7 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                 <ConstanciaPanel
                     clientId={initial.id ?? null}
                     cuit={fields.cuit}
-                    current={{ registration, jurisdictions, activities: activities.map((a) => ({ nomenclator: a.nomenclator, code: a.code })), address: fields.address, principalCode }}
+                    current={{ registration, jurisdictions, activities: activities.map((a) => ({ nomenclator: a.nomenclator, code: a.code })), name: fields.name, cuit: fields.cuit, address: fields.address, principalCode }}
                     onApply={applyConstancia}
                     onFileForCreate={(b64) => { constanciaForCreate.current = b64; }}
                 />
