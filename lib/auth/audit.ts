@@ -74,6 +74,7 @@ export const AUDIT_ACTIONS = [
   "client.iibb_annual_review",
   "invoice.iibb_activity",
   "period.iibb_cost_adjustment",
+  "invoice.iibb_cost_split",
   "chart.model_apply",
   "client.accounting_profile",
   "journal.entry_generate",
@@ -183,6 +184,8 @@ const METADATA_ALLOW: Record<AuditAction, readonly string[]> = {
   "invoice.iibb_activity": ["count", "periodId", "code"],
   // Ajustes del costo de prestadores (base por diferencia): cantidad; nunca importes ni notas.
   "period.iibb_cost_adjustment": ["count"],
+  // Reparto manual del costo de una compra entre actividades: cantidad de partes; nunca importes.
+  "invoice.iibb_cost_split": ["periodId", "count"],
   "chart.model_apply": ["model", "accounts"],
   "client.accounting_profile": ["mipymeCategory", "chartModel", "accountsCreated"],
   "journal.entry_generate": ["kind", "number", "replaced"],

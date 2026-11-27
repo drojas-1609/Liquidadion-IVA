@@ -2,7 +2,8 @@ import "server-only";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { InvoiceForCalc, PeriodForCalc } from "./liquidation-calc";
 import { previousIibbBalance, iibbPositionWithPrevious, type PreviousIibbBalance } from "./iibb-previous-balance";
-import { normalizeInvoiceRow, voucherSign } from "./invoice-model";
+import { normalizeInvoiceRow, voucherDisplayLabel, voucherSign } from "./invoice-model";
+import { allocateCost, PROVIDER_MODES, type CostInvoice, type CostProvider, type ProviderMode, type RateMap } from "./iibb/provider-costs";
 import { pickYearRate, rateYearKey } from "./iibb/rate-years";
 import { sum } from "./decimal";
 import type { IibbSaleSlice } from "./iibb/activity-base";
@@ -67,65 +68,111 @@ const z = (v: Prisma.Decimal | null | undefined) => v ?? ZERO;
 
 type Db = Pick<PrismaClient, "period" | "invoice" | "invoiceVatLine" | "clientIibbRateYear" | "clientIibbProvider" | "periodIibbCostAdjustment">;
 
+/** Detalle por compra para la pantalla del período (reparto manual y pendientes). */
+export interface ProviderCostInvoice {
+    id: string;
+    cuit: string;
+    providerName: string;
+    mode: ProviderMode;
+    label: string;
+    date: string | null;
+    net: Prisma.Decimal;
+    byActivity: Array<{ activityCode: string; amount: Prisma.Decimal }>;
+    pending: boolean;
+    manual: boolean;
+}
+
 /**
  * Costo de prestadores del período por actividad (base por diferencia, criterio
- * del estudio): compras a los CUIT marcados, netas de IVA —gravado + no gravado
- * + exento + operaciones sin IVA discriminado (facturas C, por el total)— con el
- * signo del código (las notas de crédito restan). Filas heredadas: neto
- * registrado. Más el ajuste manual del período.
+ * del estudio): compras a los CUIT marcados, netas de IVA, repartidas según el
+ * modo de cada prestador (lib/iibb/provider-costs.ts), más el ajuste manual del
+ * período. La parte asignada a "" (no resta) no entra en el costo.
  */
 export async function iibbProviderCosts(
     db: Pick<PrismaClient, "invoice" | "clientIibbProvider" | "periodIibbCostAdjustment">,
     scope: { organizationId: string; periodId: string; clientId: string },
-): Promise<{ costs: Record<string, { providers: Prisma.Decimal; adjustment: Prisma.Decimal }>; byProvider: Array<{ cuit: string; name: string; activityCode: string; amount: Prisma.Decimal; count: number }> }> {
-    const [providers, adjustments] = await Promise.all([
-        db.clientIibbProvider.findMany({ where: { clientId: scope.clientId, organizationId: scope.organizationId }, select: { cuit: true, name: true, activityCode: true }, orderBy: { name: "asc" } }),
+): Promise<{
+    costs: Record<string, { providers: Prisma.Decimal; adjustment: Prisma.Decimal }>;
+    byProvider: Array<{ cuit: string; name: string; activityCode: string; mode: ProviderMode; amount: Prisma.Decimal; count: number; pending: number }>;
+    invoices: ProviderCostInvoice[];
+    pendingCount: number;
+}> {
+    const [providerRows, adjustments] = await Promise.all([
+        db.clientIibbProvider.findMany({ where: { clientId: scope.clientId, organizationId: scope.organizationId }, select: { cuit: true, name: true, activityCode: true, mode: true, rateMap: true }, orderBy: { name: "asc" } }),
         db.periodIibbCostAdjustment.findMany({ where: { periodId: scope.periodId, organizationId: scope.organizationId }, select: { activityCode: true, amount: true } }),
     ]);
+    const providers: CostProvider[] = providerRows.map((p) => ({
+        cuit: p.cuit, name: p.name, activityCode: p.activityCode,
+        mode: (PROVIDER_MODES as readonly string[]).includes(p.mode) ? (p.mode as ProviderMode) : "SINGLE",
+        rateMap: p.rateMap && typeof p.rateMap === "object" && !Array.isArray(p.rateMap) ? (p.rateMap as RateMap) : null,
+    }));
     const costs: Record<string, { providers: Prisma.Decimal; adjustment: Prisma.Decimal }> = {};
     const add = (code: string, k: "providers" | "adjustment", v: Prisma.Decimal) => {
+        if (code === "") return;
         const c = (costs[code] ??= { providers: ZERO, adjustment: ZERO });
         c[k] = c[k].plus(v);
     };
-    const byProvider: Array<{ cuit: string; name: string; activityCode: string; amount: Prisma.Decimal; count: number }> = [];
+    const byProvider: Array<{ cuit: string; name: string; activityCode: string; mode: ProviderMode; amount: Prisma.Decimal; count: number; pending: number }> = [];
+    const invoices: ProviderCostInvoice[] = [];
     if (providers.length > 0) {
         const cuits = providers.map((p) => p.cuit);
         const dashed = cuits.map((c) => `${c.slice(0, 2)}-${c.slice(2, 10)}-${c[10]}`);
-        const inPeriod = { periodId: scope.periodId, organizationId: scope.organizationId, category: "PURCHASES" };
-        const [modeled, legacy] = await Promise.all([
-            db.invoice.groupBy({
-                by: ["counterpartyDocNumber", "voucherCode"],
-                where: { ...inPeriod, ...MODELED, counterpartyDocNumber: { in: cuits } },
-                _count: { _all: true },
-                _sum: { taxedNetAmount: true, netWithoutVatBreakdownAmount: true, nonTaxedAmount: true, exemptAmount: true },
-                orderBy: [{ counterpartyDocNumber: "asc" }, { voucherCode: "asc" }],
-            }),
-            db.invoice.groupBy({
-                by: ["entityCuit"],
-                where: { ...inPeriod, NOT: MODELED, entityCuit: { in: [...cuits, ...dashed] } },
-                _count: { _all: true },
-                _sum: { netAmount: true },
-                orderBy: { entityCuit: "asc" },
-            }),
-        ]);
+        const rows = await db.invoice.findMany({
+            where: {
+                periodId: scope.periodId, organizationId: scope.organizationId, category: "PURCHASES",
+                OR: [{ ...MODELED, counterpartyDocNumber: { in: cuits } }, { NOT: MODELED, entityCuit: { in: [...cuits, ...dashed] } }],
+            },
+            select: {
+                id: true, voucherCode: true, pointOfSale: true, number: true, voucherDate: true, date: true, entityCuit: true, counterpartyDocNumber: true, netAmount: true,
+                exemptAmount: true, nonTaxedAmount: true, netWithoutVatBreakdownAmount: true,
+                taxedNetAmount: true, totalVatAmount: true, directComputableVatCreditAmount: true, voucherTotalAmount: true,
+                vatLines: { select: { vatRateCode: true, netAmount: true } },
+                iibbCostSplits: { select: { activityCode: true, amount: true } },
+            },
+            orderBy: [{ voucherDate: "asc" }, { pointOfSale: "asc" }, { number: "asc" }],
+        });
         for (const p of providers) {
             let amount = ZERO;
             let count = 0;
-            for (const g of modeled.filter((g) => g.counterpartyDocNumber === p.cuit)) {
-                const net = z(g._sum.taxedNetAmount).plus(z(g._sum.netWithoutVatBreakdownAmount)).plus(z(g._sum.nonTaxedAmount)).plus(z(g._sum.exemptAmount));
-                amount = amount.plus(net.times(voucherSign(g.voucherCode as number)));
-                count += g._count._all;
+            let pending = 0;
+            for (const r of rows) {
+                // Mismo criterio que MODELED (compras: sin la condición de ventas).
+                const modeled = r.voucherCode !== null && r.taxedNetAmount !== null && r.totalVatAmount !== null && r.netWithoutVatBreakdownAmount !== null && r.directComputableVatCreditAmount !== null && r.voucherTotalAmount !== null;
+                const cuit = modeled ? r.counterpartyDocNumber : (r.entityCuit ?? "").replace(/-/g, "");
+                if (cuit !== p.cuit) continue;
+                const byRate = new Map<number, Prisma.Decimal>();
+                for (const l of r.vatLines) byRate.set(l.vatRateCode, (byRate.get(l.vatRateCode) ?? ZERO).plus(l.netAmount));
+                const inv: CostInvoice = {
+                    id: r.id,
+                    sign: modeled ? voucherSign(r.voucherCode as number) : 1,
+                    vatNets: [...byRate.entries()].map(([code, net]) => ({ code, net })),
+                    exemptAndNonTaxed: z(r.exemptAmount).plus(z(r.nonTaxedAmount)),
+                    withoutVat: z(r.netWithoutVatBreakdownAmount),
+                    legacyNet: modeled ? null : r.netAmount,
+                    splits: r.iibbCostSplits,
+                };
+                const a = allocateCost(p, inv);
+                for (const [code, v] of a.byActivity) {
+                    add(code, "providers", v);
+                    if (code !== "") amount = amount.plus(v);
+                }
+                count += 1;
+                if (a.pending) pending += 1;
+                const d = r.voucherDate ?? r.date;
+                invoices.push({
+                    id: r.id, cuit: p.cuit, providerName: p.name, mode: p.mode,
+                    label: `${modeled ? voucherDisplayLabel(r.voucherCode as number) : "Comprobante"} ${String(r.pointOfSale).padStart(5, "0")}-${String(r.number).padStart(8, "0")}`,
+                    date: d ? d.toISOString().slice(0, 10) : null,
+                    net: a.net,
+                    byActivity: [...a.byActivity.entries()].map(([activityCode, v]) => ({ activityCode, amount: v })),
+                    pending: a.pending, manual: a.manual,
+                });
             }
-            for (const g of legacy.filter((g) => (g.entityCuit ?? "").replace(/-/g, "") === p.cuit)) {
-                amount = amount.plus(z(g._sum.netAmount));
-                count += g._count._all;
-            }
-            byProvider.push({ ...p, amount, count });
-            add(p.activityCode, "providers", amount);
+            byProvider.push({ ...p, amount, count, pending });
         }
     }
     for (const a of adjustments) add(a.activityCode, "adjustment", a.amount);
-    return { costs, byProvider };
+    return { costs, byProvider, invoices, pendingCount: invoices.filter((i) => i.pending).length };
 }
 
 export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidationScope): Promise<PeriodLiquidationInput | null> {
@@ -252,7 +299,7 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
             select: { jurisdictionCode: true, activityCode: true, rate: true, treatment: true, minimumAmount: true, additionalLabel: true, additionalRate: true },
         });
         const yearMap = new Map(yearRows.map((r) => [rateYearKey(r), r]));
-        const { costs } = await iibbProviderCosts(db, { organizationId: scope.organizationId, periodId: scope.periodId, clientId: period.clientId });
+        const { costs, pendingCount } = await iibbProviderCosts(db, { organizationId: scope.organizationId, periodId: scope.periodId, clientId: period.clientId });
         iibbActivities = {
             slices,
             config: {
@@ -261,6 +308,7 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
                 principalCode: period.client.iibbPrincipalActivityCode,
                 posMap: Object.fromEntries(period.client.posActivities.map((p) => [p.pointOfSale, p.activityCode])),
                 ...(Object.keys(costs).length > 0 ? { costs } : {}),
+                ...(pendingCount > 0 ? { pendingCostInvoices: pendingCount } : {}),
                 activities: period.client.activities.map((a) => {
                     const r = a.rates.find((x) => x.jurisdictionCode === jur);
                     return { code: a.code, description: a.description, ...pickYearRate(yearMap, r, jur, a.code) };

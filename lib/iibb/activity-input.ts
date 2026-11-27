@@ -1,5 +1,6 @@
 /** Validación de los cuerpos de configuración y asignación de actividades de IIBB (lógica pura). */
 import { normalizeCuit } from "../cuit";
+import { parseRateMap, PROVIDER_MODES, type ProviderMode, type RateMap } from "./provider-costs";
 
 type Result<T> = { ok: true; value: T } | { ok: false; field: string; error: string };
 const bad = (field: string, error: string): Result<never> => ({ ok: false, field, error });
@@ -9,7 +10,7 @@ export interface ActivityConfigInput {
     principalCode: string | null;
     pos: { pointOfSale: number; activityCode: string }[];
     /** Prestadores (base por diferencia). undefined = no se modifican. */
-    providers?: { cuit: string; name: string; activityCode: string }[];
+    providers?: { cuit: string; name: string; activityCode: string; mode: ProviderMode; rateMap: RateMap | null }[];
 }
 
 /** CUIT válido (lib/cuit) como 11 dígitos sin separadores; null si es inválido. */
@@ -55,8 +56,19 @@ export function buildActivityConfigInput(body: unknown, clientCodes: readonly st
         seenCuit.add(cuit);
         const name = typeof r.name === "string" ? r.name.trim() : "";
         if (name === "" || name.length > 200) return bad(`providers.${i}.name`, "nombre del prestador obligatorio (hasta 200 caracteres)");
-        if (typeof r.activityCode !== "string" || !codes.has(r.activityCode)) return bad(`providers.${i}.activityCode`, "la actividad debe ser una actividad de la ficha");
-        providers.push({ cuit, name, activityCode: r.activityCode });
+        const mode = r.mode === undefined ? "SINGLE" : r.mode;
+        if (typeof mode !== "string" || !(PROVIDER_MODES as readonly string[]).includes(mode)) return bad(`providers.${i}.mode`, "modo de reparto inválido");
+        // Actividad por defecto: obligatoria en SINGLE; en los otros modos puede ser "" (lo no mapeado no resta).
+        if (typeof r.activityCode !== "string" || (r.activityCode === "" ? mode === "SINGLE" : !codes.has(r.activityCode))) {
+            return bad(`providers.${i}.activityCode`, "la actividad debe ser una actividad de la ficha");
+        }
+        let rateMap: RateMap | null = null;
+        if (mode === "BY_VAT_RATE") {
+            const m = parseRateMap(r.rateMap ?? {}, codes);
+            if (!m.ok) return bad(`providers.${i}.rateMap`, m.error);
+            rateMap = m.value;
+        } else if (r.rateMap !== undefined && r.rateMap !== null) return bad(`providers.${i}.rateMap`, "el mapa por alícuota sólo va con el modo «por alícuota de IVA»");
+        providers.push({ cuit, name, activityCode: r.activityCode, mode: mode as ProviderMode, rateMap });
     }
     return { ok: true, value: { principalCode, pos, providers } };
 }

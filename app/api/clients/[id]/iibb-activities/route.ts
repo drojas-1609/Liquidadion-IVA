@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { requireAuthenticatedProfile, resolveActiveOrganization, requireClientAccess, parseJsonBody, withApiAuthz } from "@/lib/auth/authz";
 import { recordAudit } from "@/lib/auth/audit";
@@ -32,7 +33,7 @@ export const PUT = withApiAuthz(async (request: Request, ctx: Ctx) => {
         if (pos.length > 0) await tx.clientPosActivity.createMany({ data: pos.map((p) => ({ organizationId, clientId: id, pointOfSale: p.pointOfSale, activityCode: p.activityCode })) });
         if (providers) {
             await tx.clientIibbProvider.deleteMany({ where: { clientId: id, organizationId } });
-            if (providers.length > 0) await tx.clientIibbProvider.createMany({ data: providers.map((p) => ({ organizationId, clientId: id, cuit: p.cuit, name: p.name, activityCode: p.activityCode })) });
+            if (providers.length > 0) await tx.clientIibbProvider.createMany({ data: providers.map((p) => ({ organizationId, clientId: id, cuit: p.cuit, name: p.name, activityCode: p.activityCode, mode: p.mode, rateMap: p.rateMap ?? Prisma.DbNull })) });
         }
         await recordAudit(tx, {
             organizationId, actorProfileId: profileId, action: "client.iibb_activity_config", targetType: "Client", targetId: id,
