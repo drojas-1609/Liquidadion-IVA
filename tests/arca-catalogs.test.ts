@@ -93,18 +93,24 @@ describe("lib/arca/catalogs — contenido verificado", () => {
     ]);
   });
 
-  it("comprobantes: 001–003, 006–008, 011–013, 019–021, 051–053, 063, 081 y clase T 195–197 (sin FCE, 064, 068 ni otros no verificados)", () => {
-    expect(VOUCHER_TYPES.map((v) => v.code)).toEqual([1, 2, 3, 6, 7, 8, 11, 12, 13, 19, 20, 21, 51, 52, 53, 63, 81, 195, 196, 197]);
+  it("comprobantes: 001–003, 006–008, 011–013, 019–021, 039, 051–053, 063, 081, 112 y clase T 195–197 (sin FCE, 064, 068 ni otros no verificados)", () => {
+    expect(VOUCHER_TYPES.map((v) => v.code)).toEqual([1, 2, 3, 6, 7, 8, 11, 12, 13, 19, 20, 21, 51, 52, 53, 39, 63, 81, 112, 195, 196, 197]);
     for (const v of VOUCHER_TYPES) {
       expect(["A", "B", "C", "E", "M", "T"]).toContain(v.letter);
       expect(["INVOICE", "DEBIT_NOTE", "CREDIT_NOTE"]).toContain(v.kind);
     }
-    for (const v of VOUCHER_TYPES.filter((x) => ["A", "B", "C", "M"].includes(x.letter) && x.code !== 81 && x.code !== 63)) {
+    for (const v of VOUCHER_TYPES.filter((x) => ["A", "B", "C", "M"].includes(x.letter) && ![39, 63, 81, 112].includes(x.code))) {
       expect(v.label).toMatch(/^(FACTURAS|NOTAS DE DEBITO|NOTAS DE CREDITO) [ABCM]$/);
     }
     // 064 (Liquidaciones B) y 068 (Liquidación C) no se agregan en esta etapa.
     expect(VOUCHER_TYPES.map((v) => v.code)).not.toContain(64);
     expect(VOUCHER_TYPES.map((v) => v.code)).not.toContain(68);
+  });
+
+  it("039 y 112 (decisión del estudio, 28/11/2026): clase A, sin etiqueta heredada, sólo por importación", () => {
+    const pick = (code: number) => { const t = VOUCHER_TYPES.find((v) => v.code === code); return t && [t.letter, t.kind, t.label, t.legacyLabel]; };
+    expect(pick(39)).toEqual(["A", "INVOICE", "OTROS COMPROBANTES A QUE CUMPLAN CON LA R.G. N° 1415", null]);
+    expect(pick(112)).toEqual(["A", "CREDIT_NOTE", "TIQUE NOTA DE CREDITO A", null]);
   });
 
   it("063: Liquidaciones A, clase A, factura, sin etiqueta heredada (Tabla 3, denominación literal)", () => {
@@ -137,7 +143,7 @@ describe("lib/arca/catalogs — contenido verificado", () => {
       [53, "M", "CREDIT_NOTE", "NOTAS DE CREDITO M", null],
     ]);
     // Los códigos admitidos por el contrato anterior conservan su etiqueta.
-    for (const v of VOUCHER_TYPES.filter((x) => ["A", "B", "C", "T"].includes(x.letter) && x.code !== 81 && x.code !== 63)) {
+    for (const v of VOUCHER_TYPES.filter((x) => ["A", "B", "C", "T"].includes(x.letter) && ![39, 63, 81, 112].includes(x.code))) {
       expect(typeof v.legacyLabel, String(v.code)).toBe("string");
     }
   });
@@ -192,7 +198,7 @@ describe("lib/arca/catalogs — contenido verificado", () => {
 
   it("clase de cada comprobante coherente con su denominación oficial", () => {
     for (const v of VOUCHER_TYPES.filter((x) => x.letter !== "T")) {
-      const expected = v.label.startsWith("FACTURAS") || v.label.startsWith("TIQUE FACTURA") || v.label.startsWith("LIQUIDACIONES")
+      const expected = v.label.startsWith("FACTURAS") || v.label.startsWith("TIQUE FACTURA") || v.label.startsWith("LIQUIDACIONES") || v.label.startsWith("OTROS COMPROBANTES")
         ? "INVOICE"
         : v.label.startsWith("NOTAS DE DEBITO")
           ? "DEBIT_NOTE"
@@ -200,7 +206,7 @@ describe("lib/arca/catalogs — contenido verificado", () => {
       expect(v.kind, String(v.code)).toBe(expected);
       // 019–021 (clase E) tienen denominaciones oficiales que no terminan en la letra.
       // 081: "TIQUE FACTURA A CONTROLADORES FISCALES" (literal de la Tabla 3).
-      if (["A", "B", "C", "M"].includes(v.letter) && v.code !== 81) expect(v.label.endsWith(v.letter), String(v.code)).toBe(true);
+      if (["A", "B", "C", "M"].includes(v.letter) && v.code !== 81 && v.code !== 39) expect(v.label.endsWith(v.letter), String(v.code)).toBe(true);
     }
   });
 

@@ -212,6 +212,9 @@ export const ROUNDING_TOLERANCE = D("0.02");
  *  - acceptRounding: si el total informado difiere de la suma de sus
  *    componentes en hasta ROUNDING_TOLERANCE, se guarda el total calculado y
  *    la fila conserva el informado y la diferencia en sus notas;
+ *  - acceptReportedVat: si el IVA informado de una línea difiere del calculado
+ *    (neto × alícuota) en hasta REPORTED_VAT_TOLERANCE, se registra el
+ *    informado (el del comprobante) y la fila lo deja en sus notas;
  *  - exemptSaleOperationCode: código de operación para las ventas B cuyo total
  *    se explica sólo con exento o no gravado según el archivo;
  *  - zeroRateOperationCode: código de operación para el neto gravado al 0 %;
@@ -220,11 +223,14 @@ export const ROUNDING_TOLERANCE = D("0.02");
  */
 export interface ImportCorrections {
     acceptRounding?: boolean;
+    acceptReportedVat?: boolean;
     exemptSaleOperationCode?: string;
     zeroRateOperationCode?: string;
     lineAmounts?: Record<string, Partial<Record<CorrectableAmount, string>>>;
 }
 const VAT_TOLERANCE = D("0.01");
+/** Diferencia máxima por línea para registrar el IVA informado (corrección acceptReportedVat; decisión del estudio, 28/11/2026). */
+export const REPORTED_VAT_TOLERANCE = D("1.00");
 
 /** Clave de duplicidad: misma composición que duplicateVoucherWhere (lib/invoice-rules). */
 export function voucherKey(k: {
@@ -510,7 +516,10 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
         if (!portal && (net.isNegative() || vat.isNegative())) d.raise("REVIEW", `importe negativo en la alícuota (línea ${a.line})`);
         if (vat.abs().greaterThan(net.abs()) && operationCode !== "C") d.raise("ERROR", `el impuesto liquidado supera al neto gravado (línea ${a.line} de alícuotas)`);
         const computed = computeLineVat(net.abs(), code);
-        if (computed.minus(vat.abs()).abs().greaterThan(VAT_TOLERANCE)) {
+        const vatDiff = computed.minus(vat.abs()).abs();
+        if (vatDiff.greaterThan(VAT_TOLERANCE) && ctx.corrections?.acceptReportedVat && !vatDiff.greaterThan(REPORTED_VAT_TOLERANCE)) {
+            d.row.notes.push(`IVA informado ${vat.abs().toFixed(2)} registrado; el calculado es ${computed.toFixed(2)} (diferencia ${vatDiff.toFixed(2)}, línea ${a.line} de alícuotas)`);
+        } else if (vatDiff.greaterThan(VAT_TOLERANCE)) {
             d.raise("REVIEW", `IVA informado ${vat.abs().toFixed(2)} y calculado ${computed.toFixed(2)} difieren en más de 0,01 (línea ${a.line} de alícuotas)`);
         }
         if (code === 3 && operationCode === null && ctx.corrections?.zeroRateOperationCode) {
