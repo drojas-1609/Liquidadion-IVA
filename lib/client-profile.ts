@@ -169,6 +169,11 @@ export interface IibbProfileData {
     jurisdictions: IibbJurisdictionData[];
     activities: IibbActivityData[];
     /**
+     * Actividad principal (código de una actividad de la ficha; null = sin
+     * definir). Ausente: no se modifica la guardada (Client.iibbPrincipalActivityCode).
+     */
+    principalCode?: string | null;
+    /**
      * Jurisdicciones guardadas con asociaciones que el usuario confirmó quitar,
      * con el conjunto EXACTO de asociaciones (activityKey) que vio en el aviso.
      */
@@ -432,12 +437,18 @@ export function validateIibbProfile(raw: unknown): FieldResult<IibbProfileData> 
     if (cj === null) return fail("iibb.confirmRemovedJurisdictions", "confirmación de jurisdicciones inválida");
     const ca = confirmationList(b.confirmRemovedActivities, "key", "jurisdictions", isActivityKeyString, isJurisdictionCode, MAX_ACTIVITIES, MAX_JURISDICTIONS);
     if (ca === null) return fail("iibb.confirmRemovedActivities", "confirmación de actividades inválida");
+    let principalCode: string | null | undefined;
+    if (b.principalCode !== undefined) {
+        if (b.principalCode === null || b.principalCode === "") principalCode = null;
+        else if (typeof b.principalCode === "string" && activities.some((a) => a.code === b.principalCode)) principalCode = b.principalCode;
+        else return fail("iibb.principalCode", "la actividad principal debe ser una de las actividades de la ficha");
+    }
     const confirmRemovedJurisdictions = cj.map(({ id, set }) => ({ code: id, associations: set }));
     const confirmRemovedActivities = ca.map(({ id, set }) => ({ key: id, jurisdictions: set }));
 
     return {
         ok: true,
-        value: { registration, jurisdictions, activities, confirmRemovedJurisdictions, confirmRemovedActivities },
+        value: { registration, jurisdictions, activities, ...(principalCode !== undefined ? { principalCode } : {}), confirmRemovedJurisdictions, confirmRemovedActivities },
     };
 }
 

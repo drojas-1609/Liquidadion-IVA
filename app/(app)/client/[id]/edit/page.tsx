@@ -51,6 +51,7 @@ export default async function EditClientPage({ params }: { params: Promise<{ id:
                 phone: client.phone ?? "",
                 contactEmail: client.contactEmail ?? "",
                 iibbRegistration: client.iibbRegistration,
+                iibbPrincipalActivityCode: client.iibbPrincipalActivityCode,
                 jurisdictions: iibb.jurisdictions,
                 activities: iibb.activities,
                 grossIncomes: Object.fromEntries(guard.data.grossIncomes.map((g) => [g.incomeYear, g.amount.toFixed(2)])),

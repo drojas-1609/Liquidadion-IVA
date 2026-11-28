@@ -212,6 +212,9 @@ export const ROUNDING_TOLERANCE = D("0.02");
  *  - acceptRounding: si el total informado difiere de la suma de sus
  *    componentes en hasta ROUNDING_TOLERANCE, se guarda el total calculado y
  *    la fila conserva el informado y la diferencia en sus notas;
+ *  - acceptReportedVat: si el IVA informado de una línea difiere del calculado
+ *    (neto × alícuota) en hasta REPORTED_VAT_TOLERANCE, se registra el
+ *    informado (el del comprobante) y la fila lo deja en sus notas;
  *  - exemptSaleOperationCode: código de operación para las ventas B cuyo total
  *    se explica sólo con exento o no gravado según el archivo;
  *  - zeroRateOperationCode: código de operación para el neto gravado al 0 %;
@@ -220,11 +223,14 @@ export const ROUNDING_TOLERANCE = D("0.02");
  */
 export interface ImportCorrections {
     acceptRounding?: boolean;
+    acceptReportedVat?: boolean;
     exemptSaleOperationCode?: string;
     zeroRateOperationCode?: string;
     lineAmounts?: Record<string, Partial<Record<CorrectableAmount, string>>>;
 }
 const VAT_TOLERANCE = D("0.01");
+/** Diferencia máxima por línea para registrar el IVA informado (corrección acceptReportedVat; decisión del estudio, 28/11/2026). */
+export const REPORTED_VAT_TOLERANCE = D("1.00");
 
 /** Clave de duplicidad: misma composición que duplicateVoucherWhere (lib/invoice-rules). */
 export function voucherKey(k: {
@@ -392,7 +398,8 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     // portal: importes CON signo (notas de crédito en negativo). download: descargas sin código de operación ni TurIVA.
     const portal = ctx.source === "PORTAL_CSV";
     const download = downloadLabel(ctx.source);
-    if (vt && download) {
+    // La descarga de la pestaña TurIVA de Portal IVA sí informa el reintegro: se valida como el archivo TurIVA.
+    if (vt && download && !(portal && turivaFile)) {
         if (vt.letter === "T") d.raise("REVIEW", `${download} no informa el reintegro TurIVA: importar este comprobante con el TXT de TurIVA`);
     } else if (vt) {
         if (vt.letter === "T" && !turivaFile) d.raise("ERROR", "los comprobantes clase T (195–197) van en el archivo de TurIVA");
@@ -405,7 +412,11 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     // Moneda: los importes del modelo están en pesos.
     const currency = str(v.currency).trim();
     const rate = dec(v.exchangeRate);
-    if (currency !== CURRENCY_PESOS) d.raise("REVIEW", `moneda ${currency || "vacía"}: confirmar que los importes estén en pesos`);
+    if (currency !== CURRENCY_PESOS && portal && currency !== "" && rate.greaterThan(0)) {
+        // La descarga de Portal IVA expresa todos los importes en pesos (lo dice su nombre de archivo):
+        // la moneda original y el tipo de cambio sólo se informan (decisión del estudio, 27/11/2026).
+        d.row.notes.push(`moneda original ${currency} con tipo de cambio ${rate.toFixed(6).replace(/\.?0+$/, "")}: la descarga de Portal IVA ya expresa los importes en pesos`);
+    } else if (currency !== CURRENCY_PESOS) d.raise("REVIEW", `moneda ${currency || "vacía"}: confirmar que los importes estén en pesos`);
     else if (!rate.equals(1)) d.raise("REVIEW", "moneda PES con tipo de cambio distinto de 1");
 
     // Código de operación.
@@ -487,7 +498,10 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
         }
     }
 
-    const allocation = category === "PURCHASES" ? "DIRECT_COMPUTABLE" : "NOT_APPLICABLE";
+    // Prorrateo global (sin asignación directa): todo el IVA de compras va al prorrateo y el
+    // computable sale en la liquidación (IVA × coeficiente del período). Criterio del estudio, 27/11/2026.
+    const globalOnly = category === "PURCHASES" && ctx.settings.creditProrationMode === "GLOBAL";
+    const allocation = category === "PURCHASES" ? (globalOnly ? "GLOBAL_PRORATION" : "DIRECT_COMPUTABLE") : "NOT_APPLICABLE";
     const rateCodes = aliquots.map((a) => Number(str(a.values.rateCode)));
     if (new Set(rateCodes).size !== rateCodes.length) d.raise("REVIEW", "la misma alícuota aparece más de una vez en el comprobante: unificar antes de importar");
     const lines: VatLineData[] = [];
@@ -502,7 +516,10 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
         if (!portal && (net.isNegative() || vat.isNegative())) d.raise("REVIEW", `importe negativo en la alícuota (línea ${a.line})`);
         if (vat.abs().greaterThan(net.abs()) && operationCode !== "C") d.raise("ERROR", `el impuesto liquidado supera al neto gravado (línea ${a.line} de alícuotas)`);
         const computed = computeLineVat(net.abs(), code);
-        if (computed.minus(vat.abs()).abs().greaterThan(VAT_TOLERANCE)) {
+        const vatDiff = computed.minus(vat.abs()).abs();
+        if (vatDiff.greaterThan(VAT_TOLERANCE) && ctx.corrections?.acceptReportedVat && !vatDiff.greaterThan(REPORTED_VAT_TOLERANCE)) {
+            d.row.notes.push(`IVA informado ${vat.abs().toFixed(2)} registrado; el calculado es ${computed.toFixed(2)} (diferencia ${vatDiff.toFixed(2)}, línea ${a.line} de alícuotas)`);
+        } else if (vatDiff.greaterThan(VAT_TOLERANCE)) {
             d.raise("REVIEW", `IVA informado ${vat.abs().toFixed(2)} y calculado ${computed.toFixed(2)} difieren en más de 0,01 (línea ${a.line} de alícuotas)`);
         }
         if (code === 3 && operationCode === null && ctx.corrections?.zeroRateOperationCode) {
@@ -516,7 +533,7 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
             netAmount: net.abs(),
             vatAmount: vat.abs(),
             creditAllocation: allocation,
-            computableVatAmount: category === "PURCHASES" ? vat.abs() : null,
+            computableVatAmount: category === "PURCHASES" && !globalOnly ? vat.abs() : null,
             computableOverridden: false,
         });
     }
@@ -536,11 +553,15 @@ function buildRow(ctx: PreviewContext, turivaFile: boolean, rec: ParsedRecord, a
     if (category === "PURCHASES") {
         reportedCredit = header.computableCredit.abs();
         const mode = ctx.settings.creditProrationMode;
-        if (ctx.source === "MIS_COMPROBANTES" && mode !== "NONE") {
+        if (mode === "GLOBAL") {
+            if (lines.length > 0) {
+                d.row.notes.push(`IVA sujeto a prorrateo global (coeficiente del período)${ctx.source === "MIS_COMPROBANTES" ? "" : `; crédito computable informado en el archivo ${reportedCredit.toFixed(2)}, sólo como referencia`}`);
+            }
+        } else if (ctx.source === "MIS_COMPROBANTES" && mode !== "NONE") {
             // La consulta no informa el crédito computable: sólo sin prorrateo es igual al IVA (Especificaciones, campo 21).
             d.raise("REVIEW", "la consulta de Mis Comprobantes no informa el crédito fiscal computable y el período tiene prorrateo: cargarlo por otra vía");
-        } else if (mode === "GLOBAL" || mode === "DIRECT_AND_GLOBAL") {
-            d.raise("REVIEW", "período con prorrateo global: la asignación del crédito por línea no se puede determinar desde el archivo");
+        } else if (mode === "DIRECT_AND_GLOBAL") {
+            d.raise("REVIEW", "período con prorrateo por asignación directa y global: la asignación del crédito por línea no se puede determinar desde el archivo");
         } else if (reportedCredit.greaterThan(totalVat)) {
             d.raise("ERROR", "el crédito fiscal computable informado supera al IVA liquidado");
         } else if (!reportedCredit.equals(totalVat)) {

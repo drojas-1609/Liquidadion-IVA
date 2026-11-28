@@ -78,10 +78,12 @@ function dayOf(s: string | undefined): string | null {
 function section(lines: string[], head: string): string[] {
     const i = lines.findIndex((l) => l === head);
     if (i < 0) return [];
-    const heads = new Set<string>(Object.values(H));
+    const heads = Object.values(H) as string[];
     const out: string[] = [];
     for (let k = i + 1; k < lines.length; k++) {
-        if (heads.has(lines[k]) || /^Vigencia de la presente constancia/.test(lines[k]) || /^Esta constancia no da cuenta/.test(lines[k])) break;
+        // Corta en cualquier encabezado conocido aunque venga con variantes (p. ej. un inscripto local
+        // trae «DOMICILIO FISCAL - JURISDICCIONAL» sin «/ SEDE»), para no pegarlo a la última actividad.
+        if (heads.some((h) => lines[k].startsWith(h)) || /^DOMICILIO FISCAL\b/.test(lines[k]) || /^Vigencia de la presente constancia/.test(lines[k]) || /^Esta constancia no da cuenta/.test(lines[k])) break;
         out.push(lines[k]);
     }
     return out;
@@ -121,7 +123,8 @@ function appendTail(a: ConstanciaActivity, text: string, provincial: boolean) {
         a.article = art[1];
         t = t.slice(0, art.index);
     }
-    t = t.replace(provincial ? /^NAES\s+/ : /^\(F-\d+\)\s+/, "");
+    // Nacionales: «(F-883) …». Provinciales: «NAES …» o, en inscriptos locales, «(F-920) …» (formulario de la jurisdicción).
+    t = t.replace(provincial ? /^(?:NAES\s+|\(F-\d+\)\s+)/ : /^\(F-\d+\)\s+/, "");
     a.description += ` ${t}`;
 }
 

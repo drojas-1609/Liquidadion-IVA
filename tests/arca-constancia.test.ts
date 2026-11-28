@@ -90,6 +90,10 @@ describe("constancia de inscripción ARCA", () => {
       registration: "CONVENIO_MULTILATERAL",
       jurisdictions: [{ code: "901", headquarters: true }, { code: "902", headquarters: false }, { code: "920", headquarters: false }],
       activities: [{ nomenclator: "NAES", code: "551021" }, { nomenclator: "NAES", code: "561011" }],
+      address: "CALLE FALSA 123 Piso:2 Dpto:B, 1043-CIUDAD AUTONOMA BUENOS AIRES",
+      principalCode: "551021",
+      name: "Empresa de Prueba S. A. S.",
+      cuit: "30-00000000-0",
     });
     expect(isEmptyProposal(same)).toBe(true);
   });
@@ -100,5 +104,63 @@ describe("constancia de inscripción ARCA", () => {
     expect(backupFileName(t)).not.toMatch(/2026/);
     expect(backupFileName(t)).toMatch(/^CONSTANCIA DE INSCRIPCION .*\.pdf$/);
     expect(MANUAL_BACKUP_CATEGORIES).not.toContain("CONSTANCIAS");
+  });
+});
+
+describe("constancia de un inscripto local con formulario provincial (datos ficticios)", () => {
+  const LONG = "Actividades y/o servicios de intermediación que se ejerzan percibiendo comisiones, bonificaciones, porcentajes u otras retribuciones análogas N.C.P. (Incluye venta de combustibles al por menor por comisión, venta de mercaderías de propiedad de terceros, servicios de agencias de viajes, comisión por venta de automotores, etc.) y otras actividades de prueba para superar el máximo";
+  const LOCAL = `PERSONA DE PRUEBA CUIT: 20-00000000-1
+CALLE 1 123
+9400-RIO GALLEGOS - SANTA CRUZ
+CALLE 1 123
+9400-RIO GALLEGOS - SANTA CRUZ
+CONSTANCIA DE INSCRIPCION
+IMPUESTOS/REGIMENES NACIONALES REGISTRADOS Y FECHA DE ALTA
+IVA 01-2024
+ACTIVIDADES NACIONALES REGISTRADAS Y FECHA DE ALTA
+Actividad principal: 492120 (F-883) SERVICIOS DE TRANSPORTE DE PRUEBA Mes de inicio: 01/2024
+DOMICILIO FISCAL - ARCA
+IMPUESTOS PROVINCIALES - FECHA DE ALTA
+IIBB LOCAL SANTA CRUZ - ACTIVO 08/2023
+JURISDICCIONES ADHERIDAS - FECHA DE ALTA
+920 SANTA CRUZ desde: 08/2023
+ACTIVIDADES PROVINCIALES REGISTRADAS Y FECHA DE ALTA
+Actividad principal: 492120 (F-920) Servicios de transporte de prueba desde: 08/2023
+Secundaria(s): 960999 (F-920) ${LONG} desde: 08/2023
+Secundaria(s): 562010 (F-920) Servicios de preparación de comidas para empresas desde: 08/2023
+DOMICILIO FISCAL - JURISDICCIONAL
+CALLE 1 123
+Vigencia de la presente constancia: 20-11-2026 a 20-12-2026 Hora 10:15:00 Verificador 100000000002`;
+  it("quita «(F-920)», no pega el encabezado siguiente y recorta descripciones largas al proponer", () => {
+    const c = parseConstancia(LOCAL);
+    expect(c.provincialActivities.map((a) => a.code)).toEqual(["492120", "960999", "562010"]);
+    expect(c.provincialActivities[0].description).toBe("Servicios de transporte de prueba");
+    expect(c.provincialActivities[2].description).toBe("Servicios de preparación de comidas para empresas");
+    const p = proposeFromConstancia(c, { registration: null, jurisdictions: [], activities: [] } as never);
+    const long = p.addActivities.find((a) => a.code === "960999")!;
+    expect(long.description.length).toBeLessThanOrEqual(300);
+    expect(long.description.endsWith("…")).toBe(true);
+    expect(long.description.startsWith("Actividades y/o servicios de intermediación")).toBe(true);
+  });
+});
+
+describe("constancia: dirección y actividad principal (datos ficticios)", () => {
+  const empty = { registration: "", jurisdictions: [], activities: [] };
+  it("propone el domicilio jurisdiccional y la actividad principal provincial", () => {
+    const p = proposeFromConstancia(parseConstancia(CM), { ...empty, address: "" });
+    expect(p.address).toEqual({ proposed: "CALLE FALSA 123 Piso:2 Dpto:B, 1043-CIUDAD AUTONOMA BUENOS AIRES", current: "" });
+    expect(p.principalCode).toBe("551021");
+    expect(p.name).toEqual({ proposed: "EMPRESA DE PRUEBA S. A. S.", current: "" });
+    expect(p.cuit).toBe("30-00000000-0");
+    // CUIT ya cargado: no se toca (si es otro, el panel rechaza la constancia).
+    expect(proposeFromConstancia(parseConstancia(CM), { ...empty, cuit: "30000000000" }).cuit).toBeNull();
+  });
+  it("no repite lo que ya coincide; sin jurisdiccional usa el fiscal", () => {
+    const c = parseConstancia(CM);
+    const same = proposeFromConstancia(c, { ...empty, activities: [{ nomenclator: "NAES", code: "551021" }, { nomenclator: "NAES", code: "561011" }], address: "calle falsa 123 piso:2 dpto:b, 1043-ciudad autonoma buenos aires", principalCode: "551021", name: "EMPRESA DE PRUEBA S. A. S.", cuit: "30-00000000-0", registration: "CONVENIO_MULTILATERAL", jurisdictions: [{ code: "901", headquarters: true }, { code: "902", headquarters: false }, { code: "920", headquarters: false }] });
+    expect(same.address).toBeNull();
+    expect(same.principalCode).toBeNull();
+    expect(isEmptyProposal(same)).toBe(true);
+    expect(proposeFromConstancia({ ...c, jurisdictionalAddress: null }, empty).address?.proposed).toBe("AV. SIEMPRE VIVA 742, 9405-EL CALAFATE - SANTA CRUZ");
   });
 });

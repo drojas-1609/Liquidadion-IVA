@@ -9,9 +9,10 @@ import { buildActivityConfigInput } from "@/lib/iibb/activity-input";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// PUT /api/clients/[id]/iibb-activities { principalCode, pos: [{ pointOfSale, activityCode }] }
-// Actividad principal de IIBB y puntos de venta asignados a una actividad
-// (reemplaza la lista completa). Los códigos deben ser actividades de la ficha.
+// PUT /api/clients/[id]/iibb-activities { principalCode, pos: [{ pointOfSale, activityCode }], providers?: [{ cuit, name, activityCode }] }
+// Actividad principal de IIBB, puntos de venta asignados a una actividad y, si
+// viene, la lista de prestadores para la base por diferencia (cada lista se
+// reemplaza completa). Los códigos deben ser actividades de la ficha.
 export const PUT = withApiAuthz(async (request: Request, ctx: Ctx) => {
     const { id } = await ctx.params;
     const { profileId } = await requireAuthenticatedProfile();
@@ -25,11 +26,18 @@ export const PUT = withApiAuthz(async (request: Request, ctx: Ctx) => {
         if (!client) throw new NotFoundError();
         const parsed = buildActivityConfigInput(body, client.activities.map((a) => a.code));
         if (!parsed.ok) throw new ValidationError(parsed.error, parsed.field);
-        const { principalCode, pos } = parsed.value;
+        const { principalCode, pos, providers } = parsed.value;
         await tx.client.update({ where: { id }, data: { iibbPrincipalActivityCode: principalCode, updatedById: profileId } });
         await tx.clientPosActivity.deleteMany({ where: { clientId: id, organizationId } });
         if (pos.length > 0) await tx.clientPosActivity.createMany({ data: pos.map((p) => ({ organizationId, clientId: id, pointOfSale: p.pointOfSale, activityCode: p.activityCode })) });
-        await recordAudit(tx, { organizationId, actorProfileId: profileId, action: "client.iibb_activity_config", targetType: "Client", targetId: id, metadata: { principalCode, posCount: pos.length } });
+        if (providers) {
+            await tx.clientIibbProvider.deleteMany({ where: { clientId: id, organizationId } });
+            if (providers.length > 0) await tx.clientIibbProvider.createMany({ data: providers.map((p) => ({ organizationId, clientId: id, cuit: p.cuit, name: p.name, activityCode: p.activityCode })) });
+        }
+        await recordAudit(tx, {
+            organizationId, actorProfileId: profileId, action: "client.iibb_activity_config", targetType: "Client", targetId: id,
+            metadata: { principalCode, posCount: pos.length, ...(providers ? { providersCount: providers.length } : {}) },
+        });
     });
     return NextResponse.json({ ok: true });
 });

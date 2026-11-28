@@ -137,7 +137,7 @@ describe("página del período — tarjeta TurIVA", () => {
   it("la lectura del período filtra por organizationId (selecciona vatSettings.turivaIncluded)", async () => {
     await call();
     expect(db.period.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "p_a", organizationId: ORG_A }, select: expect.objectContaining({ vatSettings: { select: { turivaIncluded: true } } }) }),
+      expect.objectContaining({ where: { id: "p_a", organizationId: ORG_A }, select: expect.objectContaining({ vatSettings: { select: { turivaIncluded: true, creditProrationMode: true, globalCoefficient: true, globalCoefficientStatus: true } } }) }),
     );
   });
 

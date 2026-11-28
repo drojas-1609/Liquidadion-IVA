@@ -43,6 +43,12 @@ export interface IibbActivityConfig {
     activities: readonly IibbActivityRate[];
     /** Año fiscal del período (para las advertencias). */
     fiscalYear?: number;
+    /**
+     * Base por diferencia (criterio del estudio): costo de prestadores por
+     * actividad = compras del período a los prestadores marcados (netas de IVA;
+     * facturas C por el total) + ajuste manual del período.
+     */
+    costs?: Readonly<Record<string, { providers: Prisma.Decimal; adjustment: Prisma.Decimal }>>;
 }
 
 /** Ventas agrupadas: base IIBB con signo por punto de venta y corrección manual. */
@@ -64,6 +70,8 @@ export interface IibbActivityLine {
     sources: ActivitySource[];
     /** Adicional de la actividad sobre la misma base (se suma aparte, como «Adicionales» en la DDJJ). */
     additional?: { label: string; rate: Prisma.Decimal; amount: Prisma.Decimal } | null;
+    /** Base por diferencia: ventas de la actividad, costo de prestadores (compras + ajuste) y el detalle. `base` = ventas − costo (≥ 0). */
+    difference?: { sales: Prisma.Decimal; providers: Prisma.Decimal; adjustment: Prisma.Decimal; cost: Prisma.Decimal; clamped: boolean } | null;
 }
 
 export interface IibbActivityResult {
@@ -105,7 +113,15 @@ export function iibbByActivity(slices: readonly IibbSaleSlice[], cfg: IibbActivi
         g.sources.add(r.source);
         groups.set(key, g);
     }
+    // Una actividad con costo de prestadores aparece aunque no tenga ventas (su base queda en 0 y se advierte).
     const warnings: string[] = [];
+    for (const code of Object.keys(cfg.costs ?? {})) {
+        if (!cfg.activities.some((a) => a.code === code)) {
+            warnings.push(`Hay costo de prestadores asignado a la actividad ${code}, que ya no está en la ficha: no se restó. Revisá los prestadores.`);
+            continue;
+        }
+        if (!groups.has(code)) groups.set(code, { code, base: [], sources: new Set<ActivitySource>() });
+    }
     if (!cfg.principalCode || !cfg.activities.some((a) => a.code === cfg.principalCode)) {
         warnings.push("El cliente no tiene actividad principal de IIBB definida.");
     }
@@ -113,7 +129,18 @@ export function iibbByActivity(slices: readonly IibbSaleSlice[], cfg: IibbActivi
     if (art163.length > 0) warnings.push(`${ARBA_ART163_NOTICE} Actividades: ${art163.join(", ")}.`);
     const lines: IibbActivityLine[] = [];
     for (const g of [...groups.values()].sort((a, b) => (a.code ?? "~").localeCompare(b.code ?? "~"))) {
-        const base = sum(g.base);
+        const sales = sum(g.base);
+        const c = g.code && cfg.activities.some((a) => a.code === g.code) ? cfg.costs?.[g.code] : undefined;
+        let base = sales;
+        let difference: IibbActivityLine["difference"] = null;
+        if (c) {
+            const cost = c.providers.plus(c.adjustment);
+            const diff = sales.minus(cost);
+            const clamped = diff.isNegative();
+            base = clamped ? D(0) : diff;
+            difference = { sales, providers: c.providers, adjustment: c.adjustment, cost, clamped };
+            if (clamped) warnings.push(`Actividad ${g.code}: el costo de prestadores supera las ventas del período; la base quedó en 0 (revisá prestadores y ajustes).`);
+        }
         const act = g.code ? cfg.activities.find((a) => a.code === g.code) ?? null : null;
         let rate: Prisma.Decimal;
         let rateSource: RateSource;
@@ -149,7 +176,11 @@ export function iibbByActivity(slices: readonly IibbSaleSlice[], cfg: IibbActivi
             rateSource,
             sources: [...g.sources].sort(),
             ...(additional ? { additional } : {}),
+            ...(difference ? { difference } : {}),
         });
+    }
+    if (lines.some((l) => l.difference)) {
+        warnings.push("Base por diferencia (criterio del estudio): ventas − pagado a prestadores, compras netas de IVA (facturas C por el total). No surge de una base especial del Código Fiscal: revisala antes de presentar.");
     }
     const base = sum(lines.map((l) => l.base));
     const calculatedTax = sum(lines.map((l) => l.tax));

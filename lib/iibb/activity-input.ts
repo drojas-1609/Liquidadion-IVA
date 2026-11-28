@@ -1,4 +1,5 @@
 /** Validación de los cuerpos de configuración y asignación de actividades de IIBB (lógica pura). */
+import { normalizeCuit } from "../cuit";
 
 type Result<T> = { ok: true; value: T } | { ok: false; field: string; error: string };
 const bad = (field: string, error: string): Result<never> => ({ ok: false, field, error });
@@ -7,13 +8,21 @@ const CODE_RE = /^[0-9A-Za-z.-]{1,12}$/;
 export interface ActivityConfigInput {
     principalCode: string | null;
     pos: { pointOfSale: number; activityCode: string }[];
+    /** Prestadores (base por diferencia). undefined = no se modifican. */
+    providers?: { cuit: string; name: string; activityCode: string }[];
+}
+
+/** CUIT válido (lib/cuit) como 11 dígitos sin separadores; null si es inválido. */
+export function cuitDigits(raw: string): string | null {
+    const r = normalizeCuit(raw);
+    return r.ok ? r.value.replace(/-/g, "") : null;
 }
 
 /** { principalCode, pos: [{ pointOfSale, activityCode }] }; los códigos deben ser actividades del cliente. */
 export function buildActivityConfigInput(body: unknown, clientCodes: readonly string[]): Result<ActivityConfigInput> {
     if (typeof body !== "object" || body === null || Array.isArray(body)) return bad("body", "cuerpo inválido");
     const b = body as Record<string, unknown>;
-    for (const k of Object.keys(b)) if (!["principalCode", "pos"].includes(k)) return bad(k, "campo no admitido");
+    for (const k of Object.keys(b)) if (!["principalCode", "pos", "providers"].includes(k)) return bad(k, "campo no admitido");
     const codes = new Set(clientCodes);
     let principalCode: string | null = null;
     if (b.principalCode !== null && b.principalCode !== undefined && b.principalCode !== "") {
@@ -33,7 +42,23 @@ export function buildActivityConfigInput(body: unknown, clientCodes: readonly st
         if (typeof r.activityCode !== "string" || !codes.has(r.activityCode)) return bad(`pos.${i}.activityCode`, "la actividad debe ser una actividad de la ficha");
         pos.push({ pointOfSale: p, activityCode: r.activityCode });
     }
-    return { ok: true, value: { principalCode, pos } };
+    if (b.providers === undefined) return { ok: true, value: { principalCode, pos } };
+    if (!Array.isArray(b.providers) || b.providers.length > 300) return bad("providers", "lista de prestadores inválida");
+    const seenCuit = new Set<string>();
+    const providers: NonNullable<ActivityConfigInput["providers"]> = [];
+    for (const [i, raw] of b.providers.entries()) {
+        const r = raw as Record<string, unknown> | null;
+        if (!r || typeof r !== "object") return bad(`providers.${i}`, "fila inválida");
+        const cuit = typeof r.cuit === "string" ? cuitDigits(r.cuit) : null;
+        if (!cuit) return bad(`providers.${i}.cuit`, "CUIT inválido (11 dígitos con dígito verificador correcto)");
+        if (seenCuit.has(cuit)) return bad(`providers.${i}.cuit`, `el CUIT ${cuit} está repetido`);
+        seenCuit.add(cuit);
+        const name = typeof r.name === "string" ? r.name.trim() : "";
+        if (name === "" || name.length > 200) return bad(`providers.${i}.name`, "nombre del prestador obligatorio (hasta 200 caracteres)");
+        if (typeof r.activityCode !== "string" || !codes.has(r.activityCode)) return bad(`providers.${i}.activityCode`, "la actividad debe ser una actividad de la ficha");
+        providers.push({ cuit, name, activityCode: r.activityCode });
+    }
+    return { ok: true, value: { principalCode, pos, providers } };
 }
 
 export interface ActivityAssignmentInput {
@@ -89,4 +114,38 @@ export function buildGrossIncomeInput(body: unknown, thisYear: number): Result<G
         note = b.note.trim() || null;
     }
     return { ok: true, value: { incomeYear: y, amount, note } };
+}
+
+export interface CostAdjustmentInput {
+    adjustments: { activityCode: string; amount: string; note: string }[];
+}
+
+/**
+ * { adjustments: [{ activityCode, amount: "-1.234,56", note }] } — reemplaza los
+ * ajustes del período. Importe con signo (positivo suma costo, negativo resta),
+ * hasta 2 decimales; nota obligatoria. Lista vacía = sin ajustes.
+ */
+export function buildCostAdjustmentInput(body: unknown, clientCodes: readonly string[]): Result<CostAdjustmentInput> {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return bad("body", "cuerpo inválido");
+    const b = body as Record<string, unknown>;
+    for (const k of Object.keys(b)) if (k !== "adjustments") return bad(k, "campo no admitido");
+    if (!Array.isArray(b.adjustments) || b.adjustments.length > 50) return bad("adjustments", "lista de ajustes inválida");
+    const codes = new Set(clientCodes);
+    const seen = new Set<string>();
+    const out: CostAdjustmentInput["adjustments"] = [];
+    for (const [i, raw] of b.adjustments.entries()) {
+        const r = raw as Record<string, unknown> | null;
+        if (!r || typeof r !== "object") return bad(`adjustments.${i}`, "fila inválida");
+        if (typeof r.activityCode !== "string" || !codes.has(r.activityCode)) return bad(`adjustments.${i}.activityCode`, "la actividad debe ser una actividad de la ficha");
+        if (seen.has(r.activityCode)) return bad(`adjustments.${i}.activityCode`, "actividad repetida");
+        seen.add(r.activityCode);
+        if (typeof r.amount !== "string") return bad(`adjustments.${i}.amount`, "importe inválido");
+        const rawAmount = r.amount.trim().replace(/\s/g, "");
+        const normalized = /,/.test(rawAmount) ? rawAmount.replace(/\./g, "").replace(",", ".") : rawAmount;
+        if (!/^-?\d{1,16}(\.\d{1,2})?$/.test(normalized) || Number(normalized) === 0) return bad(`adjustments.${i}.amount`, "importe inválido: pesos con signo, hasta 2 decimales y distinto de 0");
+        const note = typeof r.note === "string" ? r.note.trim() : "";
+        if (note === "" || note.length > 300) return bad(`adjustments.${i}.note`, "nota obligatoria (hasta 300 caracteres)");
+        out.push({ activityCode: r.activityCode, amount: normalized, note });
+    }
+    return { ok: true, value: { adjustments: out } };
 }

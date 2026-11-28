@@ -47,6 +47,22 @@ export const PORTAL_HEADERS: Record<LidCategory, readonly string[]> = {
     ],
 };
 
+/** Columna del reintegro en la descarga de ventas de la pestaña TurIVA (observada el 27/11/2026). */
+export const PORTAL_TURIVA_REFUND = "Importe Reintegro Decreto 1043/2016 (TurIVA)";
+
+/**
+ * Descarga de la pestaña TurIVA: mismas columnas con el reintegro después de
+ * «Importe Otros Tributos». Sólo ventas: la de compras no se observó todavía
+ * (si llega, el encabezado no coincide y se rechaza).
+ */
+export const PORTAL_TURIVA_HEADERS: Partial<Record<LidCategory, readonly string[]>> = {
+    SALES: (() => {
+        const h = [...PORTAL_HEADERS.SALES];
+        h.splice(h.indexOf("Importe Otros Tributos") + 1, 0, PORTAL_TURIVA_REFUND);
+        return h;
+    })(),
+};
+
 /** Columnas por alícuota -> código oficial (Tablas del Sistema). */
 const RATES: readonly { code: number; net: string; vat: string | null }[] = [
     { code: 3, net: "Neto Gravado IVA 0%", vat: null },
@@ -173,8 +189,11 @@ export function parsePortalDownload(input: Uint8Array, category: LidCategory): P
     const rows = csvRows(new TextDecoder("windows-1252").decode(bytes));
     if (rows.length === 0) return fileError("el archivo está vacío");
     const header = rows[0].map((h) => h.trim());
-    const expected = PORTAL_HEADERS[category];
-    if (header.length !== expected.length || header.some((h, i) => h !== expected[i])) {
+    const same = (exp: readonly string[] | undefined) => !!exp && header.length === exp.length && header.every((h, i) => h === exp[i]);
+    const turiva = same(PORTAL_TURIVA_HEADERS[category]);
+    const expected = turiva ? PORTAL_TURIVA_HEADERS[category]! : PORTAL_HEADERS[category];
+    vouchers.turiva = turiva;
+    if (!turiva && !same(expected)) {
         const other = PORTAL_HEADERS[category === "SALES" ? "PURCHASES" : "SALES"];
         const swapped = header.length === other.length && header.every((h, i) => h === other[i]);
         return fileError(swapped
@@ -221,6 +240,7 @@ export function parsePortalDownload(input: Uint8Array, category: LidCategory): P
             ["exchangeRate", "Tipo de Cambio", true],
         ];
         if (category === "PURCHASES") amountCols.push(["computableCredit", "Crédito Fiscal Computable", false]);
+        if (turiva) amountCols.push(["turivaRefund", PORTAL_TURIVA_REFUND, false]);
         for (const [key, name, required] of amountCols) {
             const v = amount(get(name));
             if (v === undefined || (required && v === null)) return issue(`${name}: importe inválido`, key);
@@ -243,10 +263,22 @@ export function parsePortalDownload(input: Uint8Array, category: LidCategory): P
             });
         }
         values.aliquotCount = String(lines.length);
+        // TurIVA: el «Importe Total» de la descarga viene NETO del reintegro (neto + IVA − reintegro);
+        // en la app el reintegro no forma parte del total (invoice-model), así que se suma de vuelta.
+        const refundNote: string[] = [];
+        if (turiva) {
+            const refund = values.turivaRefund as Prisma.Decimal;
+            if (!refund.isZero()) {
+                const gross = (values.total as Prisma.Decimal).plus(refund);
+                refundNote.push(`TurIVA: el total de la descarga ${(values.total as Prisma.Decimal).toFixed(2)} es neto del reintegro ${refund.toFixed(2)}; se registra el total ${gross.toFixed(2)} y el reintegro aparte`);
+                values.total = gross;
+            }
+        }
         const totNet = amount(get("Total Neto Gravado")), totVat = amount(get("Total IVA"));
         const lineNotes: string[] = [];
         if (totVat && !totVat.equals(vatSum)) lineNotes.push(`«Total IVA» de la descarga ${totVat.toFixed(2)} difiere de la suma por alícuota ${vatSum.toFixed(2)}: se usa la suma por alícuota`);
         if (totNet && !totNet.equals(netSum)) lineNotes.push(`«Total Neto Gravado» de la descarga ${totNet.toFixed(2)} difiere de la suma por alícuota ${netSum.toFixed(2)}: se usa la suma por alícuota`);
+        lineNotes.push(...refundNote);
         if (lineNotes.length) notes.set(line, lineNotes);
         vouchers.records.push({ line, values });
         aliquots.records.push(...lines);

@@ -236,3 +236,13 @@ Leerlo antes de volver a trabajar en el flujo correspondiente.
 - **Regla:** antes de agregar un valor a una lista que se persiste (categorías, tipos, estados),
   buscar `CHECK` sobre esa columna en `prisma/migrations` y, si existe, incluir la migración que
   la amplía en el mismo PR. Probar el camino completo en la preview (lectura + guardado).
+
+## 2026-11-27 · Descarga TurIVA de Portal IVA rechazada
+- **Qué pasó:** la descarga de ventas de la pestaña TurIVA de Portal IVA se rechazó por encabezado («el encabezado no coincide»).
+- **Causa:** el lector sólo conocía la descarga general; la de TurIVA agrega «Importe Reintegro Decreto 1043/2016 (TurIVA)» y su «Importe Total» viene neto del reintegro.
+- **Regla:** cada variante de descarga de ARCA (pestañas, libros) se incorpora con un archivo real observado y una prueba con datos ficticios de la misma forma; nunca se supone el diseño de una variante no vista (la de compras TurIVA sigue sin soporte hasta tener un archivo).
+
+## 2026-11-27 · Casilla de redondeo que no aparecía
+- **Qué pasó:** la casilla «Aceptar diferencias de redondeo» de la importación manual nunca se mostraba.
+- **Causa:** la condición buscaba el mensaje con una expresión escrita a mano que no contemplaba el importe calculado entre «componentes» y «(diferencia …)»; se probó la lógica del servidor pero no la condición de la pantalla.
+- **Regla:** las condiciones de pantalla que dependen de un texto del servidor van en una función compartida (lib) con una prueba que usa el mensaje REAL generado por el servidor, no uno copiado a mano.

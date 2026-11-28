@@ -4,13 +4,18 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Row = { pointOfSale: string; activityCode: string };
+type Provider = { cuit: string; name: string; activityCode: string };
 
-export function IibbActivityForm({ clientId, activities, principalCode, pos, seenPos }: {
+export function IibbActivityForm({ clientId, activities, principalCode, pos, seenPos, providers, suppliers }: {
     clientId: string;
     activities: { code: string; label: string }[];
     principalCode: string | null;
     pos: { pointOfSale: number; activityCode: string }[];
     seenPos: number[];
+    /** Prestadores marcados (base por diferencia). */
+    providers: Provider[];
+    /** Proveedores con compras del año, para agregarlos con un clic. */
+    suppliers: { cuit: string; name: string }[];
 }) {
     const router = useRouter();
     const inFlight = useRef(false);
@@ -18,6 +23,10 @@ export function IibbActivityForm({ clientId, activities, principalCode, pos, see
     const [principal, setPrincipal] = useState(principalCode ?? "");
     const [rows, setRows] = useState<Row[]>(pos.map((p) => ({ pointOfSale: String(p.pointOfSale), activityCode: p.activityCode })));
     const [msg, setMsg] = useState<{ tone: "status" | "alert"; text: string } | null>(null);
+    const [provs, setProvs] = useState<Provider[]>(providers);
+    const setProv = (i: number, patch: Partial<Provider>) => setProvs((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+    const addProv = (p: { cuit?: string; name?: string } = {}) => setProvs((ps) => [...ps, { cuit: p.cuit ?? "", name: p.name ?? "", activityCode: principal || activities[0]?.code || "" }]);
+    const notMarked = suppliers.filter((s) => !provs.some((p) => p.cuit.replace(/\D/g, "") === s.cuit));
     const unassigned = seenPos.filter((p) => !rows.some((r) => r.pointOfSale === String(p)));
 
     const set = (i: number, patch: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -28,7 +37,11 @@ export function IibbActivityForm({ clientId, activities, principalCode, pos, see
         if (inFlight.current) return;
         inFlight.current = true; setBusy(true); setMsg(null);
         try {
-            const body = { principalCode: principal || null, pos: rows.filter((r) => r.pointOfSale.trim() !== "").map((r) => ({ pointOfSale: Number(r.pointOfSale), activityCode: r.activityCode })) };
+            const body = {
+                principalCode: principal || null,
+                pos: rows.filter((r) => r.pointOfSale.trim() !== "").map((r) => ({ pointOfSale: Number(r.pointOfSale), activityCode: r.activityCode })),
+                providers: provs.filter((p) => p.cuit.trim() !== "" || p.name.trim() !== "").map((p) => ({ cuit: p.cuit.trim(), name: p.name.trim(), activityCode: p.activityCode })),
+            };
             const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}/iibb-activities`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
             const json = await res.json().catch(() => null);
             if (!res.ok) { setMsg({ tone: "alert", text: json?.error?.message ?? "No se pudo guardar." }); return; }
@@ -69,6 +82,43 @@ export function IibbActivityForm({ clientId, activities, principalCode, pos, see
                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => add()}>Agregar punto de venta</button>
                     {unassigned.map((p) => <button key={p} type="button" className="btn btn-secondary btn-sm" onClick={() => add(String(p))}>+ PDV {p} (con ventas)</button>)}
                 </div>
+            </fieldset>
+            <fieldset className="stack">
+                <legend>Prestadores: base por diferencia (opcional)</legend>
+                <p style={{ color: "var(--secondary)", fontSize: "0.875rem" }}>
+                    Criterio del estudio (p. ej. agencias de viajes): la base de la actividad es lo cobrado menos lo pagado a estos prestadores. Se restan sus compras del período netas de IVA (facturas C por el total); las notas de crédito restan. En cada período podés ajustar el costo a mano.
+                </p>
+                {provs.length === 0 && <p style={{ color: "var(--secondary)" }}>Sin prestadores: la base es el total de las ventas de cada actividad.</p>}
+                {provs.map((p, i) => (
+                    <div key={i} style={{ display: "flex", gap: "0.5rem", alignItems: "end", flexWrap: "wrap" }}>
+                        <label className="field" style={{ width: "10rem" }}>
+                            <span>CUIT</span>
+                            <input inputMode="numeric" value={p.cuit} onChange={(e) => setProv(i, { cuit: e.target.value.replace(/[^\d-]/g, "").slice(0, 13) })} aria-label={`CUIT del prestador, fila ${i + 1}`} />
+                        </label>
+                        <label className="field" style={{ flex: 1, minWidth: "12rem" }}>
+                            <span>Nombre</span>
+                            <input value={p.name} maxLength={200} onChange={(e) => setProv(i, { name: e.target.value })} aria-label={`Nombre del prestador, fila ${i + 1}`} />
+                        </label>
+                        <label className="field" style={{ flex: 1, minWidth: "14rem" }}>
+                            <span>Actividad a la que resta</span>
+                            <select value={p.activityCode} onChange={(e) => setProv(i, { activityCode: e.target.value })} aria-label={`Actividad del prestador, fila ${i + 1}`}>
+                                {activities.map((a) => <option key={a.code} value={a.code}>{a.label}</option>)}
+                            </select>
+                        </label>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setProvs((ps) => ps.filter((_, j) => j !== i))}>Quitar</button>
+                    </div>
+                ))}
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => addProv()}>Agregar prestador</button>
+                </div>
+                {notMarked.length > 0 && (
+                    <details>
+                        <summary>Proveedores con compras este año ({notMarked.length})</summary>
+                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                            {notMarked.map((s) => <button key={s.cuit} type="button" className="btn btn-secondary btn-sm" onClick={() => addProv(s)}>+ {s.name || s.cuit}</button>)}
+                        </div>
+                    </details>
+                )}
             </fieldset>
             <div><button className="btn btn-primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button></div>
             {msg && <p role={msg.tone}>{msg.text}</p>}

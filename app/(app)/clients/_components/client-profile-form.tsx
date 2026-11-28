@@ -116,6 +116,8 @@ export interface ClientProfileInitial {
     phone: string;
     contactEmail: string;
     iibbRegistration: string | null;
+    /** Actividad principal guardada (código); ausente o null = sin definir. */
+    iibbPrincipalActivityCode?: string | null;
     jurisdictions: Array<{ code: string; headquarters: boolean }>;
     activities: ClientProfileActivity[];
     /** F2: ingresos brutos anuales cargados (año → monto "1234.56"), para precargar los tramos. */
@@ -186,6 +188,7 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
     });
     const [registration, setRegistration] = useState<string>(initial.iibbRegistration ?? "");
     const [jurisdictions, setJurisdictions] = useState(initial.jurisdictions);
+    const [principalCode, setPrincipalCode] = useState<string>(initial.iibbPrincipalActivityCode ?? "");
     const [activities, setActivities] = useState<ActivityRow[]>(() => initial.activities.map((a, i) => rowFromActivity(a, i + 1)));
     // Lo guardado al abrir el formulario: base fija de las confirmaciones.
     const storedSummary = useMemo(() => summarizeStoredProfile(initial), [initial]);
@@ -337,6 +340,18 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
 
     // ── Constancia de inscripción ──────────────────────────────────────────
     function applyConstancia(c: Constancia, p: ConstanciaProposal) {
+        if (p.name || p.cuit || p.address) {
+            setFields((f) => ({
+                ...f,
+                ...(p.name ? { name: p.name.proposed } : {}),
+                ...(p.cuit ? { cuit: p.cuit } : {}),
+                ...(p.address ? { address: p.address.proposed } : {}),
+            }));
+            if (p.name) clearError("name");
+            if (p.cuit) clearError("cuit");
+            if (p.address) clearError("address");
+        }
+        if (p.principalCode) setPrincipalCode(p.principalCode);
         if (p.registration) changeRegistration(p.registration);
         if (p.addJurisdictions.length > 0) {
             setJurisdictions((js) => [...js, ...p.addJurisdictions.filter((j) => !js.some((x) => x.code === j.code)).map((j) => ({ code: j.code, headquarters: false }))]);
@@ -499,7 +514,9 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
 
     // ── Envío ───────────────────────────────────────────────────────────────
     function buildIibbDraft() {
-        return { registration: reg, jurisdictions, activities: activities.map((a) => activityPayload(a, selectedCodes)) };
+        // Principal: sólo si la actividad sigue en la ficha (si se quitó, queda sin definir).
+        const principal = principalCode && activities.some((a) => a.code === principalCode) ? principalCode : null;
+        return { registration: reg, jurisdictions, activities: activities.map((a) => activityPayload(a, selectedCodes)), principalCode: principal };
     }
 
     function askPendingRemoval(pendingRemovals: { jurisdictions: string[]; activities: string[] }) {
@@ -684,7 +701,7 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                 <ConstanciaPanel
                     clientId={initial.id ?? null}
                     cuit={fields.cuit}
-                    current={{ registration, jurisdictions, activities: activities.map((a) => ({ nomenclator: a.nomenclator, code: a.code })) }}
+                    current={{ registration, jurisdictions, activities: activities.map((a) => ({ nomenclator: a.nomenclator, code: a.code })), name: fields.name, cuit: fields.cuit, address: fields.address, principalCode }}
                     onApply={applyConstancia}
                     onFileForCreate={(b64) => { constanciaForCreate.current = b64; }}
                 />
@@ -915,6 +932,16 @@ export function ClientProfileForm({ mode, initial, canManageArca = false, arcaCo
                                 <div key={a.uid} className="card" role="group" aria-label={`Actividad ${idx + 1}`} style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
                                     <div style={{ display: "flex", gap: "var(--spacing-xs)", alignItems: "center", flexWrap: "wrap" }}>
                                         <strong>Actividad {idx + 1}</strong>
+                                        {a.code.trim() !== "" && (
+                                            <label style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: "var(--spacing-sm)" }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={principalCode === a.code}
+                                                    onChange={(e) => setPrincipalCode(e.target.checked ? a.code : "")}
+                                                />
+                                                Principal
+                                            </label>
+                                        )}
                                         <span {...a11y(k("origin"))} tabIndex={-1} style={BADGE}>
                                             {searching ? "Sin elegir" : ACTIVITY_ORIGIN_LABEL[a.origin]}
                                             {fromCatalog && a.catalogVersion ? ` · ${a.catalogVersion}` : ""}

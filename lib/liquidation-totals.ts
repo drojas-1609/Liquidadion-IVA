@@ -2,7 +2,7 @@ import "server-only";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { InvoiceForCalc, PeriodForCalc } from "./liquidation-calc";
 import { previousIibbBalance, iibbPositionWithPrevious, type PreviousIibbBalance } from "./iibb-previous-balance";
-import { normalizeInvoiceRow } from "./invoice-model";
+import { normalizeInvoiceRow, voucherSign } from "./invoice-model";
 import { pickYearRate, rateYearKey } from "./iibb/rate-years";
 import { sum } from "./decimal";
 import type { IibbSaleSlice } from "./iibb/activity-base";
@@ -65,7 +65,68 @@ export function localIibbJurisdiction(c: { iibbRegistration: string | null; juri
 }
 const z = (v: Prisma.Decimal | null | undefined) => v ?? ZERO;
 
-type Db = Pick<PrismaClient, "period" | "invoice" | "invoiceVatLine" | "clientIibbRateYear">;
+type Db = Pick<PrismaClient, "period" | "invoice" | "invoiceVatLine" | "clientIibbRateYear" | "clientIibbProvider" | "periodIibbCostAdjustment">;
+
+/**
+ * Costo de prestadores del período por actividad (base por diferencia, criterio
+ * del estudio): compras a los CUIT marcados, netas de IVA —gravado + no gravado
+ * + exento + operaciones sin IVA discriminado (facturas C, por el total)— con el
+ * signo del código (las notas de crédito restan). Filas heredadas: neto
+ * registrado. Más el ajuste manual del período.
+ */
+export async function iibbProviderCosts(
+    db: Pick<PrismaClient, "invoice" | "clientIibbProvider" | "periodIibbCostAdjustment">,
+    scope: { organizationId: string; periodId: string; clientId: string },
+): Promise<{ costs: Record<string, { providers: Prisma.Decimal; adjustment: Prisma.Decimal }>; byProvider: Array<{ cuit: string; name: string; activityCode: string; amount: Prisma.Decimal; count: number }> }> {
+    const [providers, adjustments] = await Promise.all([
+        db.clientIibbProvider.findMany({ where: { clientId: scope.clientId, organizationId: scope.organizationId }, select: { cuit: true, name: true, activityCode: true }, orderBy: { name: "asc" } }),
+        db.periodIibbCostAdjustment.findMany({ where: { periodId: scope.periodId, organizationId: scope.organizationId }, select: { activityCode: true, amount: true } }),
+    ]);
+    const costs: Record<string, { providers: Prisma.Decimal; adjustment: Prisma.Decimal }> = {};
+    const add = (code: string, k: "providers" | "adjustment", v: Prisma.Decimal) => {
+        const c = (costs[code] ??= { providers: ZERO, adjustment: ZERO });
+        c[k] = c[k].plus(v);
+    };
+    const byProvider: Array<{ cuit: string; name: string; activityCode: string; amount: Prisma.Decimal; count: number }> = [];
+    if (providers.length > 0) {
+        const cuits = providers.map((p) => p.cuit);
+        const dashed = cuits.map((c) => `${c.slice(0, 2)}-${c.slice(2, 10)}-${c[10]}`);
+        const inPeriod = { periodId: scope.periodId, organizationId: scope.organizationId, category: "PURCHASES" };
+        const [modeled, legacy] = await Promise.all([
+            db.invoice.groupBy({
+                by: ["counterpartyDocNumber", "voucherCode"],
+                where: { ...inPeriod, ...MODELED, counterpartyDocNumber: { in: cuits } },
+                _count: { _all: true },
+                _sum: { taxedNetAmount: true, netWithoutVatBreakdownAmount: true, nonTaxedAmount: true, exemptAmount: true },
+                orderBy: [{ counterpartyDocNumber: "asc" }, { voucherCode: "asc" }],
+            }),
+            db.invoice.groupBy({
+                by: ["entityCuit"],
+                where: { ...inPeriod, NOT: MODELED, entityCuit: { in: [...cuits, ...dashed] } },
+                _count: { _all: true },
+                _sum: { netAmount: true },
+                orderBy: { entityCuit: "asc" },
+            }),
+        ]);
+        for (const p of providers) {
+            let amount = ZERO;
+            let count = 0;
+            for (const g of modeled.filter((g) => g.counterpartyDocNumber === p.cuit)) {
+                const net = z(g._sum.taxedNetAmount).plus(z(g._sum.netWithoutVatBreakdownAmount)).plus(z(g._sum.nonTaxedAmount)).plus(z(g._sum.exemptAmount));
+                amount = amount.plus(net.times(voucherSign(g.voucherCode as number)));
+                count += g._count._all;
+            }
+            for (const g of legacy.filter((g) => (g.entityCuit ?? "").replace(/-/g, "") === p.cuit)) {
+                amount = amount.plus(z(g._sum.netAmount));
+                count += g._count._all;
+            }
+            byProvider.push({ ...p, amount, count });
+            add(p.activityCode, "providers", amount);
+        }
+    }
+    for (const a of adjustments) add(a.activityCode, "adjustment", a.amount);
+    return { costs, byProvider };
+}
 
 export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidationScope): Promise<PeriodLiquidationInput | null> {
     const period = await db.period.findFirst({
@@ -191,6 +252,7 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
             select: { jurisdictionCode: true, activityCode: true, rate: true, treatment: true, minimumAmount: true, additionalLabel: true, additionalRate: true },
         });
         const yearMap = new Map(yearRows.map((r) => [rateYearKey(r), r]));
+        const { costs } = await iibbProviderCosts(db, { organizationId: scope.organizationId, periodId: scope.periodId, clientId: period.clientId });
         iibbActivities = {
             slices,
             config: {
@@ -198,6 +260,7 @@ export async function loadPeriodLiquidationInput(db: Db, scope: PeriodLiquidatio
                 fiscalYear: period.year,
                 principalCode: period.client.iibbPrincipalActivityCode,
                 posMap: Object.fromEntries(period.client.posActivities.map((p) => [p.pointOfSale, p.activityCode])),
+                ...(Object.keys(costs).length > 0 ? { costs } : {}),
                 activities: period.client.activities.map((a) => {
                     const r = a.rates.find((x) => x.jurisdictionCode === jur);
                     return { code: a.code, description: a.description, ...pickYearRate(yearMap, r, jur, a.code) };

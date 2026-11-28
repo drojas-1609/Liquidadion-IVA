@@ -205,6 +205,10 @@ export interface VoucherTypeEntry {
  * heredada y sin fila en la matriz de carga manual: entra por la importación del
  * Libro IVA Digital / Portal IVA. 082 (Tique Factura B) y 083 (Tique) no se
  * agregan en esta etapa.
+ * 039 "OTROS COMPROBANTES A QUE CUMPLAN CON LA R.G. N° 1415" (p. ej. bancos) y
+ * 112 "TIQUE NOTA DE CREDITO A" (RG 4.290, art. 3; tablas de ARCA): clase A,
+ * como 081, sin etiqueta heredada ni fila en la matriz de carga manual: entran
+ * por la importación (decisión del estudio, 28/11/2026).
  */
 export const VOUCHER_TYPES: readonly VoucherTypeEntry[] = [
     { code: 1, label: "FACTURAS A", letter: "A", kind: "INVOICE", legacyLabel: "FC A", source: SOURCE_LID_TABLAS },
@@ -222,8 +226,10 @@ export const VOUCHER_TYPES: readonly VoucherTypeEntry[] = [
     { code: 51, label: "FACTURAS M", letter: "M", kind: "INVOICE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 52, label: "NOTAS DE DEBITO M", letter: "M", kind: "DEBIT_NOTE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 53, label: "NOTAS DE CREDITO M", letter: "M", kind: "CREDIT_NOTE", legacyLabel: null, source: SOURCE_LID_TABLAS },
+    { code: 39, label: "OTROS COMPROBANTES A QUE CUMPLAN CON LA R.G. N° 1415", letter: "A", kind: "INVOICE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 63, label: "LIQUIDACIONES A", letter: "A", kind: "INVOICE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 81, label: "TIQUE FACTURA A CONTROLADORES FISCALES", letter: "A", kind: "INVOICE", legacyLabel: null, source: SOURCE_LID_TABLAS },
+    { code: 112, label: "TIQUE NOTA DE CREDITO A", letter: "A", kind: "CREDIT_NOTE", legacyLabel: null, source: SOURCE_LID_TABLAS },
     { code: 195, label: "FACTURA CLASE “T”", letter: "T", kind: "INVOICE", legacyLabel: "FC T", source: SOURCE_LID_TABLAS },
     { code: 196, label: "NOTA DE DÉBITO CLASE “T”", letter: "T", kind: "DEBIT_NOTE", legacyLabel: "ND T", source: SOURCE_LID_TABLAS },
     { code: 197, label: "NOTA DE CRÉDITO CLASE “T”", letter: "T", kind: "CREDIT_NOTE", legacyLabel: "NC T", source: SOURCE_LID_TABLAS },

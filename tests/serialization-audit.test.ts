@@ -42,6 +42,7 @@ const EXPECTED = {
   "app/api/periods/[id]/route.ts": { models: [], serializer: null },
   // PATCH de la inclusión TurIVA: responde { periodId, turivaIncluded } (sin Decimal).
   "app/api/periods/[id]/vat-settings/route.ts": { models: [], serializer: null },
+  "app/api/periods/[id]/credit-proration/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/vat-position/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/iibb-position/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/iibb-export/route.ts": { models: [], serializer: null },
@@ -54,6 +55,7 @@ const EXPECTED = {
   "app/api/clients/[id]/gross-income/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/iibb-annual-review/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/iibb-activities/route.ts": { models: [], serializer: null },
+  "app/api/periods/[id]/iibb-cost-adjustments/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/accounts/apply-model/route.ts": { models: [], serializer: null },
   "app/api/periods/[id]/journal/route.ts": { models: [], serializer: null },
   "app/api/clients/[id]/journal/tax-payment/route.ts": { models: [], serializer: null },

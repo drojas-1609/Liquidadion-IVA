@@ -96,12 +96,16 @@ export function parseCorrections(raw: unknown): { ok: true; value: ImportCorrect
     if (raw === undefined || raw === null) return { ok: true, value: undefined };
     if (typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "corrections debe ser un objeto" };
     const c = raw as Record<string, unknown>;
-    const allowed = new Set(["acceptRounding", "exemptSaleOperationCode", "zeroRateOperationCode", "lineAmounts"]);
+    const allowed = new Set(["acceptRounding", "acceptReportedVat", "exemptSaleOperationCode", "zeroRateOperationCode", "lineAmounts"]);
     if (Object.keys(c).some((key) => !allowed.has(key))) return { ok: false, error: "corrección desconocida" };
     const value: ImportCorrections = {};
     if (c.acceptRounding !== undefined) {
         if (typeof c.acceptRounding !== "boolean") return { ok: false, error: "acceptRounding debe ser booleano" };
         if (c.acceptRounding) value.acceptRounding = true;
+    }
+    if (c.acceptReportedVat !== undefined) {
+        if (typeof c.acceptReportedVat !== "boolean") return { ok: false, error: "acceptReportedVat debe ser booleano" };
+        if (c.acceptReportedVat) value.acceptReportedVat = true;
     }
     for (const key of ["exemptSaleOperationCode", "zeroRateOperationCode"] as const) {
         const code = c[key];

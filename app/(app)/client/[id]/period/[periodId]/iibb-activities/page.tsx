@@ -9,6 +9,8 @@ import { formatMoney } from "@/lib/format";
 import { localIibbJurisdiction } from "@/lib/liquidation-totals";
 import { resolveActivity, type IibbActivityConfig } from "@/lib/iibb/activity-base";
 import { ActivityAssignmentTable } from "./assignment-table";
+import { CostAdjustments } from "./cost-adjustments";
+import { iibbProviderCosts } from "@/lib/liquidation-totals";
 
 export const dynamic = "force-dynamic";
 
@@ -55,10 +57,14 @@ export default async function IibbActivitiesPeriodPage({ params, searchParams }:
                 take: PAGE,
             }),
         ]);
-        return { client, total, byPos, invoices, canEdit: ROLES_UPDATE.includes(role) && !isPeriodClosed(period.status), label: `${String(pm.month).padStart(2, "0")}/${pm.year}` };
+        const [{ byProvider }, adjustments] = await Promise.all([
+            iibbProviderCosts(prisma, { organizationId, periodId, clientId: id }),
+            prisma.periodIibbCostAdjustment.findMany({ where: { organizationId, periodId }, select: { activityCode: true, amount: true, note: true }, orderBy: { activityCode: "asc" } }),
+        ]);
+        return { client, total, byPos, invoices, byProvider, adjustments, canEdit: ROLES_UPDATE.includes(role) && !isPeriodClosed(period.status), label: `${String(pm.month).padStart(2, "0")}/${pm.year}` };
     });
     if (!guard.ok) return <AccessNotice notice={guard.notice} />;
-    const { client, total, byPos, invoices, canEdit, label } = guard.data;
+    const { client, total, byPos, invoices, byProvider, adjustments, canEdit, label } = guard.data;
     const jur = localIibbJurisdiction(client);
     const cfg: IibbActivityConfig = {
         jurisdictionCode: jur ?? "",
@@ -124,6 +130,37 @@ export default async function IibbActivitiesPeriodPage({ params, searchParams }:
                     </table>
                 )}
             </section>
+            {(byProvider.length > 0 || adjustments.length > 0) && (
+                <section className="card" aria-labelledby="dif-title">
+                    <h2 id="dif-title" style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "var(--spacing-xs)" }}>Base por diferencia: pagado a prestadores</h2>
+                    <p style={{ color: "var(--secondary)", fontSize: "0.875rem", marginBottom: "var(--spacing-sm)" }}>
+                        Criterio del estudio: la base de la actividad es lo vendido menos lo pagado a los prestadores marcados en <Link href={`/client/${id}/iibb`}>la ficha IIBB</Link>. Compras del período netas de IVA (facturas C por el total); las notas de crédito restan.
+                    </p>
+                    {byProvider.length > 0 && (
+                        <table className="table" style={{ width: "100%", marginBottom: "var(--spacing-md)" }}>
+                            <thead><tr><th>Prestador</th><th>CUIT</th><th>Actividad</th><th style={{ textAlign: "right" }}>Comprobantes</th><th style={{ textAlign: "right" }}>Costo</th></tr></thead>
+                            <tbody>
+                                {byProvider.map((p) => (
+                                    <tr key={p.cuit}>
+                                        <td>{p.name}</td>
+                                        <td>{`${p.cuit.slice(0, 2)}-${p.cuit.slice(2, 10)}-${p.cuit[10]}`}</td>
+                                        <td>{p.activityCode}</td>
+                                        <td style={{ textAlign: "right" }}>{p.count}</td>
+                                        <td style={{ textAlign: "right" }}>$ {formatMoney(p.amount.toFixed(2))}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                    <h3 style={{ fontSize: "1rem", fontWeight: 600 }}>Ajustes manuales del período</h3>
+                    <CostAdjustments
+                        periodId={periodId}
+                        activities={client.activities.map((a) => ({ code: a.code, label: `${a.code} · ${a.description}` }))}
+                        initial={adjustments.map((a) => ({ activityCode: a.activityCode, amount: a.amount.toFixed(2).replace(".", ","), note: a.note }))}
+                        canEdit={canEdit && client.activities.length > 0}
+                    />
+                </section>
+            )}
             <section className="card" aria-labelledby="inv-title" style={{ overflowX: "auto" }}>
                 <h2 id="inv-title" style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "var(--spacing-sm)" }}>
                     Comprobantes{pv != null ? ` del punto de venta ${pv}` : ""} ({total})

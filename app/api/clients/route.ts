@@ -86,6 +86,7 @@ export const POST = withApiAuthz(async (request: Request) => {
                 phone: parsed.data.phone,
                 contactEmail: parsed.data.contactEmail,
                 iibbRegistration: parsed.data.iibb?.registration ?? null,
+                iibbPrincipalActivityCode: parsed.data.iibb?.principalCode ?? null,
                 organizationId,
                 createdById: profileId,
                 updatedById: profileId,
