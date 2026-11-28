@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatMoney } from "@/lib/format";
 import { OPERATION_CODES } from "@/lib/arca/catalogs";
+import { hasSmallReportedVatDifference } from "@/lib/libro-iva-import/rounding";
 
 /**
  * Revisión y corrección de las filas pendientes de una descarga de ARCA
@@ -24,6 +25,7 @@ type Amounts = Partial<Record<Field, string>>;
 
 export interface Corrections {
     acceptRounding?: boolean;
+    acceptReportedVat?: boolean;
     exemptSaleOperationCode?: string;
     zeroRateOperationCode?: string;
     lineAmounts?: Record<string, Amounts>;
@@ -85,6 +87,7 @@ export function ArcaPendingCorrections({ url, source, legend, busy, onRevised, o
         return [...map.entries()].sort((a, b) => b[1].length - a[1].length);
     }, [data]);
     const rounding = (data?.rows ?? []).filter((row) => { const cents = differenceCents(row); return cents !== null && Math.abs(cents) <= 2; }).length;
+    const reportedVatRows = (data?.rows ?? []).filter((row) => hasSmallReportedVatDifference(row.messages)).length;
     const exemptRows = (data?.rows ?? []).filter((row) => row.messages.some((message) => EXEMPT_SALE.test(message))).length;
     const zeroRows = (data?.rows ?? []).filter((row) => row.messages.some((message) => ZERO_RATE.test(message))).length;
     const lineCount = Object.keys(corrections.lineAmounts ?? {}).length;
@@ -172,6 +175,13 @@ export function ArcaPendingCorrections({ url, source, legend, busy, onRevised, o
                         <input type="checkbox" checked={corrections.acceptRounding === true} disabled={saving}
                             onChange={(event) => setCorrections({ ...corrections, acceptRounding: event.target.checked || undefined })} />
                         {` Aceptar las diferencias de redondeo de hasta $ 0,02 (${rounding} filas): se guarda el total calculado y la fila conserva en sus notas el total de ARCA y la diferencia.`}
+                    </label>
+                )}
+                {reportedVatRows > 0 && (
+                    <label className="check">
+                        <input type="checkbox" checked={corrections.acceptReportedVat === true} disabled={saving}
+                            onChange={(event) => setCorrections({ ...corrections, acceptReportedVat: event.target.checked || undefined })} />
+                        {` Registrar el IVA informado cuando difiere del calculado en hasta $ 1 por alícuota (${reportedVatRows} filas): la fila conserva el calculado y la diferencia en sus notas.`}
                     </label>
                 )}
                 {exemptRows > 0 && (
